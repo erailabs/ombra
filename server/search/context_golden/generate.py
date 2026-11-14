@@ -33,10 +33,9 @@ SAMPLE_DIMENSIONS = (2, 3, 384)
 
 def key_headers(name: str) -> tuple[bytes, bytes]:
     """(evalmult_header, auto_header) file contents for one preset."""
+    import openfhe as ofhe
     from ombra import query as oq
     from ombra.params import make_context
-
-    import openfhe as ofhe
 
     _, cc = make_context(name)
     kp = cc.KeyGen()

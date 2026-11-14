@@ -174,6 +174,63 @@ int main() {
            }).empty());
   }
 
+  // 4b. The start of a key file (key tag and a copy of the context, which OpenFHE parses).
+  for (const char* p : kPresets) {
+    for (const bool is_auto : {false, true}) {
+      const auto kind = is_auto ? det::KeyKind::Automorphism : det::KeyKind::EvalMult;
+      std::ifstream in(
+          std::string(OMBRA_GOLDEN_DIR) + "/" + p + (is_auto ? ".auto_header" : ".evalmult_header"),
+          std::ios::binary);
+      const std::vector<std::uint8_t> file((std::istreambuf_iterator<char>(in)), {});
+      const std::size_t n = det::kKeyHeaderLen;
+      CHECK(file.size() == 2 * n);
+      std::vector<std::uint8_t> payload(file.begin(), file.begin() + static_cast<long>(n));
+      std::vector<std::size_t> tag_at;
+      for (std::size_t i = 0; i + 32 <= n; ++i) {
+        bool t = true;
+        for (std::size_t j = 0; t && j < 32; ++j) t = payload[i + j] == 'T';
+        if (t) {
+          tag_at.push_back(i);
+          i += 31;
+        }
+      }
+      CHECK(tag_at.size() == 2);
+      const auto with_tag = [&](char c) {
+        auto v = payload;
+        for (auto at : tag_at)
+          std::fill(v.begin() + static_cast<long>(at), v.begin() + static_cast<long>(at + 32), c);
+        v.resize(n + 5000, 0);  // key data follows
+        return v;
+      };
+      const std::string what =
+          is_auto ? "the automorphism key file does not start with the preset's context"
+                  : "the EvalMult key file does not start with the preset's context";
+      det::require_key_header(p, kind, with_tag('a'));
+      CHECK(refusal([&] { det::require_key_header(p, kind, with_tag('T')); }) == what);  // not hex
+      auto two_tags = with_tag('a');
+      two_tags[tag_at[1]] = 'b';
+      CHECK(refusal([&] { det::require_key_header(p, kind, two_tags); }) == what);
+      CHECK(refusal([&] { det::require_key_header(p, kind, {}); }) == what);
+      std::size_t refused = 0, free_bytes = 0;
+      for (std::size_t i = 0; i < n; ++i) {
+        const bool in_tag =
+            (i >= tag_at[0] && i < tag_at[0] + 32) || (i >= tag_at[1] && i < tag_at[1] + 32);
+        if (in_tag) continue;
+        auto v = with_tag('a');
+        v[i] ^= 0x01;
+        try {
+          det::require_key_header(p, kind, v);
+          CHECK(file[n + i] == 1);  // only a byte the mask frees may change
+          ++free_bytes;
+        } catch (const InvalidQuery&) {
+          ++refused;
+        }
+      }
+      CHECK(refused + free_bytes == n - 64);
+      CHECK(free_bytes == (is_auto ? 3u : 0u));
+    }
+  }
+
   // 5. prepare_collection_keys refuses before deserializing: a tampered context with garbage
   // behind it, and good context with garbage keys. A valid context passes the first check and
   // stops at the key size.

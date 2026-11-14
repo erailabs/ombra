@@ -45,7 +45,13 @@ struct PresetParams {
   // The context as the real Python client serializes it (context_golden/<name>.bin).
   const unsigned char* client_context;
   std::size_t client_context_size;
+  // Template and mask (kKeyHeaderLen bytes each) of the start of a key file, from context_golden.
+  const unsigned char* evalmult_header;
+  const unsigned char* auto_header;
 };
+
+// Every key file starts with the key tag and a copy of the crypto context (OpenFHE parses it).
+inline constexpr std::size_t kKeyHeaderLen = 840;
 
 // Builds a context from `p` the way the client does and returns its BINARY serialization.
 // Throws std::runtime_error on an unknown technique name.
@@ -65,6 +71,15 @@ const std::vector<std::uint8_t>* canonical_client_context(const std::string& pre
 void require_canonical_context(const std::string& preset, const std::vector<std::uint8_t>& payload);
 
 enum class KeyKind { EvalMult, Automorphism };
+
+// Throws InvalidQuery unless the first kKeyHeaderLen bytes of the key file equal the preset's
+// header template: the same bytes except the key tag (written twice, 32 lowercase hex characters,
+// both equal) and, for an automorphism file, the few bytes that hold the key count and the first
+// rotation index. Without this, a key file would carry a context of the sender's choice into
+// OpenFHE's parser. Later keys of an automorphism file are not covered (they refer to the first
+// copy by id); see the fuzz target `keys`.
+void require_key_header(const std::string& preset, KeyKind kind,
+                        const std::vector<std::uint8_t>& payload);
 
 // Throws InvalidQuery unless `size` is a size an EvalMult key (one key) or an automorphism key
 // file (1 to log2(N) keys) of the preset can have.

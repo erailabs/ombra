@@ -17,7 +17,9 @@ fi
 
 # The wal and recovery targets fsync; a memory-backed temp dir keeps them fast.
 if [ -z "${TMPDIR:-}" ] && [ -d /dev/shm ] && [ -w /dev/shm ]; then export TMPDIR=/dev/shm; fi
-export ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=1:abort_on_error=0:handle_abort=1}"
+# allocator_may_return_null: OpenFHE (cereal) allocates what a length prefix says; without ASan that
+# is a std::bad_alloc, which the key loader catches, so it is not a finding (see fuzz/README.md).
+export ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=1:abort_on_error=0:handle_abort=1:allocator_may_return_null=1}"
 export UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}"
 
 work="$build/fuzz-work"

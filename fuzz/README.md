@@ -16,9 +16,9 @@ libFuzzer targets for the parsers of untrusted bytes that build on the CPU (no C
 | `proto` | `ParseFromArray` of every gRPC request message (first byte picks the type), a serialize and parse round trip, and `validate_spec` on a parsed `CreateCollectionRequest`. Needs gRPC (built when `ombra_proto` exists) |
 | `keys` | `prepare_collection_keys` (`server/search/src/key_prep.cpp`): the preflight and then OpenFHE on a fuzzed context, EvalMult key or automorphism key file. Needs OpenFHE and the CPU engine |
 
-`openfhe_raw` is built but not run by `make fuzz`: it feeds OpenFHE's deserializers raw bytes without the preflight, to show what the preflight keeps out.
+`keys` modes (first byte): bits 0-1 pick the file the input replaces (0 context, 1 EvalMult, 2 automorphism, 3 none, a control that must be accepted). Bit 2 overwrites the start of a valid key file (the header check), bit 3 overwrites it after the 840-byte header, so the checks pass and OpenFHE parses the damaged polynomials. With neither bit set the input is the whole payload (the size check). Real key files are 1.5 MB or more, so the target makes a key set at start-up with a throw-away key (synthetic, in memory), and the corpus holds only 1-2 KiB slices of it (`OMBRA_FUZZ_DUMP_SEEDS=<dir>` writes them).
 
-`keys` modes (first byte): bits 0-1 pick the file the input replaces (0 context, 1 EvalMult, 2 automorphism, 3 none, a control that must be accepted); bit 2 overwrites the start of a valid key file with the input, so the size passes the preflight. Real key files are 1.5 MB or more, so the target makes a key set at start-up with a throw-away key (synthetic, in memory) and the corpus holds only the first 2 KiB of each (`OMBRA_FUZZ_DUMP_SEEDS=<dir>` writes them).
+`openfhe_raw` is built but not run by `make fuzz`: it feeds OpenFHE's deserializers raw bytes without the preflight, to show what the preflight keeps out.
 
 Not covered here: the inline checks of the gRPC handlers in `server/grpc/src/service.cpp` (id length, id count, chunk size), which need a live server. The SQLite catalog is SQLite's own file format and is not fuzzed.
 

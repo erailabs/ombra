@@ -10,10 +10,13 @@
 //   byte 0, bits 0-1: which file the input replaces: 0 context, 1 EvalMult, 2 automorphism keys,
 //                     3 none (control: the valid set must be accepted)
 //   byte 0, bit 2:    for a key file, overwrite the START of the valid file with the input (the
-//                     size stays valid, so the preflight passes and OpenFHE parses the damaged
-//                     header and first polynomials); otherwise the input is the whole payload
-//                     (the preflight's size check is what is fuzzed). Inputs are at most 64 KiB.
-// The corpus holds the first 2 KiB of the real key files, written by OMBRA_FUZZ_DUMP_SEEDS=<dir>.
+//                     size stays valid; the header check is what is fuzzed)
+//   byte 0, bit 3:    for a key file, overwrite the valid file from the end of its header
+//                     (kKeyHeaderLen) on: the header and size pass the preflight, so OpenFHE parses
+//                     the damaged polynomials; with bits 2 and 3 clear the input is the whole
+//                     payload (the size check is what is fuzzed). Inputs are at most 64 KiB.
+// The corpus holds 2 KiB of the real key files at those offsets, written by
+// OMBRA_FUZZ_DUMP_SEEDS=<dir>.
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
@@ -73,6 +76,22 @@ extern "C" int LLVMFuzzerInitialize(int*, char***) {
   CryptoContextImpl<DCRTPoly>::ClearEvalMultKeys(tag);
   CryptoContextImpl<DCRTPoly>::ClearEvalAutomorphismKeys(tag);
 
+  // The context copy at the start of a key file is written by this C++ process with 7 class-version
+  // words that the Python client writes differently (see context_preflight.hpp). A client's file
+  // is what the server accepts, so copy the client's bytes of the header (all but the tag).
+  const auto* pp = det::find_preset_params(ombra::fuzz::kPreset);
+  const auto as_client = [&](Bytes& file, const unsigned char* tmpl) {
+    const std::size_t n = det::kKeyHeaderLen;
+    std::vector<bool> is_tag(n, false);
+    for (std::size_t i = 0; i + 32 <= n; ++i)
+      if (std::equal(tag.begin(), tag.end(), file.begin() + static_cast<std::ptrdiff_t>(i)))
+        for (std::size_t j = 0; j < 32; ++j) is_tag[i + j] = true;
+    for (std::size_t i = 0; i < n; ++i)
+      if (!is_tag[i] && !tmpl[n + i]) file[i] = tmpl[i];
+  };
+  as_client(g_mult, pp->evalmult_header);
+  as_client(g_auto, pp->auto_header);
+
   ombra::storage::CollectionSpec spec;
   spec.name = "docs";
   spec.preset = ombra::fuzz::kPreset;
@@ -86,12 +105,16 @@ extern "C" int LLVMFuzzerInitialize(int*, char***) {
     const std::string d = dump;
     const auto put = [&](const char* name, std::uint8_t mode, const Bytes& v, std::size_t n2) {
       Bytes o{mode};
-      o.insert(o.end(), v.begin(), v.begin() + static_cast<std::ptrdiff_t>(std::min(n2, v.size())));
+      const std::size_t from = (mode & 8) ? det::kKeyHeaderLen : 0;
+      o.insert(o.end(), v.begin() + static_cast<std::ptrdiff_t>(from),
+               v.begin() + static_cast<std::ptrdiff_t>(std::min(from + n2, v.size())));
       ombra::fuzz::write_file(d + "/" + name, o.data(), o.size());
     };
     put("context", 0, g_ctx, g_ctx.size());
-    put("evalmult_prefix", 1 | 4, g_mult, 2048);
-    put("automorphism_prefix", 2 | 4, g_auto, 2048);
+    put("evalmult_header", 1 | 4, g_mult, 1024);
+    put("automorphism_header", 2 | 4, g_auto, 1024);
+    put("evalmult_body", 1 | 8, g_mult, 2048);
+    put("automorphism_body", 2 | 8, g_auto, 2048);
     put("control", 3, Bytes{}, 0);
   }
   return 0;
@@ -104,13 +127,14 @@ static Bytes envelope(core::EnvelopeKind k, const Bytes& payload) {
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* d, std::size_t n) {
   if (n < 1) return 0;
   const unsigned target = d[0] & 3;
-  const bool overwrite = (d[0] & 4) != 0;
+  const bool overwrite = (d[0] & 12) != 0;
+  const std::size_t start = (d[0] & 8) ? det::kKeyHeaderLen : 0;
   const Bytes in(d + 1, d + n);
   Bytes ctx = g_ctx, mult = g_mult, aut = g_auto;
   Bytes* t = target == 0 ? &ctx : target == 1 ? &mult : target == 2 ? &aut : nullptr;
   if (t) {
     if (overwrite && target != 0) {
-      for (std::size_t i = 0; i < in.size() && i < t->size(); ++i) (*t)[i] = in[i];
+      for (std::size_t i = 0; i < in.size() && start + i < t->size(); ++i) (*t)[start + i] = in[i];
     } else {
       *t = in;
     }
@@ -122,8 +146,11 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* d, std::size_t n) {
                                  envelope(core::EnvelopeKind::PublicEvalKey, mult),
                                  envelope(core::EnvelopeKind::PublicEvalKey, aut));
     if (target == 3 && (!keys.cc || keys.akeys.empty())) std::abort();  // control must succeed
-  } catch (const std::exception&) {
-    if (target == 3) std::abort();  // the unchanged valid set was refused
+  } catch (const std::exception& e) {
+    if (target == 3) {  // the unchanged valid set was refused
+      std::fprintf(stderr, "control refused: %s\n", e.what());
+      std::abort();
+    }
   }
   return 0;
 }

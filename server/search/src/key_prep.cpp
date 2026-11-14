@@ -47,6 +47,8 @@ void prepare_collection_keys(CollKeys& c, storage::Store& store, const EngineCon
   require_canonical_context(c.spec.preset, ctx_payload);
   require_key_size(c.spec.preset, KeyKind::EvalMult, mult_payload.size());
   require_key_size(c.spec.preset, KeyKind::Automorphism, auto_payload.size());
+  require_key_header(c.spec.preset, KeyKind::EvalMult, mult_payload);
+  require_key_header(c.spec.preset, KeyKind::Automorphism, auto_payload);
   {
     std::istringstream in(to_string_bytes(ctx_payload), std::ios::in | std::ios::binary);
     Serial::Deserialize(c.cc, in, SerType::BINARY);

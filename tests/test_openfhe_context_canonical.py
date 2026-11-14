@@ -35,3 +35,19 @@ def test_golden_context_files_equal_the_clients_bytes() -> None:
         cc.KeyGen()
         assert ofhe.Serialize(cc, ofhe.BINARY) == golden, name
     assert {p.stem for p in GOLDEN.glob("*.bin")} == set(presets)
+
+
+def test_golden_key_headers_equal_the_clients_bytes() -> None:
+    """The start of an EvalMult and an automorphism key file (tag and copy of the context)."""
+    import importlib.util
+
+    from ombra.params import load_presets
+
+    spec = importlib.util.spec_from_file_location("context_golden_generate", GOLDEN / "generate.py")
+    assert spec and spec.loader
+    gen = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gen)
+    for name in load_presets():
+        mult, auto = gen.key_headers(name)
+        assert (GOLDEN / f"{name}.evalmult_header").read_bytes() == mult, name
+        assert (GOLDEN / f"{name}.auto_header").read_bytes() == auto, name

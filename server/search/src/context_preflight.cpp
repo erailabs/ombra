@@ -153,4 +153,37 @@ void require_key_size(const std::string& preset, KeyKind kind, std::size_t size)
                            "preset has");
 }
 
+void require_key_header(const std::string& preset, KeyKind kind,
+                        const std::vector<std::uint8_t>& payload) {
+  const PresetParams* p = find_preset_params(preset);
+  if (!p) throw InvalidQuery("the collection's preset has no context on this server");
+  const char* what = kind == KeyKind::EvalMult
+                         ? "the EvalMult key file does not start with the preset's context"
+                         : "the automorphism key file does not start with the preset's context";
+  if (payload.size() < kKeyHeaderLen) throw InvalidQuery(what);
+  const unsigned char* tmpl = kind == KeyKind::EvalMult ? p->evalmult_header : p->auto_header;
+  const unsigned char* mask = tmpl + kKeyHeaderLen;
+  const std::vector<std::uint8_t>* tag = nullptr;
+  std::vector<std::uint8_t> first_tag;
+  for (std::size_t i = 0; i < kKeyHeaderLen;) {
+    // A run of 32 'T' in the template is the key tag.
+    bool is_tag = i + 32 <= kKeyHeaderLen;
+    for (std::size_t j = 0; is_tag && j < 32; ++j) is_tag = tmpl[i + j] == 'T' && !mask[i + j];
+    if (is_tag) {
+      std::vector<std::uint8_t> t(payload.begin() + static_cast<std::ptrdiff_t>(i),
+                                  payload.begin() + static_cast<std::ptrdiff_t>(i + 32));
+      for (auto c : t)
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) throw InvalidQuery(what);
+      if (tag && t != *tag) throw InvalidQuery(what);
+      first_tag = t;
+      tag = &first_tag;
+      i += 32;
+      continue;
+    }
+    if (!mask[i] && payload[i] != tmpl[i]) throw InvalidQuery(what);
+    ++i;
+  }
+  if (!tag) throw InvalidQuery(what);
+}
+
 }  // namespace ombra::search::detail
