@@ -36,13 +36,17 @@ if(TARGET ombra_search AND NOT OMBRA_ENABLE_CUDA)
   find_package(OpenFHE 1.6.1 EXACT QUIET)
   string(REPLACE "-Werror" "" _ofhe_flags "${OpenFHE_CXX_FLAGS}")
   separate_arguments(_ofhe_flags UNIX_COMMAND "${_ofhe_flags}")
+  # OpenFHE is built with GCC's OpenMP; clang's OpenMP runtime (libomp) is not ABI compatible with
+  # it and may not be installed, so the inline OpenFHE templates run serially here.
+  list(FILTER _ofhe_flags EXCLUDE REGEX "^-fopenmp$")
   foreach(t keys openfhe_raw)
     add_executable(ombra_fuzz_${t} fuzz_${t}.cpp)
     target_include_directories(ombra_fuzz_${t} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
                                ${CMAKE_SOURCE_DIR}/server/search/src)
     target_compile_options(ombra_fuzz_${t} PRIVATE ${_ofhe_flags})
     target_link_libraries(ombra_fuzz_${t} PRIVATE ombra_search)
-    target_link_options(ombra_fuzz_${t} PRIVATE -fsanitize=fuzzer)
+    # The link line of OpenFHE carries -fopenmp; name GCC's runtime so clang does not ask for libomp.
+    target_link_options(ombra_fuzz_${t} PRIVATE -fsanitize=fuzzer -fopenmp=libgomp)
     add_dependencies(ombra_fuzzers ombra_fuzz_${t})
   endforeach()
 endif()

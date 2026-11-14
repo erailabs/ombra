@@ -53,8 +53,8 @@ void check_create(const v1::CreateCollectionRequest& req) {
 
 extern "C" int LLVMFuzzerInitialize(int*, char***) {
   // A proto3 string with bad UTF-8 is logged by protobuf; keep the fuzzer output readable.
-  google::protobuf::SetLogHandler([](google::protobuf::LogLevel, const char*, int,
-                                     const std::string&) {});
+  google::protobuf::SetLogHandler(
+      [](google::protobuf::LogLevel, const char*, int, const std::string&) {});
   return 0;
 }
 
@@ -69,19 +69,45 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* d, std::size_t n) {
       if (r.has_spec()) check_create(r);
       break;
     }
-    case 1: round_trip<v1::GetCollectionRequest>(b, m); break;
-    case 2: round_trip<v1::ListCollectionsRequest>(b, m); break;
-    case 3: round_trip<v1::DropCollectionRequest>(b, m); break;
-    case 4: round_trip<v1::UploadKeysChunk>(b, m); break;
-    case 5: round_trip<v1::InsertBlock>(b, m); break;
-    case 6: round_trip<v1::DeleteRequest>(b, m); break;
-    case 7: round_trip<v1::SearchRequest>(b, m); break;
-    case 8: round_trip<v1::ListBlocksRequest>(b, m); break;
-    case 9: round_trip<v1::GetBlockRequest>(b, m); break;
-    case 10: round_trip<v1::ReplaceBlockRequest>(b, m); break;
-    case 11: round_trip<v1::PutBlobRequest>(b, m); break;
-    case 12: round_trip<v1::GetBlobRequest>(b, m); break;
-    default: round_trip<v1::DeleteBlobsRequest>(b, m); break;
+    case 1:
+      round_trip<v1::GetCollectionRequest>(b, m);
+      break;
+    case 2:
+      round_trip<v1::ListCollectionsRequest>(b, m);
+      break;
+    case 3:
+      round_trip<v1::DropCollectionRequest>(b, m);
+      break;
+    case 4:
+      round_trip<v1::UploadKeysChunk>(b, m);
+      break;
+    case 5:
+      round_trip<v1::InsertBlock>(b, m);
+      break;
+    case 6:
+      round_trip<v1::DeleteRequest>(b, m);
+      break;
+    case 7:
+      round_trip<v1::SearchRequest>(b, m);
+      break;
+    case 8:
+      round_trip<v1::ListBlocksRequest>(b, m);
+      break;
+    case 9:
+      round_trip<v1::GetBlockRequest>(b, m);
+      break;
+    case 10:
+      round_trip<v1::ReplaceBlockRequest>(b, m);
+      break;
+    case 11:
+      round_trip<v1::PutBlobRequest>(b, m);
+      break;
+    case 12:
+      round_trip<v1::GetBlobRequest>(b, m);
+      break;
+    default:
+      round_trip<v1::DeleteBlobsRequest>(b, m);
+      break;
   }
   return 0;
 }

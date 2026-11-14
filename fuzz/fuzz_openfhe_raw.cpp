@@ -26,8 +26,11 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* d, std::size_t n) {
         Serial::Deserialize(cc, in, SerType::BINARY);
         break;
       }
-      case 1: CryptoContextImpl<DCRTPoly>::DeserializeEvalMultKey(in, SerType::BINARY); break;
-      default: CryptoContextImpl<DCRTPoly>::DeserializeEvalAutomorphismKey(in, SerType::BINARY);
+      case 1:
+        CryptoContextImpl<DCRTPoly>::DeserializeEvalMultKey(in, SerType::BINARY);
+        break;
+      default:
+        CryptoContextImpl<DCRTPoly>::DeserializeEvalAutomorphismKey(in, SerType::BINARY);
     }
   } catch (const std::exception&) {
   }

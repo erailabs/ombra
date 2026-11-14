@@ -82,6 +82,10 @@ if(NOT OMBRA_ENABLE_CUDA)
   # Same flags as core/CMakeLists.txt: OpenFHE's backend defines and OpenMP, without -Werror.
   string(REPLACE "-Werror" "" _ofhe_flags "${OpenFHE_CXX_FLAGS}")
   separate_arguments(_ofhe_flags UNIX_COMMAND "${_ofhe_flags}")
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    # The fuzz build uses clang, whose OpenMP runtime does not match OpenFHE's (GCC, libgomp).
+    list(FILTER _ofhe_flags EXCLUDE REGEX "^-fopenmp$")
+  endif()
   set(_core ${CMAKE_CURRENT_SOURCE_DIR}/../../core)
   if(OMBRA_ENABLE_TEST_HOOKS)
     set_source_files_properties(${_core}/src/security_floor.cpp PROPERTIES COMPILE_DEFINITIONS

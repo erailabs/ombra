@@ -7,6 +7,8 @@
 // tests/test_openfhe_context_canonical.py checks the files against the current client. The server
 // writes the same context with seven class-version words that differ (1 instead of 0); the test
 // pins that: the two byte strings have equal length and differ only there.
+#include "context_preflight.hpp"
+
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -16,7 +18,6 @@
 #include <vector>
 
 #include "coll_keys.hpp"
-#include "context_preflight.hpp"
 #include "ombra/core/file_envelope.hpp"
 #include "ombra/search/session.hpp"
 #include "ombra/storage/store.hpp"
@@ -62,7 +63,8 @@ static std::vector<std::uint8_t> env(core::EnvelopeKind k, const std::string& pr
 }
 
 int main() {
-  const std::string kRefused = "the uploaded crypto context is not the context of the collection's preset";
+  const std::string kRefused =
+      "the uploaded crypto context is not the context of the collection's preset";
 
   // 1. The embedded client context is the real client's file; the server's own serialization has
   // the same length and differs from it only in class-version words (server 1, client 0).
@@ -79,7 +81,7 @@ int main() {
       CHECK((*own)[i] == 1 && (*client)[i] == 0);
     }
     CHECK(differing == 7);
-    det::require_canonical_context(p, *own);       // both writers are accepted
+    det::require_canonical_context(p, *own);  // both writers are accepted
     det::require_canonical_context(p, *client);
   }
   CHECK(det::canonical_context("no_such_preset") == nullptr);
@@ -113,8 +115,9 @@ int main() {
     CHECK(refusal([&] { det::require_canonical_context(p, longer); }) == kRefused);
     CHECK(refusal([&] { det::require_canonical_context(p, {}); }) == kRefused);
   }
-  CHECK(refusal([] { det::require_canonical_context("m0_depth2", read_fixture("m0_compact_n8192")); }) ==
-        kRefused);
+  CHECK(refusal([] {
+          det::require_canonical_context("m0_depth2", read_fixture("m0_compact_n8192"));
+        }) == kRefused);
 
   // 3. A context with lower security, built here by test-only code (the one place a below-floor
   // context may exist: it is only serialized, never used for encryption), is refused as a
@@ -153,19 +156,22 @@ int main() {
   for (const auto& r : real) {
     det::require_key_size(r.preset, det::KeyKind::EvalMult, r.mult);
     for (auto a : r.autos) det::require_key_size(r.preset, det::KeyKind::Automorphism, a);
-    for (const std::size_t bad : {std::size_t{0}, std::size_t{1}, r.mult - 100000, r.mult * 2 + 100000,
-                                  std::size_t{1} << 30, ~std::size_t{0}}) {
-      CHECK(!refusal([&] { det::require_key_size(r.preset, det::KeyKind::EvalMult, bad); }).empty());
-      CHECK(!refusal([&] { det::require_key_size(r.preset, det::KeyKind::Automorphism, bad); })
-                 .empty());
+    for (const std::size_t bad : {std::size_t{0}, std::size_t{1}, r.mult - 100000,
+                                  r.mult * 2 + 100000, std::size_t{1} << 30, ~std::size_t{0}}) {
+      CHECK(
+          !refusal([&] { det::require_key_size(r.preset, det::KeyKind::EvalMult, bad); }).empty());
+      CHECK(!refusal([&] {
+               det::require_key_size(r.preset, det::KeyKind::Automorphism, bad);
+             }).empty());
     }
     // An automorphism file is not an EvalMult key and the other way round.
-    CHECK(!refusal([&] { det::require_key_size(r.preset, det::KeyKind::EvalMult, r.autos[1]); })
-               .empty());
+    CHECK(!refusal([&] {
+             det::require_key_size(r.preset, det::KeyKind::EvalMult, r.autos[1]);
+           }).empty());
     // More keys than log2(N) are refused.
     CHECK(!refusal([&] {
-            det::require_key_size(r.preset, det::KeyKind::Automorphism, r.autos.back() * 2);
-          }).empty());
+             det::require_key_size(r.preset, det::KeyKind::Automorphism, r.autos.back() * 2);
+           }).empty());
   }
 
   // 5. prepare_collection_keys refuses before deserializing: a tampered context with garbage
@@ -189,7 +195,8 @@ int main() {
       const std::vector<std::uint8_t> junk(100, 0xAB);
       using K = core::EnvelopeKind;
       ombra::search::EngineConfig cfg;
-      const auto prepare = [&](const std::vector<std::uint8_t>& c, const std::vector<std::uint8_t>& m,
+      const auto prepare = [&](const std::vector<std::uint8_t>& c,
+                               const std::vector<std::uint8_t>& m,
                                const std::vector<std::uint8_t>& a) {
         det::CollKeys keys;
         det::prepare_collection_keys(keys, store, cfg, spec.name, c, m, a);

@@ -12,10 +12,10 @@
 // parameters, so it is at least 128-bit secure whatever the upload claims.
 //
 // Two writers, one set of parameters: the C++ writer (this server) and the one in openfhe-python
-// (the client) differ in seven bytes for both presets, which are class-version words (1 in C++, 0 in
-// the Python module; both load). So two byte strings are accepted per preset: the server's own, and
-// the client's, embedded from context_golden/ (a test rebuilds it with the real client and checks
-// that it differs from the server's only where the C++ side has 1 and the client 0).
+// (the client) differ in seven bytes for both presets, which are class-version words (1 in C++, 0
+// in the Python module; both load). So two byte strings are accepted per preset: the server's own,
+// and the client's, embedded from context_golden/ (a test rebuilds it with the real client and
+// checks that it differs from the server's only where the C++ side has 1 and the client 0).
 //
 // Evaluation keys: their bytes depend on a secret key, so no byte comparison is possible. The size
 // is deterministic given the preset (and, for the automorphism keys, the number of keys), so the

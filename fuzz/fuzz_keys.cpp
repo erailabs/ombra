@@ -98,8 +98,7 @@ extern "C" int LLVMFuzzerInitialize(int*, char***) {
 }
 
 static Bytes envelope(core::EnvelopeKind k, const Bytes& payload) {
-  return core::write_envelope(
-      core::Envelope{k, ombra::fuzz::kPreset, ombra::fuzz::kOfhe, payload});
+  return core::write_envelope(core::Envelope{k, ombra::fuzz::kPreset, ombra::fuzz::kOfhe, payload});
 }
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* d, std::size_t n) {
