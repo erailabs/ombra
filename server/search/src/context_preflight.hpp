@@ -17,15 +17,20 @@
 // and the client's, embedded from context_golden/ (a test rebuilds it with the real client and
 // checks that it differs from the server's only where the C++ side has 1 and the client 0).
 //
-// Evaluation keys: their bytes depend on a secret key, so no byte comparison is possible. The size
-// is deterministic given the preset (and, for the automorphism keys, the number of keys), so the
-// size is checked against what the preset's context gives. That bounds the input; it does not make
-// cereal safe on a payload of the right size (fuzzed, see fuzz/README.md).
+// Evaluation keys: their coefficients depend on a secret key, so no byte comparison is possible,
+// but nothing else does. A key file is a few bytes of cereal structure (length prefixes, counts,
+// version words, polymorphic names, moduli, ring dimension, the key tag, map size, rotation
+// indices) around polynomial value arrays of exactly N 8-byte words. context_golden/generate.py
+// learns, from independent key generations of the real client, a template of the structure; the
+// server requires every structure byte of a key file to equal it and lets only the coefficient
+// words differ. cereal allocates from a length prefix, so this keeps a damaged prefix away from
+// OpenFHE (a payload with a valid header and size used to make it allocate over 2 GB; fuzz/README.md).
 #pragma once
 
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace ombra::search::detail {
@@ -45,13 +50,12 @@ struct PresetParams {
   // The context as the real Python client serializes it (context_golden/<name>.bin).
   const unsigned char* client_context;
   std::size_t client_context_size;
-  // Template and mask (kKeyHeaderLen bytes each) of the start of a key file, from context_golden.
-  const unsigned char* evalmult_header;
-  const unsigned char* auto_header;
+  // Structure templates of the key files (context_golden/<name>.{evalmult,auto}_keys).
+  const unsigned char* evalmult_template;
+  std::size_t evalmult_template_size;
+  const unsigned char* auto_template;
+  std::size_t auto_template_size;
 };
-
-// Every key file starts with the key tag and a copy of the crypto context (OpenFHE parses it).
-inline constexpr std::size_t kKeyHeaderLen = 840;
 
 // Builds a context from `p` the way the client does and returns its BINARY serialization.
 // Throws std::runtime_error on an unknown technique name.
@@ -72,17 +76,33 @@ void require_canonical_context(const std::string& preset, const std::vector<std:
 
 enum class KeyKind { EvalMult, Automorphism };
 
-// Throws InvalidQuery unless the first kKeyHeaderLen bytes of the key file equal the preset's
-// header template: the same bytes except the key tag (written twice, 32 lowercase hex characters,
-// both equal) and, for an automorphism file, the few bytes that hold the key count and the first
-// rotation index. Without this, a key file would carry a context of the sender's choice into
-// OpenFHE's parser. Later keys of an automorphism file are not covered (they refer to the first
-// copy by id); see the fuzz target `keys`.
-void require_key_header(const std::string& preset, KeyKind kind,
-                        const std::vector<std::uint8_t>& payload);
+// Throws InvalidQuery unless the key file matches the structure template of the preset byte for
+// byte, except the coefficient words of the polynomial value arrays:
+//  - EvalMult: one key.
+//  - Automorphism: n keys (1 to log2(N)) with the rotation indices N/2^(n-1-j)+1 in ascending
+//    order, which is what the client sends for a collection (client/ombra/query.py), the map size
+//    n, and the pointer ids cereal gives. Its size, which the template fixes for each n, tells
+//    which n is expected.
+// The key tag (32 lowercase hex characters) must be the same everywhere in the file. The message
+// names the first offset that does not match. Reads only from `payload`; allocates nothing from it.
+void require_key_file(const std::string& preset, KeyKind kind,
+                      const std::vector<std::uint8_t>& payload);
 
-// Throws InvalidQuery unless `size` is a size an EvalMult key (one key) or an automorphism key
-// file (1 to log2(N) keys) of the preset can have.
-void require_key_size(const std::string& preset, KeyKind kind, std::size_t size);
+// Test support: where the free (coefficient) words of a key file of `n_keys` keys are, and where
+// the key tag is written, according to the preset's template. n_keys is 1 for EvalMult.
+struct KeyFileMap {
+  std::size_t size = 0;
+  std::vector<std::pair<std::size_t, std::size_t>> free_ranges;  // [begin, end) byte offsets
+  std::vector<std::size_t> tag_offsets;
+  std::size_t max_keys = 0;
+};
+KeyFileMap describe_key_file(const std::string& preset, KeyKind kind, std::size_t n_keys);
+
+// Test support: overwrite every structure byte of `file` (not the tag, not the free words) with
+// what the template requires. The file must already have the size of a valid key file. Used to
+// turn a key file written by the C++ side of this process (which writes 7 class-version words
+// differently from the Python client) into the bytes the client writes.
+void conform_key_file_to_template(const std::string& preset, KeyKind kind,
+                                  std::vector<std::uint8_t>& file);
 
 }  // namespace ombra::search::detail

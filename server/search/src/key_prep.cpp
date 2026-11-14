@@ -40,15 +40,14 @@ void prepare_collection_keys(CollKeys& c, storage::Store& store, const EngineCon
   };
   // Preflight, before OpenFHE reads a single byte of any of the three files: the context must be
   // byte-identical to the one the server builds for the collection's preset (so it is secure by
-  // construction), and each key file must have a size a key of this preset can have.
+  // construction), and each key file must match the structure template of the preset in every
+  // byte except the coefficient words (so cereal never reads a length or count of the sender's).
   const auto ctx_payload = payload(ctx_b, core::EnvelopeKind::Context);
   const auto mult_payload = payload(mult_b, core::EnvelopeKind::PublicEvalKey);
   const auto auto_payload = payload(auto_b, core::EnvelopeKind::PublicEvalKey);
   require_canonical_context(c.spec.preset, ctx_payload);
-  require_key_size(c.spec.preset, KeyKind::EvalMult, mult_payload.size());
-  require_key_size(c.spec.preset, KeyKind::Automorphism, auto_payload.size());
-  require_key_header(c.spec.preset, KeyKind::EvalMult, mult_payload);
-  require_key_header(c.spec.preset, KeyKind::Automorphism, auto_payload);
+  require_key_file(c.spec.preset, KeyKind::EvalMult, mult_payload);
+  require_key_file(c.spec.preset, KeyKind::Automorphism, auto_payload);
   {
     std::istringstream in(to_string_bytes(ctx_payload), std::ios::in | std::ios::binary);
     Serial::Deserialize(c.cc, in, SerType::BINARY);

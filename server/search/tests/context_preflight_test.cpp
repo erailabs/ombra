@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -21,7 +22,11 @@
 #include "ombra/core/file_envelope.hpp"
 #include "ombra/search/session.hpp"
 #include "ombra/storage/store.hpp"
+#include "ciphertext-ser.h"
+#include "cryptocontext-ser.h"
+#include "key/key-ser.h"
 #include "openfhe.h"
+#include "scheme/ckksrns/ckksrns-ser.h"
 
 #define CHECK(cond)                                                                \
   do {                                                                             \
@@ -143,91 +148,80 @@ int main() {
     CHECK(refusal([&] { det::require_canonical_context("m0_depth2", weak); }) == kRefused);
   }
 
-  // 4. Key sizes: the sizes of the real client's files (EvalMult, and automorphism keys for
-  // d = 2, 3, 8, 384, 1024 and N/2) are accepted; others are not.
-  struct Sizes {
-    const char* preset;
-    std::size_t mult;
-    std::vector<std::size_t> autos;
-  };
-  const Sizes real[] = {
-      {"m0_depth2", 2623379, {5245643, 7867899, 10490155, 26223691, 28845947, 36712715}},
-      {"m0_compact_n8192", 1574919, {3148779, 4722631, 6296483, 15739595, 17313447, 20461151}}};
-  for (const auto& r : real) {
-    det::require_key_size(r.preset, det::KeyKind::EvalMult, r.mult);
-    for (auto a : r.autos) det::require_key_size(r.preset, det::KeyKind::Automorphism, a);
-    for (const std::size_t bad : {std::size_t{0}, std::size_t{1}, r.mult - 100000,
-                                  r.mult * 2 + 100000, std::size_t{1} << 30, ~std::size_t{0}}) {
-      CHECK(
-          !refusal([&] { det::require_key_size(r.preset, det::KeyKind::EvalMult, bad); }).empty());
-      CHECK(!refusal([&] {
-               det::require_key_size(r.preset, det::KeyKind::Automorphism, bad);
-             }).empty());
-    }
-    // An automorphism file is not an EvalMult key and the other way round.
-    CHECK(!refusal([&] {
-             det::require_key_size(r.preset, det::KeyKind::EvalMult, r.autos[1]);
-           }).empty());
-    // More keys than log2(N) are refused.
-    CHECK(!refusal([&] {
-             det::require_key_size(r.preset, det::KeyKind::Automorphism, r.autos.back() * 2);
-           }).empty());
-  }
-
-  // 4b. The start of a key file (key tag and a copy of the context, which OpenFHE parses).
+  // 4. Key files, from the structure templates. A file of the right shape is built from the
+  // template (zero coefficients, tag 'a' x 32): it is accepted for every number of keys. Then a
+  // byte is flipped at every structure position (all of them for the EvalMult key and for 2 or 3
+  // keys; every 97th for the largest file) and each change is refused; a byte in a coefficient
+  // array is accepted. Real files of the Python client are tested in
+  // tests/test_openfhe_key_templates.py, through the tool search_key_file_check.
   for (const char* p : kPresets) {
     for (const bool is_auto : {false, true}) {
       const auto kind = is_auto ? det::KeyKind::Automorphism : det::KeyKind::EvalMult;
-      std::ifstream in(
-          std::string(OMBRA_GOLDEN_DIR) + "/" + p + (is_auto ? ".auto_header" : ".evalmult_header"),
-          std::ios::binary);
-      const std::vector<std::uint8_t> file((std::istreambuf_iterator<char>(in)), {});
-      const std::size_t n = det::kKeyHeaderLen;
-      CHECK(file.size() == 2 * n);
-      std::vector<std::uint8_t> payload(file.begin(), file.begin() + static_cast<long>(n));
-      std::vector<std::size_t> tag_at;
-      for (std::size_t i = 0; i + 32 <= n; ++i) {
-        bool t = true;
-        for (std::size_t j = 0; t && j < 32; ++j) t = payload[i + j] == 'T';
-        if (t) {
-          tag_at.push_back(i);
-          i += 31;
+      const std::size_t top = det::describe_key_file(p, kind, 1).max_keys;
+      for (const std::size_t n : is_auto ? std::vector<std::size_t>{1, 2, 3, top}
+                                         : std::vector<std::size_t>{1}) {
+        const auto map = det::describe_key_file(p, kind, n);
+        std::vector<std::uint8_t> file(map.size, 0);
+        det::conform_key_file_to_template(p, kind, file);
+        for (const auto at : map.tag_offsets)
+          std::fill(file.begin() + static_cast<long>(at), file.begin() + static_cast<long>(at + 32),
+                    'a');
+        det::require_key_file(p, kind, file);
+        std::vector<bool> is_free(file.size(), false);
+        for (const auto& [a, b] : map.free_ranges)
+          for (std::size_t i = a; i < b; ++i) is_free[i] = true;
+        // Coefficient words may hold anything.
+        for (const auto& [a, b] : map.free_ranges) {
+          file[a] = 0xFF;
+          file[b - 1] = 0xFF;
+          file[(a + b) / 2] ^= 0x5A;
         }
-      }
-      CHECK(tag_at.size() == 2);
-      const auto with_tag = [&](char c) {
-        auto v = payload;
-        for (auto at : tag_at)
-          std::fill(v.begin() + static_cast<long>(at), v.begin() + static_cast<long>(at + 32), c);
-        v.resize(n + 5000, 0);  // key data follows
-        return v;
-      };
-      const std::string what =
-          is_auto ? "the automorphism key file does not start with the preset's context"
-                  : "the EvalMult key file does not start with the preset's context";
-      det::require_key_header(p, kind, with_tag('a'));
-      CHECK(refusal([&] { det::require_key_header(p, kind, with_tag('T')); }) == what);  // not hex
-      auto two_tags = with_tag('a');
-      two_tags[tag_at[1]] = 'b';
-      CHECK(refusal([&] { det::require_key_header(p, kind, two_tags); }) == what);
-      CHECK(refusal([&] { det::require_key_header(p, kind, {}); }) == what);
-      std::size_t refused = 0, free_bytes = 0;
-      for (std::size_t i = 0; i < n; ++i) {
-        const bool in_tag =
-            (i >= tag_at[0] && i < tag_at[0] + 32) || (i >= tag_at[1] && i < tag_at[1] + 32);
-        if (in_tag) continue;
-        auto v = with_tag('a');
-        v[i] ^= 0x01;
-        try {
-          det::require_key_header(p, kind, v);
-          CHECK(file[n + i] == 1);  // only a byte the mask frees may change
-          ++free_bytes;
-        } catch (const InvalidQuery&) {
+        det::require_key_file(p, kind, file);
+        std::vector<std::size_t> structure;
+        for (std::size_t i = 0; i < file.size(); ++i)
+          if (!is_free[i]) structure.push_back(i);
+        const std::size_t step = n == top && is_auto ? 97 : 1;
+        std::size_t refused = 0;
+        for (std::size_t k = 0; k < structure.size(); k += step) {
+          file[structure[k]] ^= 0x01;
+          CHECK(!refusal([&] { det::require_key_file(p, kind, file); }).empty());
+          file[structure[k]] ^= 0x01;
           ++refused;
         }
+        CHECK(refused > 100);
+        // A coefficient byte flipped is accepted.
+        file[map.free_ranges[0].first + 3] ^= 0x01;
+        det::require_key_file(p, kind, file);
+        file[map.free_ranges[0].first + 3] ^= 0x01;
+        // Tag: not hex, and two different tags.
+        for (const auto at : map.tag_offsets) {
+          file[at] = 'T';
+          CHECK(!refusal([&] { det::require_key_file(p, kind, file); }).empty());
+          file[at] = 'A';  // upper case is not a tag OpenFHE writes
+          CHECK(!refusal([&] { det::require_key_file(p, kind, file); }).empty());
+          file[at] = 'a';
+        }
+        // Size: one byte more or less, empty, another number of keys' size.
+        auto longer = file;
+        longer.push_back(0);
+        CHECK(!refusal([&] { det::require_key_file(p, kind, longer); }).empty());
+        auto shorter = file;
+        shorter.pop_back();
+        CHECK(!refusal([&] { det::require_key_file(p, kind, shorter); }).empty());
+        CHECK(!refusal([&] { det::require_key_file(p, kind, {}); }).empty());
+        CHECK(!refusal([&] { det::require_key_file(p, kind, std::vector<std::uint8_t>(35, 7)); })
+                   .empty());
       }
-      CHECK(refused + free_bytes == n - 64);
-      CHECK(free_bytes == (is_auto ? 3u : 0u));
+      // An automorphism file with more than log2(N) keys is refused, and the two kinds do not mix.
+      if (is_auto) {
+        const auto big = det::describe_key_file(p, kind, top);
+        const auto small = det::describe_key_file(p, kind, 2);
+        std::vector<std::uint8_t> file(big.size + (small.size - det::describe_key_file(p, kind, 1).size), 0);
+        CHECK(!refusal([&] { det::require_key_file(p, kind, file); }).empty());
+        std::vector<std::uint8_t> as_mult(det::describe_key_file(p, det::KeyKind::EvalMult, 1).size, 0);
+        det::conform_key_file_to_template(p, det::KeyKind::EvalMult, as_mult);
+        CHECK(!refusal([&] { det::require_key_file(p, kind, as_mult); }).empty());
+      }
     }
   }
 
@@ -276,6 +270,76 @@ int main() {
                       env(K::PublicEvalKey, p, junk));
             }) == "the EvalMult key file has a size no key of the collection's preset has");
     }
+  }
+  // 6. A key set made by OpenFHE in this process (a synthetic key that lives only here) with the
+  // structure bytes set to what the Python client writes: accepted, and OpenFHE reads it. Then the
+  // input that once made cereal allocate over 2 GB (fuzz/known/): a valid size, with damaged bytes
+  // where the context copy at the start of the key file is. It is refused before OpenFHE reads it.
+  {
+    const std::string p = "m0_compact_n8192";
+    using namespace lbcrypto;
+    CryptoContext<DCRTPoly> cc;
+    {
+      const auto& ctx = *det::canonical_client_context(p);
+      std::istringstream in(std::string(ctx.begin(), ctx.end()), std::ios::binary);
+      Serial::Deserialize(cc, in, SerType::BINARY);
+    }
+    const auto kp = cc->KeyGen();
+    const std::string tag = kp.publicKey->GetKeyTag();
+    cc->EvalMultKeyGen(kp.secretKey);
+    const std::uint32_t n = cc->GetRingDimension();
+    cc->EvalAutomorphismKeyGen(kp.secretKey, {n + 1, n / 2 + 1});
+    std::ostringstream om(std::ios::binary), oa(std::ios::binary);
+    CryptoContextImpl<DCRTPoly>::SerializeEvalMultKey(om, SerType::BINARY, tag);
+    CryptoContextImpl<DCRTPoly>::SerializeEvalAutomorphismKey(oa, SerType::BINARY, tag);
+    const auto as_bytes = [](const std::string& s) {
+      return std::vector<std::uint8_t>(s.begin(), s.end());
+    };
+    auto mult = as_bytes(om.str());
+    auto aut = as_bytes(oa.str());
+    CryptoContextImpl<DCRTPoly>::ClearEvalMultKeys(tag);
+    CryptoContextImpl<DCRTPoly>::ClearEvalAutomorphismKeys(tag);
+    det::conform_key_file_to_template(p, det::KeyKind::EvalMult, mult);
+    det::conform_key_file_to_template(p, det::KeyKind::Automorphism, aut);
+    det::require_key_file(p, det::KeyKind::EvalMult, mult);
+    det::require_key_file(p, det::KeyKind::Automorphism, aut);
+
+    ombra::storage::Store store(dir, kOfhe);
+    ombra::storage::CollectionSpec spec;
+    spec.name = "real_keys";
+    spec.preset = p;
+    spec.dimension = 8;
+    spec.security_level = 1;
+    spec.key_tag = tag;
+    spec.cluster_count = 4;
+    store.create_collection(spec);
+    using K = core::EnvelopeKind;
+    ombra::search::EngineConfig cfg;
+    const auto prepare = [&](const std::vector<std::uint8_t>& m,
+                             const std::vector<std::uint8_t>& a) {
+      det::CollKeys keys;
+      det::prepare_collection_keys(keys, store, cfg, spec.name,
+                                   env(K::Context, p, *det::canonical_client_context(p)),
+                                   env(K::PublicEvalKey, p, m), env(K::PublicEvalKey, p, a));
+      CHECK(keys.cc && keys.akeys.size() == 2);
+    };
+    prepare(mult, aut);
+
+    std::ifstream in(std::string(OMBRA_FUZZ_KNOWN_DIR) + "/keys-oom-evalmult-body.bin",
+                     std::ios::binary);
+    const std::vector<std::uint8_t> known((std::istreambuf_iterator<char>(in)), {});
+    CHECK(known.size() == 35);
+    // The fuzz target `keys` reads byte 0: bit 3 set, file 1 (EvalMult): the rest overwrites the
+    // key file from byte 840 on.
+    CHECK((known[0] & 3) == 1 && (known[0] & 8));
+    auto hostile = mult;
+    for (std::size_t i = 1; i < known.size(); ++i) hostile[840 + i - 1] = known[i];
+    const std::string why =
+        refusal([&] { det::require_key_file(p, det::KeyKind::EvalMult, hostile); });
+    CHECK(why.find("does not match the structure") != std::string::npos);
+    CHECK(refusal([&] { prepare(hostile, aut); }) == why);
+    // The valid set still loads afterwards.
+    prepare(mult, aut);
   }
   fs::remove_all(dir);
   std::puts("context preflight tests passed");

@@ -16,7 +16,8 @@ add_test(NAME search_layout COMMAND search_layout_test)
 # client/ombra/params.py, and requires an uploaded context to equal it byte for byte. The context
 # the Python client writes differs from the C++ writer's in a few class-version words (see
 # context_preflight.hpp), so the context as the client writes it is embedded too, from
-# context_golden/<preset>.bin (made by context_golden/generate.py with the real client).
+# context_golden/<preset>.bin, and the structure templates of the key files from
+# context_golden/<preset>.{evalmult,auto}_keys (made by context_golden/generate.py with the real client).
 set(OMBRA_PRESET_JSON ${CMAKE_CURRENT_SOURCE_DIR}/../../core/params/ckks_presets.json)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${OMBRA_PRESET_JSON})
 file(READ ${OMBRA_PRESET_JSON} _pj)
@@ -56,17 +57,17 @@ foreach(_i RANGE ${_plast})
   string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," _hex "${_hex}")
   string(APPEND _parrays "inline constexpr unsigned char kClientContext_${_n}[] = {${_hex}};\n")
   foreach(_kind evalmult auto)
-    set(_hf ${CMAKE_CURRENT_SOURCE_DIR}/context_golden/${_n}.${_kind}_header)
+    set(_hf ${CMAKE_CURRENT_SOURCE_DIR}/context_golden/${_n}.${_kind}_keys)
     if(NOT EXISTS ${_hf})
       message(FATAL_ERROR "missing ${_hf}: run server/search/context_golden/generate.py")
     endif()
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${_hf})
     file(READ ${_hf} _hh HEX)
     string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," _hh "${_hh}")
-    string(APPEND _parrays "inline constexpr unsigned char k_${_kind}_Header_${_n}[] = {${_hh}};\n")
+    string(APPEND _parrays "inline constexpr unsigned char k_${_kind}_Keys_${_n}[] = {${_hh}};\n")
   endforeach()
   string(APPEND _pentries
-         "    {\"${_n}\", \"${_sec}\", ${_ring}, ${_depth}, ${_scale}, ${_first}, ${_batch}, \"${_st}\", \"${_ks}\", ${_digits}, kClientContext_${_n}, sizeof(kClientContext_${_n}), k_evalmult_Header_${_n}, k_auto_Header_${_n}},\n")
+         "    {\"${_n}\", \"${_sec}\", ${_ring}, ${_depth}, ${_scale}, ${_first}, ${_batch}, \"${_st}\", \"${_ks}\", ${_digits}, kClientContext_${_n}, sizeof(kClientContext_${_n}), k_evalmult_Keys_${_n}, sizeof(k_evalmult_Keys_${_n}), k_auto_Keys_${_n}, sizeof(k_auto_Keys_${_n})},\n")
 endforeach()
 set(_pgen ${CMAKE_CURRENT_BINARY_DIR}/gen)
 file(WRITE ${_pgen}/ckks_preset_params.hpp.tmp
@@ -118,9 +119,16 @@ if(NOT OMBRA_ENABLE_CUDA)
   target_include_directories(search_context_preflight_test PRIVATE src ${_pgen})
   target_compile_options(search_context_preflight_test PRIVATE ${_ofhe_flags})
   target_compile_definitions(search_context_preflight_test
-                             PRIVATE OMBRA_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/context_golden")
+                             PRIVATE OMBRA_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/context_golden"
+                                     OMBRA_FUZZ_KNOWN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../fuzz/known")
   target_link_libraries(search_context_preflight_test PRIVATE ombra_search)
   add_test(NAME search_context_preflight COMMAND search_context_preflight_test)
+
+  # Checks key files made by the real client against the templates (tests/test_openfhe_key_templates.py).
+  add_executable(search_key_file_check tests/key_file_check.cpp)
+  target_include_directories(search_key_file_check PRIVATE src ${_pgen})
+  target_compile_options(search_key_file_check PRIVATE ${_ofhe_flags})
+  target_link_libraries(search_key_file_check PRIVATE ombra_search)
   return()
 endif()
 

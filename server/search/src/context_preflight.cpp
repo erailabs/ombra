@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 OR LicenseRef-Ombra-Commercial
 #include "context_preflight.hpp"
 
+#include <cstring>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -76,8 +77,6 @@ std::vector<std::uint8_t> serialize(const CryptoContext<DCRTPoly>& cc) {
 struct Canonical {
   std::vector<std::uint8_t> bytes;         // as the C++ writer of this server serializes it
   std::vector<std::uint8_t> client_bytes;  // as the Python client serializes it
-  std::size_t key_bytes = 0;  // lower bound of the size of one EvalKey: the coefficients only
-  std::size_t max_keys = 0;   // most automorphism keys a client uploads: log2(N)
 };
 
 const Canonical* canonical(const std::string& preset) {
@@ -92,13 +91,6 @@ const Canonical* canonical(const std::string& preset) {
     auto c = std::make_unique<Canonical>();
     c->bytes = serialize(cc);
     c->client_bytes.assign(p->client_context, p->client_context + p->client_context_size);
-    const auto rns = std::dynamic_pointer_cast<CryptoParametersRNS>(cc->GetCryptoParameters());
-    if (!rns) throw std::runtime_error("preset context is not an RNS scheme");
-    // One hybrid key switching key: two vectors (a and b) of numPartQ polynomials over the
-    // Q and P towers, 8 bytes per coefficient.
-    const std::size_t towers = rns->GetParamsQP()->GetParams().size();
-    c->key_bytes = std::size_t{2} * rns->GetNumPartQ() * towers * cc->GetRingDimension() * 8;
-    for (std::size_t n = cc->GetRingDimension(); n > 1; n >>= 1) ++c->max_keys;
     slot = std::move(c);
   }
   return slot.get();
@@ -134,56 +126,277 @@ void require_canonical_context(const std::string& preset,
     throw InvalidQuery("the uploaded crypto context is not the context of the collection's preset");
 }
 
-void require_key_size(const std::string& preset, KeyKind kind, std::size_t size) {
-  const Canonical* c = canonical(preset);
-  if (!c) throw InvalidQuery("the collection's preset has no context on this server");
-  // Per key: the coefficients plus under a kilobyte of tower moduli and type tags (measured 0.8 to
-  // 1 KiB for both presets); about 1 KiB of header per file. The slack is generous but far below
-  // the size of one key, so the number of keys is unique.
-  constexpr std::size_t kSlack = 4096;
-  const std::size_t hi_n = kind == KeyKind::EvalMult ? 1 : c->max_keys;
-  for (std::size_t n = 1; n <= hi_n; ++n) {
-    const std::size_t lo = n * c->key_bytes;
-    const std::size_t hi = n * (c->key_bytes + kSlack) + kSlack;
-    if (size >= lo && size <= hi) return;
+namespace {
+
+enum class ItemType : std::uint8_t { Lit = 0, Tag = 1, Arr = 2, Count = 3, Index = 4, SeqId = 5 };
+constexpr std::size_t kTagLen = 32;
+
+struct Item {
+  ItemType type;
+  std::size_t offset;  // within the block
+  std::size_t length;  // bytes the item covers in the file
+  std::size_t arg;     // Lit: position of the bytes in the template; Arr: words; SeqId: base
+};
+
+struct Block {
+  std::vector<Item> items;
+  std::size_t bytes = 0;
+};
+
+struct KeyTemplate {
+  KeyKind kind = KeyKind::EvalMult;
+  std::size_t ring_dim = 0;
+  std::size_t max_keys = 0;
+  const unsigned char* data = nullptr;
+  std::vector<Block> blocks;  // HEAD, and MID for an automorphism file
+};
+
+// Reads the embedded template (written by context_golden/generate.py). It is part of the build, not
+// of the input, but is parsed with every bound checked all the same.
+class TemplateReader {
+ public:
+  TemplateReader(const unsigned char* d, std::size_t n) : d_(d), n_(n) {}
+  std::uint8_t u8() {
+    need(1);
+    return d_[pos_++];
   }
-  throw InvalidQuery(kind == KeyKind::EvalMult
-                         ? "the EvalMult key file has a size no key of the collection's preset has"
-                         : "the automorphism key file has a size no key set of the collection's "
-                           "preset has");
+  std::uint32_t u32() {
+    need(4);
+    std::uint32_t v = 0;
+    for (std::size_t i = 4; i-- > 0;) v = (v << 8) | d_[pos_ + i];
+    pos_ += 4;
+    return v;
+  }
+  std::size_t pos() const { return pos_; }
+  void skip(std::size_t k) {
+    need(k);
+    pos_ += k;
+  }
+  bool done() const { return pos_ == n_; }
+
+ private:
+  void need(std::size_t k) const {
+    if (k > n_ - pos_) throw std::runtime_error("key template: truncated");
+  }
+  const unsigned char* d_;
+  std::size_t n_;
+  std::size_t pos_ = 0;
+};
+
+std::size_t log2_floor(std::size_t v) {
+  std::size_t l = 0;
+  for (; v > 1; v >>= 1) ++l;
+  return l;
 }
 
-void require_key_header(const std::string& preset, KeyKind kind,
-                        const std::vector<std::uint8_t>& payload) {
-  const PresetParams* p = find_preset_params(preset);
-  if (!p) throw InvalidQuery("the collection's preset has no context on this server");
-  const char* what = kind == KeyKind::EvalMult
-                         ? "the EvalMult key file does not start with the preset's context"
-                         : "the automorphism key file does not start with the preset's context";
-  if (payload.size() < kKeyHeaderLen) throw InvalidQuery(what);
-  const unsigned char* tmpl = kind == KeyKind::EvalMult ? p->evalmult_header : p->auto_header;
-  const unsigned char* mask = tmpl + kKeyHeaderLen;
-  const std::vector<std::uint8_t>* tag = nullptr;
-  std::vector<std::uint8_t> first_tag;
-  for (std::size_t i = 0; i < kKeyHeaderLen;) {
-    // A run of 32 'T' in the template is the key tag.
-    bool is_tag = i + 32 <= kKeyHeaderLen;
-    for (std::size_t j = 0; is_tag && j < 32; ++j) is_tag = tmpl[i + j] == 'T' && !mask[i + j];
-    if (is_tag) {
-      std::vector<std::uint8_t> t(payload.begin() + static_cast<std::ptrdiff_t>(i),
-                                  payload.begin() + static_cast<std::ptrdiff_t>(i + 32));
-      for (auto c : t)
-        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) throw InvalidQuery(what);
-      if (tag && t != *tag) throw InvalidQuery(what);
-      first_tag = t;
-      tag = &first_tag;
-      i += 32;
-      continue;
+KeyTemplate parse_template(const unsigned char* d, std::size_t n, KeyKind kind,
+                           std::size_t ring_dim) {
+  if (n < 4 || std::memcmp(d, "OKT1", 4) != 0) throw std::runtime_error("key template: bad magic");
+  TemplateReader r(d, n);
+  r.skip(4);
+  KeyTemplate t;
+  t.data = d;
+  t.kind = kind;
+  const bool mult = kind == KeyKind::EvalMult;
+  if (r.u8() != (mult ? 0 : 1)) throw std::runtime_error("key template: kind");
+  t.ring_dim = r.u32();
+  t.max_keys = r.u32();
+  const std::size_t blocks = r.u32();
+  if (t.ring_dim != ring_dim) throw std::runtime_error("key template: ring dimension");
+  if (blocks != (mult ? 1u : 2u)) throw std::runtime_error("key template: block count");
+  if (t.max_keys != (mult ? 1 : log2_floor(ring_dim)))
+    throw std::runtime_error("key template: max keys");
+  for (std::size_t b = 0; b < blocks; ++b) {
+    Block blk;
+    const std::size_t count = r.u32();
+    for (std::size_t i = 0; i < count; ++i) {
+      Item it{static_cast<ItemType>(r.u8()), blk.bytes, 0, 0};
+      switch (it.type) {
+        case ItemType::Lit:
+          it.length = r.u32();
+          it.arg = r.pos();
+          r.skip(it.length);
+          break;
+        case ItemType::Tag:
+          it.length = kTagLen;
+          break;
+        case ItemType::Arr:
+          it.arg = r.u32();
+          if (it.arg != ring_dim) throw std::runtime_error("key template: array length");
+          it.length = 8 * it.arg;
+          break;
+        case ItemType::Count:
+          it.length = 8;
+          break;
+        case ItemType::Index:
+          it.length = 4;
+          break;
+        case ItemType::SeqId:
+          it.length = 4;
+          it.arg = r.u32();
+          break;
+        default:
+          throw std::runtime_error("key template: unknown item");
+      }
+      blk.bytes += it.length;
+      blk.items.push_back(it);
     }
-    if (!mask[i] && payload[i] != tmpl[i]) throw InvalidQuery(what);
-    ++i;
+    if (blk.bytes < 8 * ring_dim) throw std::runtime_error("key template: block too short");
+    t.blocks.push_back(std::move(blk));
   }
-  if (!tag) throw InvalidQuery(what);
+  if (!r.done()) throw std::runtime_error("key template: trailing bytes");
+  return t;
+}
+
+const KeyTemplate* key_template(const std::string& preset, KeyKind kind) {
+  static std::mutex mu;
+  static std::map<std::pair<std::string, int>, std::unique_ptr<KeyTemplate>> cache;
+  const PresetParams* p = find_preset_params(preset);
+  if (!p) return nullptr;
+  std::lock_guard g(mu);
+  auto& slot = cache[{preset, static_cast<int>(kind)}];
+  if (!slot) {
+    const bool mult = kind == KeyKind::EvalMult;
+    slot = std::make_unique<KeyTemplate>(
+        parse_template(mult ? p->evalmult_template : p->auto_template,
+                       mult ? p->evalmult_template_size : p->auto_template_size, kind, p->ring_dim));
+  }
+  return slot.get();
+}
+
+const KeyTemplate& require_template(const std::string& preset, KeyKind kind) {
+  const KeyTemplate* t = key_template(preset, kind);
+  if (!t) throw InvalidQuery("the collection's preset has no context on this server");
+  return *t;
+}
+
+// Number of keys a file of `size` bytes has, or 0 if no number of keys gives that size.
+std::size_t keys_for_size(const KeyTemplate& t, std::size_t size) {
+  const std::size_t head = t.blocks[0].bytes;
+  if (t.kind == KeyKind::EvalMult) return size == head ? 1 : 0;
+  const std::size_t mid = t.blocks[1].bytes;
+  if (size < head || (size - head) % mid != 0) return 0;
+  const std::size_t n = 1 + (size - head) / mid;
+  return n <= t.max_keys ? n : 0;
+}
+
+std::uint64_t le(const std::uint8_t* p, std::size_t n) {
+  std::uint64_t v = 0;
+  for (std::size_t i = n; i-- > 0;) v = (v << 8) | p[i];
+  return v;
+}
+
+void put_le(std::uint8_t* p, std::size_t n, std::uint64_t v) {
+  for (std::size_t i = 0; i < n; ++i, v >>= 8) p[i] = static_cast<std::uint8_t>(v);
+}
+
+// Rotation index of the j-th key (0 based, ascending) of a file of n keys: N/2^(n-1-j) + 1.
+std::uint32_t expected_index(std::size_t ring, std::size_t n, std::size_t j) {
+  return static_cast<std::uint32_t>((ring >> (n - 1 - j)) + 1);
+}
+
+// Calls visit(item, key number, offset in the file) for every item of a file of n keys.
+template <class F>
+void walk(const KeyTemplate& t, std::size_t n, F&& visit) {
+  std::size_t at = 0;
+  for (std::size_t j = 0; j < n; ++j) {
+    const Block& b = t.blocks[j == 0 ? 0 : 1];
+    for (const Item& it : b.items) visit(it, j, at + it.offset);
+    at += b.bytes;
+  }
+}
+
+}  // namespace
+
+void require_key_file(const std::string& preset, KeyKind kind,
+                      const std::vector<std::uint8_t>& payload) {
+  const KeyTemplate& t = require_template(preset, kind);
+  const bool mult = kind == KeyKind::EvalMult;
+  const std::string what = mult ? "the EvalMult key file" : "the automorphism key file";
+  const std::size_t n = keys_for_size(t, payload.size());
+  if (n == 0)
+    throw InvalidQuery(what + " has a size no key " + (mult ? "" : "set ") +
+                       "of the collection's preset has");
+  const std::uint8_t* d = payload.data();
+  const auto refuse = [&](std::size_t off, const char* why) {
+    throw InvalidQuery(what + " does not match the structure of the collection's preset (" + why +
+                       " at byte " + std::to_string(off) + ")");
+  };
+  const std::uint8_t* first_tag = nullptr;
+  walk(t, n, [&](const Item& it, std::size_t j, std::size_t off) {
+    switch (it.type) {
+      case ItemType::Lit:
+        if (std::memcmp(d + off, t.data + it.arg, it.length) != 0) {
+          std::size_t k = 0;
+          while (d[off + k] == t.data[it.arg + k]) ++k;
+          refuse(off + k, "a structure byte differs");
+        }
+        break;
+      case ItemType::Tag:
+        for (std::size_t k = 0; k < kTagLen; ++k) {
+          const std::uint8_t c = d[off + k];
+          if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) refuse(off + k, "bad key tag");
+        }
+        if (!first_tag)
+          first_tag = d + off;
+        else if (std::memcmp(d + off, first_tag, kTagLen) != 0)
+          refuse(off, "key tag differs from the first");
+        break;
+      case ItemType::Arr:
+        break;  // coefficient words: any value
+      case ItemType::Count:
+        if (le(d + off, 8) != n) refuse(off, "wrong number of keys");
+        break;
+      case ItemType::Index:
+        if (le(d + off, 4) != expected_index(t.ring_dim, n, j))
+          refuse(off, "unexpected rotation index");
+        break;
+      case ItemType::SeqId:
+        if (le(d + off, 4) != it.arg + (j - 1)) refuse(off, "unexpected pointer id");
+        break;
+    }
+  });
+  if (!first_tag) refuse(0, "no key tag");
+}
+
+KeyFileMap describe_key_file(const std::string& preset, KeyKind kind, std::size_t n_keys) {
+  const KeyTemplate& t = require_template(preset, kind);
+  const bool mult = kind == KeyKind::EvalMult;
+  if (n_keys < 1 || n_keys > t.max_keys) throw std::invalid_argument("describe_key_file: n_keys");
+  KeyFileMap m;
+  m.max_keys = t.max_keys;
+  m.size = t.blocks[0].bytes + (mult ? 0 : (n_keys - 1) * t.blocks[1].bytes);
+  walk(t, n_keys, [&](const Item& it, std::size_t, std::size_t off) {
+    if (it.type == ItemType::Arr) m.free_ranges.emplace_back(off, off + it.length);
+    if (it.type == ItemType::Tag) m.tag_offsets.push_back(off);
+  });
+  return m;
+}
+
+void conform_key_file_to_template(const std::string& preset, KeyKind kind,
+                                  std::vector<std::uint8_t>& file) {
+  const KeyTemplate& t = require_template(preset, kind);
+  const std::size_t n = keys_for_size(t, file.size());
+  if (n == 0) throw std::invalid_argument("conform_key_file_to_template: size");
+  walk(t, n, [&](const Item& it, std::size_t j, std::size_t off) {
+    std::uint8_t* p = file.data() + off;
+    switch (it.type) {
+      case ItemType::Lit:
+        std::memcpy(p, t.data + it.arg, it.length);
+        break;
+      case ItemType::Count:
+        put_le(p, 8, n);
+        break;
+      case ItemType::Index:
+        put_le(p, 4, expected_index(t.ring_dim, n, j));
+        break;
+      case ItemType::SeqId:
+        put_le(p, 4, it.arg + (j - 1));
+        break;
+      default:
+        break;
+    }
+  });
 }
 
 }  // namespace ombra::search::detail

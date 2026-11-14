@@ -45,6 +45,10 @@ static ombra::storage::Store* g_store = nullptr;
 static ombra::search::EngineConfig g_cfg;
 using Bytes = std::vector<std::uint8_t>;
 static Bytes g_ctx, g_mult, g_auto;
+static std::size_t g_first_coeff[2];  // offset of the first coefficient array: EvalMult, automorphism
+// Where the old header check ended. Inputs that overwrite from here (bit 3) keep their meaning:
+// the known finding in fuzz/known/ was found with it.
+static constexpr std::size_t kBodyStart = 840;
 
 static Bytes bytes_of(const std::string& s) { return Bytes(s.begin(), s.end()); }
 
@@ -76,21 +80,17 @@ extern "C" int LLVMFuzzerInitialize(int*, char***) {
   CryptoContextImpl<DCRTPoly>::ClearEvalMultKeys(tag);
   CryptoContextImpl<DCRTPoly>::ClearEvalAutomorphismKeys(tag);
 
-  // The context copy at the start of a key file is written by this C++ process with 7 class-version
-  // words that the Python client writes differently (see context_preflight.hpp). A client's file
-  // is what the server accepts, so copy the client's bytes of the header (all but the tag).
-  const auto* pp = det::find_preset_params(ombra::fuzz::kPreset);
-  const auto as_client = [&](Bytes& file, const unsigned char* tmpl) {
-    const std::size_t n = det::kKeyHeaderLen;
-    std::vector<bool> is_tag(n, false);
-    for (std::size_t i = 0; i + 32 <= n; ++i)
-      if (std::equal(tag.begin(), tag.end(), file.begin() + static_cast<std::ptrdiff_t>(i)))
-        for (std::size_t j = 0; j < 32; ++j) is_tag[i + j] = true;
-    for (std::size_t i = 0; i < n; ++i)
-      if (!is_tag[i] && !tmpl[n + i]) file[i] = tmpl[i];
-  };
-  as_client(g_mult, pp->evalmult_header);
-  as_client(g_auto, pp->auto_header);
+  // A key file written by this C++ process has 7 class-version words that the Python client writes
+  // differently (see context_preflight.hpp). The server accepts what the client writes, so set
+  // every structure byte to the template's (the coefficient words stay as OpenFHE made them).
+  det::conform_key_file_to_template(ombra::fuzz::kPreset, det::KeyKind::EvalMult, g_mult);
+  det::conform_key_file_to_template(ombra::fuzz::kPreset, det::KeyKind::Automorphism, g_auto);
+  g_first_coeff[0] = det::describe_key_file(ombra::fuzz::kPreset, det::KeyKind::EvalMult, 1)
+                         .free_ranges[0]
+                         .first;
+  g_first_coeff[1] = det::describe_key_file(ombra::fuzz::kPreset, det::KeyKind::Automorphism, 2)
+                         .free_ranges[0]
+                         .first;
 
   ombra::storage::CollectionSpec spec;
   spec.name = "docs";
@@ -105,7 +105,7 @@ extern "C" int LLVMFuzzerInitialize(int*, char***) {
     const std::string d = dump;
     const auto put = [&](const char* name, std::uint8_t mode, const Bytes& v, std::size_t n2) {
       Bytes o{mode};
-      const std::size_t from = (mode & 8) ? det::kKeyHeaderLen : 0;
+      const std::size_t from = (mode & 8) ? kBodyStart : 0;
       o.insert(o.end(), v.begin() + static_cast<std::ptrdiff_t>(from),
                v.begin() + static_cast<std::ptrdiff_t>(std::min(from + n2, v.size())));
       ombra::fuzz::write_file(d + "/" + name, o.data(), o.size());
@@ -128,7 +128,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* d, std::size_t n) {
   if (n < 1) return 0;
   const unsigned target = d[0] & 3;
   const bool overwrite = (d[0] & 12) != 0;
-  const std::size_t start = (d[0] & 8) ? det::kKeyHeaderLen : 0;
+  const std::size_t start = (d[0] & 8) ? kBodyStart : 0;
   const Bytes in(d + 1, d + n);
   Bytes ctx = g_ctx, mult = g_mult, aut = g_auto;
   Bytes* t = target == 0 ? &ctx : target == 1 ? &mult : target == 2 ? &aut : nullptr;

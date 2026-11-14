@@ -6,6 +6,7 @@ preset's context or server/search/context_golden/<preset>.bin (server/search/src
 context_preflight.hpp). This test keeps the golden files honest: it rebuilds the context with the
 client code (client/ombra/params.py, openfhe-python) and compares bytes, so a change of preset,
 client parameter code or OpenFHE version fails here until `context_golden/generate.py` is run again.
+The key file templates are tested in tests/test_openfhe_key_templates.py.
 """
 
 from __future__ import annotations
@@ -36,18 +37,3 @@ def test_golden_context_files_equal_the_clients_bytes() -> None:
         assert ofhe.Serialize(cc, ofhe.BINARY) == golden, name
     assert {p.stem for p in GOLDEN.glob("*.bin")} == set(presets)
 
-
-def test_golden_key_headers_equal_the_clients_bytes() -> None:
-    """The start of an EvalMult and an automorphism key file (tag and copy of the context)."""
-    import importlib.util
-
-    from ombra.params import load_presets
-
-    spec = importlib.util.spec_from_file_location("context_golden_generate", GOLDEN / "generate.py")
-    assert spec and spec.loader
-    gen = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(gen)
-    for name in load_presets():
-        mult, auto = gen.key_headers(name)
-        assert (GOLDEN / f"{name}.evalmult_header").read_bytes() == mult, name
-        assert (GOLDEN / f"{name}.auto_header").read_bytes() == auto, name
