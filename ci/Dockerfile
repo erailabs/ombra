@@ -27,6 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 python3-venv python3-dev \
         protobuf-compiler libssl-dev openssl \
         libgrpc++-dev libprotobuf-dev protobuf-compiler-grpc \
+        clang-18 libclang-rt-18-dev \
     && rm -rf /var/lib/apt/lists/* \
     && python3 -m venv /opt/venv
 
