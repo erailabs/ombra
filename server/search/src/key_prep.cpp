@@ -7,6 +7,7 @@
 
 #include "ciphertext-ser.h"
 #include "coll_keys.hpp"
+#include "context_preflight.hpp"
 #include "cryptocontext-ser.h"
 #include "key/key-ser.h"
 #include "ombra/core/file_envelope.hpp"
@@ -35,11 +36,19 @@ void prepare_collection_keys(CollKeys& c, storage::Store& store, const EngineCon
   const std::string ofhe = store.openfhe_version();
 
   const auto payload = [&](const std::vector<std::uint8_t>& b, core::EnvelopeKind k) {
-    return to_string_bytes(core::read_envelope(b, k, c.spec.preset, ofhe).payload);
+    return core::read_envelope(b, k, c.spec.preset, ofhe).payload;
   };
+  // Preflight, before OpenFHE reads a single byte of any of the three files: the context must be
+  // byte-identical to the one the server builds for the collection's preset (so it is secure by
+  // construction), and each key file must have a size a key of this preset can have.
+  const auto ctx_payload = payload(ctx_b, core::EnvelopeKind::Context);
+  const auto mult_payload = payload(mult_b, core::EnvelopeKind::PublicEvalKey);
+  const auto auto_payload = payload(auto_b, core::EnvelopeKind::PublicEvalKey);
+  require_canonical_context(c.spec.preset, ctx_payload);
+  require_key_size(c.spec.preset, KeyKind::EvalMult, mult_payload.size());
+  require_key_size(c.spec.preset, KeyKind::Automorphism, auto_payload.size());
   {
-    std::istringstream in(payload(ctx_b, core::EnvelopeKind::Context),
-                          std::ios::in | std::ios::binary);
+    std::istringstream in(to_string_bytes(ctx_payload), std::ios::in | std::ios::binary);
     Serial::Deserialize(c.cc, in, SerType::BINARY);
     if (!c.cc) throw SearchError("cannot read the crypto context");
   }
@@ -90,14 +99,12 @@ void prepare_collection_keys(CollKeys& c, storage::Store& store, const EngineCon
   };
   try {
     {
-      std::istringstream in(payload(mult_b, core::EnvelopeKind::PublicEvalKey),
-                            std::ios::in | std::ios::binary);
+      std::istringstream in(to_string_bytes(mult_payload), std::ios::in | std::ios::binary);
       if (!CryptoContextImpl<DCRTPoly>::DeserializeEvalMultKey(in, SerType::BINARY))
         throw SearchError("cannot read the EvalMult key");
     }
     {
-      std::istringstream in(payload(auto_b, core::EnvelopeKind::PublicEvalKey),
-                            std::ios::in | std::ios::binary);
+      std::istringstream in(to_string_bytes(auto_payload), std::ios::in | std::ios::binary);
       if (!CryptoContextImpl<DCRTPoly>::DeserializeEvalAutomorphismKey(in, SerType::BINARY))
         throw SearchError("cannot read the automorphism keys");
     }
