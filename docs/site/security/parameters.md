@@ -37,6 +37,15 @@ The 128-bit minimum is checked in three places, so that a bad preset fails early
 - `client/ombra/presets.py` runs that check for every preset a collection is created with, and refuses a dimension that does not fit the ring.
 - `core/include/ombra/core/security_floor.hpp` checks the context itself on the C++ side. It compares $\log_2 QP$, special primes included, against the standard's table for the ring dimension, and refuses a ring dimension that is not in the table. The server session and the core entry points call it. A context declared at 192 or 256 bits is held to the same 128-bit limit.
 
+## What the server checks on a key upload
+
+The crypto context is data from the client, and OpenFHE would read it with a parser that was not written for hostile input. So the server checks the raw bytes before OpenFHE reads any of them.
+
+- **Context.** The server builds the context of the collection's preset itself, from the preset file, and keeps its serialization. An uploaded context must be byte for byte equal to it, or to the same context as the Python client writes it (the two writers differ in seven version bytes). Any other context is refused, whatever it claims, with the message "the uploaded crypto context is not the context of the collection's preset" and error code `ERROR_INVALID_ARGUMENT`. A context that passes was therefore made from the preset's own parameters.
+- **Evaluation keys.** The bytes depend on the secret key, so they cannot be compared. The server checks the size: an EvalMult key file has the size of one key of the preset, and an automorphism key file the size of one to $\log_2 N$ keys. A file of another size is refused before it is read. A file of the right size is still read by OpenFHE, so it is fuzzed (see `fuzz/README.md`).
+
+The checks that run after OpenFHE has read the context stay: the $\log_2 QP$ floor above, and the comparison of ring dimension, moduli and depth with the preset.
+
 Presets come only from the preset file. No code path takes a hand-picked ring size or modulus.
 
 !!! deep-dive "What the level does not cover"

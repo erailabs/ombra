@@ -155,7 +155,7 @@ Blobs are opaque client ciphertexts. The server never parses them. A blob become
 | `ERROR_UNSUPPORTED_VERSION` | `api_version` or the envelope version is not understood. |
 | `ERROR_COLLECTION_NOT_FOUND` | No collection with that name. |
 | `ERROR_COLLECTION_EXISTS` | A collection with that name exists. |
-| `ERROR_INVALID_ARGUMENT` | Malformed message or an empty required field. |
+| `ERROR_INVALID_ARGUMENT` | Malformed message or an empty required field. A key upload is refused with this code when the context is not the collection's preset's context, or a key file has a size no key of the preset has. |
 | `ERROR_SIZE_LIMIT` | A limit above was exceeded, or a blob is not a bucket size. |
 | `ERROR_KEY_TAG_MISMATCH` | A ciphertext or key was made under another key than the collection's. |
 | `ERROR_PRESET_MISMATCH` | The envelope's preset differs from the collection's. |

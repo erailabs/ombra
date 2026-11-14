@@ -12,7 +12,7 @@ shift 2
 root="$(cd "$(dirname "$0")/.." && pwd)"
 targets=("$@")
 if [ ${#targets[@]} -eq 0 ]; then
-  targets=(envelope seeded segment blob wal recovery api_keys http auth_header)
+  targets=(envelope seeded segment blob wal recovery api_keys http auth_header proto keys)
 fi
 
 # The wal and recovery targets fsync; a memory-backed temp dir keeps them fast.
