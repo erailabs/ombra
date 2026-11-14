@@ -20,6 +20,8 @@ libFuzzer targets for the parsers of untrusted bytes that build on the CPU (no C
 
 `openfhe_raw` is built but not run by `make fuzz`: it feeds OpenFHE's deserializers raw bytes without the preflight, to show what the preflight keeps out.
 
+**Known open finding.** `fuzz/known/keys-oom-evalmult-body.bin` (35 bytes; run it with `build-fuzz/fuzz/ombra_fuzz_keys`): an EvalMult key file with a valid header and size but damaged polynomial bytes makes OpenFHE (cereal) allocate more than 2 GB, because it allocates what a length prefix says. The preflight cannot see this, since it needs a parser of the key body. Until there is one, limit the memory of the server process. `make fuzz` fails on the `keys` target until this is fixed or the input is excluded on purpose.
+
 Not covered here: the inline checks of the gRPC handlers in `server/grpc/src/service.cpp` (id length, id count, chunk size), which need a live server. The SQLite catalog is SQLite's own file format and is not fuzzed.
 
 ## Run
