@@ -41,7 +41,9 @@ def main(directory: Path) -> list[tuple[str, float]]:
     )
     try:
         rows = [("encrypted search", 0), ("gpu kernels", 1), ("vector databases", 0)]
-        nodes = [TextNode(text=t, metadata={"topic": topic}, embedding=embed(t)) for t, topic in rows]
+        nodes = [
+            TextNode(text=t, metadata={"topic": topic}, embedding=embed(t)) for t, topic in rows
+        ]
         store.add(nodes)
         # Similarity = cosine, higher is better.
         result = store.query(
@@ -53,7 +55,9 @@ def main(directory: Path) -> list[tuple[str, float]]:
                 ),
             )
         )
-        found = [(n.get_content(), s) for n, s in zip(result.nodes, result.similarities)]
+        found = [
+            (n.get_content(), s) for n, s in zip(result.nodes, result.similarities, strict=True)
+        ]
         for text, score in found:
             print(f"{score:.3f}  {text}")
         return found

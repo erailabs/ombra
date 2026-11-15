@@ -139,7 +139,9 @@ def test_filters_eq_and_in(tmp_path):
             "AND only",
         ),
         (
-            MetadataFilters(filters=[MetadataFilter(key="topic", value=1, operator=FilterOperator.GT)]),
+            MetadataFilters(
+                filters=[MetadataFilter(key="topic", value=1, operator=FilterOperator.GT)]
+            ),
             "not supported",
         ),
         (
