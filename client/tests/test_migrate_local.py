@@ -211,7 +211,6 @@ def test_rotation_round_trip_and_keys_are_new(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], caplog: pytest.LogCaptureFixture
 ) -> None:
     from ombra.documents import DocumentCodec, DocumentError
-    from ombra.errors import OmbraError
     from ombra.keyfile import import_key_file
 
     c, x = _make_source(tmp_path)
@@ -233,7 +232,7 @@ def test_rotation_round_trip_and_keys_are_new(
         assert old.master_key != new.master_key  # and a new master key
 
         # the old key file is refused on the new collection (key tag mismatch)
-        with pytest.raises(OmbraError):
+        with pytest.raises(ValueError, match="does not belong"):
             c.open_collection("docs.m1", key_file=tmp_path / "docs.key", passphrase="old")
 
         # blobs: sealed under one master key, closed to the other
