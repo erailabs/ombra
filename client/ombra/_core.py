@@ -10,7 +10,7 @@ method names of the gRPC stub of service ombra.v1.Ombra), `openfhe_version` and 
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -19,7 +19,7 @@ import numpy as np
 
 from ombra import presets
 from ombra.collection import Collection, KeyKit, check_server_spec
-from ombra.errors import collection_error
+from ombra.errors import InvalidArgumentError, collection_error
 from ombra.search import Hit
 
 MAX_ID_BYTES = 256  # LIMIT_MAX_ID_BYTES
@@ -37,6 +37,29 @@ class CollectionInfo:
     cluster_count: int
     vector_count: int
     deleted_count: int
+
+
+@dataclass(frozen=True)
+class AliasInfo:
+    """An alias: a name the server resolves to one collection (decision 0028). `previous` is the
+    target before the last switch (empty if never switched); `switched_at` is unix seconds."""
+
+    name: str
+    target: str
+    previous: str
+    switched_at: int
+
+
+@dataclass(frozen=True)
+class StoredRecord:
+    """A live vector as the client stored it: the exact float32 vector, the metadata and the
+    document of its encrypted blobs. `vector` is None if the record blob is missing (or if
+    `ids_only` was set); `document` is None if there is none."""
+
+    id: str
+    vector: np.ndarray | None = field(repr=False, default=None)
+    metadata: dict[str, Any] = field(repr=False, default_factory=dict)
+    document: str | bytes | None = field(repr=False, default=None)
 
 
 @dataclass(frozen=True)
@@ -170,9 +193,14 @@ class ClientCore:
         kit = KeyKit.load(
             key_file, passphrase, derived, self._t.openfhe_version, derived.dimension + sum(cards)
         )
-        col = Collection.open(pb, self._t.stub, name, kit)
-        self._open[name] = (col, names)
-        return name
+        real = spec.name  # the server resolved an alias; keep the real name from here on
+        col = Collection.open(pb, self._t.stub, real, kit)
+        self._open[real] = (col, names)
+        if real != name:
+            # The caller may keep using the name it opened. It stays pinned to this collection,
+            # also after the alias moves, until the caller opens the alias again.
+            self._open[name] = (col, names)
+        return real
 
     def get_collection(self, name: str) -> CollectionInfo:
         pb = self._t.pb
@@ -206,6 +234,72 @@ class ClientCore:
         opened = self._open.pop(name, None)
         if opened is not None:
             opened[0].close()
+            for k in [k for k, v in self._open.items() if v[0] is opened[0]]:
+                del self._open[k]  # alias names that were pinned to it
+
+    # ---- stored records and collection info -----------------------------------------------
+    def iter_records(self, collection: str, *, ids_only: bool = False) -> Iterator[StoredRecord]:
+        col, _ = self._get(collection)
+        for ident in col.live_ids():
+            if ids_only:
+                yield StoredRecord(ident.decode(errors="replace"))
+                continue
+            vec, meta = col.get_record(ident)
+            doc = col.get_document(ident)
+            yield StoredRecord(ident.decode(errors="replace"), vec, meta, doc)
+
+    def get_collection_info(self, collection: str) -> dict[str, Any] | None:
+        return self._get(collection)[0].get_info()
+
+    def set_collection_info(self, collection: str, info: dict[str, Any]) -> None:
+        self._get(collection)[0].set_info(info)
+
+    # ---- aliases ----------------------------------------------------------------------------
+    def _need_aliases(self) -> None:
+        if not getattr(self._t, "supports_aliases", True):
+            raise InvalidArgumentError(
+                "aliases need a server; local mode has no alias table. Use the collection name "
+                "directly.",
+                error_code=4,
+            )
+
+    @staticmethod
+    def _alias_info(a: Any) -> AliasInfo:
+        return AliasInfo(a.name, a.target, a.previous, a.switched_at)
+
+    def create_alias(self, name: str, target: str) -> AliasInfo:
+        self._need_aliases()
+        pb = self._t.pb
+        r = self._t.stub.CreateAlias(pb.CreateAliasRequest(name=name, target=target))
+        if r.WhichOneof("result") == "error":
+            raise collection_error(r.error.code, r.error.message)
+        return self._alias_info(r.alias)
+
+    def switch_alias(self, name: str, new_target: str, expected_target: str) -> AliasInfo:
+        """Point `name` at `new_target` if it points at `expected_target` now (one transaction on
+        the server). Raises `AliasConflictError` if it points elsewhere; switching to the current
+        target succeeds, so a retry after a lost answer is safe."""
+        self._need_aliases()
+        pb = self._t.pb
+        r = self._t.stub.SwitchAlias(
+            pb.SwitchAliasRequest(
+                name=name, new_target=new_target, expected_target=expected_target
+            )
+        )
+        if r.WhichOneof("result") == "error":
+            raise collection_error(r.error.code, r.error.message)
+        return self._alias_info(r.alias)
+
+    def drop_alias(self, name: str) -> None:
+        self._need_aliases()
+        r = self._t.stub.DropAlias(self._t.pb.DropAliasRequest(name=name))
+        if r.error.code != 0:
+            raise collection_error(r.error.code, r.error.message)
+
+    def list_aliases(self) -> list[AliasInfo]:
+        self._need_aliases()
+        r = self._t.stub.ListAliases(self._t.pb.ListAliasesRequest())
+        return [self._alias_info(a) for a in r.aliases]
 
     # ---- data -------------------------------------------------------------------------------
     @staticmethod
