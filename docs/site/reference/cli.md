@@ -94,3 +94,35 @@ docker run --rm -v ombra_ombra-data:/data -v "$PWD/backup":/backup \
 ```
 
 See [Backups](../operations/backups.md#online-backup) for the volume name and for restoring.
+
+## ombra-migrate
+
+`ombra-migrate` is a client tool, not a server tool: it holds your key files, so it runs where your application runs. It moves a collection to a new embedding model, preset or key set with no downtime. The steps and their meaning are on [Migrating a collection](../operations/migration.md). `python -m ombra.migrate` is the same.
+
+```text
+ombra-migrate STEP [--state FILE] [--address HOST:PORT | --local DIR] [options]
+```
+
+`STEP` is `plan`, `start`, `backfill`, `verify`, `switch`, `finish`, `abort` or `status`. The API key comes from `OMBRA_API_KEY`, the passphrase of the old key file from `OMBRA_PASSPHRASE` and that of the new key file from `OMBRA_TARGET_PASSPHRASE`. Without those variables it asks in a terminal. The tool never takes a passphrase as an argument.
+
+| Option | Steps | Meaning |
+| --- | --- | --- |
+| `--state FILE` | all | The state file. Default `ombra-migrate.json`. |
+| `--address HOST:PORT`, `--root-certificates PEM`, `--insecure` | all | The server, as for the Python client. |
+| `--local DIR` | all | A local-mode directory instead of a server. Local mode has no aliases. |
+| `--embedder pkg.mod:fn` | `plan`, `start`, `backfill` | Re-embed with this function. Without it the mode is rebuild. |
+| `--source NAME`, `--source-key-file F`, `--target-key-file F` | `plan` | The collection (or alias) to migrate, its key file, and the new key file to write. The new file must not exist. |
+| `--alias NAME` | `plan` | The alias that `switch` moves. Default: none, or the alias you named as the source. |
+| `--target-preset NAME` | `plan` | The preset of the new collection. Default: the source's. |
+| `--model LABEL` | `plan` | The model label for the collection info. Required with `--embedder`. |
+| `--filter-fields a,b` | `plan` | The names of the filter fields, in creation order. |
+| `--drain-hours H` | `plan` | How long the old collection stays after `switch`. Default 24. |
+| `--clusters N` | `plan` | The cluster count of the new collection. |
+| `--batch-size N` | `backfill` | Vectors per insert. Default 1024. |
+| `--sample N`, `-k K`, `--min-recall R` | `verify` | Queries to run, results per query, and the recall gate. |
+| `--force` | `switch`, `finish` | Skip the drain wait, or `switch` without a passed `verify`. |
+
+| Exit code | Meaning |
+| --- | --- |
+| 0 | The step is done. |
+| 1 | The step was refused or a check failed. The message says which. |

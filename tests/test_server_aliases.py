@@ -325,3 +325,67 @@ def test_backup_copies_the_aliases(tmp_path):
     assert db.execute("SELECT name, target FROM aliases").fetchall() == [("live", "a")]
     db.close()
     shutil.rmtree(out)
+
+
+@pytest.mark.openfhe
+def test_client_pinned_to_the_old_collection_while_the_alias_moves(tmp_path):
+    """A client that opened the alias keeps working on the old collection after a switch (inserts
+    land there); opening the alias again follows the switch. The migration runs against the server
+    (rebuild mode); verify needs a search, which the CPU server cannot run, so the switch is
+    forced here."""
+    pytest.importorskip("openfhe")
+    from ombra.errors import AliasConflictError
+    from ombra.migrate import Migration
+
+    D = 384
+    x = np.random.default_rng(3).normal(size=(6, D))
+    x /= np.linalg.norm(x, axis=1, keepdims=True)
+    s = Srv(tmp_path)
+    s.server.openfhe_version = None  # the real version, from the installed openfhe
+    s.start()
+    client = s.server.client()
+    try:
+        client.create_collection(
+            "docs", x, [f"i{i}" for i in range(6)], key_file=tmp_path / "docs.key",
+            passphrase="old", preset="fast", n_clusters=1, scrypt_params=(2**4, 8, 1),
+            documents=[f"d{i}" for i in range(6)],
+        )
+        client.create_alias("live", "docs")
+        assert client.open_collection("live", key_file=tmp_path / "docs.key", passphrase="old") == "docs"
+        m = Migration.plan(
+            client, "docs", source_key_file=tmp_path / "docs.key",
+            target_key_file=tmp_path / "docs.m1.key", source_passphrase="old",
+            target_passphrase="new", state_path=tmp_path / "state.json", alias="live",
+            scrypt_params=(2**4, 8, 1),
+        )
+        m.start()
+        m.backfill()
+        assert client.get_collection("docs.m1").vector_count == 6
+        # the switch needs a passed verify, which needs a search: the CPU server cannot search
+        with pytest.raises(Exception, match="phase"):
+            m.switch()
+        assert "now points at 'docs.m1'" in m.switch(force=True)
+        assert [(a.name, a.target, a.previous) for a in client.list_aliases()] == [
+            ("live", "docs.m1", "docs")
+        ]
+        # the open collection is pinned: an insert under either name goes to the old one
+        y = np.random.default_rng(4).normal(size=(1, D))
+        y /= np.linalg.norm(y)
+        client.insert("live", y, ["new"], documents=["dn"])
+        assert client.get_collection("docs").vector_count == 7
+        assert client.get_collection("docs.m1").vector_count == 6
+        # a second process moving the alias under us loses the compare-and-swap
+        with pytest.raises(AliasConflictError):
+            client.switch_alias("live", "docs", "docs")  # it points at docs.m1 now
+        # the alias resolves to the new collection for a fresh open
+        assert client.get_collection("live").name == "docs.m1"
+        assert client.open_collection(
+            "live", key_file=tmp_path / "docs.m1.key", passphrase="new"
+        ) == "docs.m1"
+        # finish refuses before the drain period, then drops the old collection
+        with pytest.raises(Exception, match="drain"):
+            m.finish()
+        m.finish(force=True)
+        assert client.list_collections() == ["docs.m1"]
+    finally:
+        s.stop()
