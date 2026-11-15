@@ -85,8 +85,9 @@ class Catalog {
   // Aliases. Each call is one transaction. create_alias refuses a name that is a collection or an
   // alias or looks like a generation name. switch_alias is a compare-and-swap: it moves the alias
   // to `new_target` only if it points at `expected_target` now (else Conflict, and *current, if
-  // given, holds the alias as it is). The old target becomes `previous`. Switching to the current
-  // target is a no-op that succeeds (a retry after a lost answer).
+  // given, holds the alias as it is). The old target becomes `previous`. A repeat of a switch that
+  // was applied (the alias is at `new_target` and `previous` is `expected_target`), or a switch to
+  // the current target, is a no-op that succeeds (a retry after a lost answer).
   AliasResult create_alias(const std::string& name, const std::string& target);
   AliasResult switch_alias(const std::string& name, const std::string& new_target,
                            const std::string& expected_target, AliasRow* current = nullptr);

@@ -350,7 +350,10 @@ AliasResult Catalog::switch_alias(const std::string& name, const std::string& ne
   AliasRow cur;
   if (!get_alias(name, &cur)) return AliasResult::NotFound;
   if (current) *current = cur;
-  if (cur.target == new_target && cur.target == expected_target) return AliasResult::Ok;
+  // A repeat of a switch that was applied (the answer was lost) is a success and changes nothing.
+  if (cur.target == new_target &&
+      (expected_target == new_target || cur.previous == expected_target))
+    return AliasResult::Ok;
   if (cur.target != expected_target) return AliasResult::Conflict;
   if (!get_collection(new_target, nullptr)) return AliasResult::TargetNotFound;
   Stmt(db_, "UPDATE aliases SET target=?, previous=?, switched_at=? WHERE name=?")

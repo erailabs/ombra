@@ -135,8 +135,8 @@ class FakeClient:
         a = self._aliases.get(name)
         if a is None:
             raise OmbraError("alias not found")
-        if a.target == new_target == expected_target:
-            return a
+        if a.target == new_target and expected_target in (new_target, a.previous):
+            return a  # a repeat of a switch that was applied
         if a.target != expected_target:
             raise AliasConflictError("the alias does not point at the expected collection")
         self._get(new_target)

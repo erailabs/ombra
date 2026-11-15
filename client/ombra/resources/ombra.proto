@@ -121,7 +121,7 @@ message CreateAliasRequest { string name = 1; string target = 2; }
 message CreateAliasResponse { oneof result { AliasInfo alias = 1; Error error = 2; } }
 
 // Compare-and-swap in one transaction: the alias moves to new_target only if it points at
-// expected_target now (otherwise ERROR_ALIAS_CONFLICT). Switching to the current target succeeds.
+// expected_target now (otherwise ERROR_ALIAS_CONFLICT). A repeat of a switch that was applied succeeds.
 message SwitchAliasRequest { string name = 1; string new_target = 2; string expected_target = 3; }
 message SwitchAliasResponse { oneof result { AliasInfo alias = 1; Error error = 2; } }
 

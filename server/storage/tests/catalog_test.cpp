@@ -114,7 +114,13 @@ int main() {
     // A retry of the same switch (lost answer) succeeds and changes nothing.
     CHECK(c.switch_alias("live", "docs.m1", "docs.m1") == AliasResult::Ok);
     CHECK(c.get_alias("live", &r) && r.previous == "docs");
-    CHECK(c.switch_alias("live", "docs.m1", "docs") == AliasResult::Conflict);
+    // The same switch repeated with the original expectation is also a success (lost answer).
+    CHECK(c.switch_alias("live", "docs.m1", "docs") == AliasResult::Ok);
+    CHECK(c.get_alias("live", &r) && r.target == "docs.m1" && r.previous == "docs");
+    CHECK(c.switch_alias("live", "docs.g1", "docs.m1") == AliasResult::Ok);     // a real switch
+    CHECK(c.switch_alias("live", "docs.m1", "docs") == AliasResult::Conflict);  // now it is stale
+    CHECK(c.switch_alias("live", "docs.m1", "docs.g1") == AliasResult::Ok);     // back again
+    CHECK(c.get_alias("live", &r) && r.target == "docs.m1" && r.previous == "docs.g1");
 
     // Dropping a collection an alias points at is refused and changes nothing.
     std::vector<std::string> segs, keys;
@@ -125,6 +131,8 @@ int main() {
     CHECK(c.drop_alias("x.gx") == AliasResult::Ok);
     CHECK(c.drop_alias("x.gx") == AliasResult::NotFound);
     CHECK(c.drop_collection("docs", &segs, &keys));
+    CHECK(c.get_alias("live", &r) && r.previous == "docs.g1");  // docs was not its previous
+    CHECK(c.drop_collection("docs.g1", &segs, &keys));
     CHECK(c.get_alias("live", &r) && r.previous.empty());
     CHECK(c.list_aliases().size() == 1);
   }

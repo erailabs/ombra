@@ -141,7 +141,8 @@ def test_alias_lifecycle_and_errors(srv):
     # a repeat of the same switch (lost answer) succeeds and changes nothing
     r = srv.switch("live", "docs.m1", "docs.m1")
     assert (r.alias.target, r.alias.previous) == ("docs.m1", "docs")
-    assert code(srv.switch("live", "docs.m1", "docs")) == pb.ERROR_ALIAS_CONFLICT
+    assert code(srv.switch("live", "docs.m1", "docs")) == 0  # the same switch again: applied
+    assert code(srv.switch("live", "docs.m1", "other")) == pb.ERROR_ALIAS_CONFLICT
     # the target cannot be dropped; the previous one can
     assert code_of_drop(srv, "docs.m1") == pb.ERROR_ALIAS_CONFLICT
     assert code_of_drop(srv, "docs") == 0

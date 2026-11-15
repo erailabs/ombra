@@ -24,7 +24,7 @@ Rules:
 - Alias names and collection names share one namespace. An alias cannot have the name of a collection, and a collection cannot have the name of an alias.
 - An alias name cannot end in `.g` and a number, because re-clustering uses those names.
 - Only `GetCollection` resolves an alias. Inserts, searches, blob calls and `DropCollection` take real names.
-- `SwitchAlias` is a compare-and-swap: it moves the alias only if it points at the collection you expect. If another process moved it first, the call fails with `AliasConflictError` and changes nothing. A repeat of a switch that already happened succeeds.
+- `SwitchAlias` is a compare-and-swap: it moves the alias only if it points at the collection you expect. If another process moved it first, the call fails with `AliasConflictError` and changes nothing. A repeat of a switch that already happened (because its answer was lost) succeeds.
 - A collection that an alias points at cannot be dropped. The collection that the alias pointed at before the last switch can be.
 - Creating, switching and dropping an alias needs an `admin` key. Listing needs `read`.
 - Local mode has no aliases. The alias calls fail with a clear error there, and `ombra-migrate` records the switch and tells you the new name.
