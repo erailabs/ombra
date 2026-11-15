@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 OR LicenseRef-Ombra-Commercial
 # Releases Ombra. A tag v* (for example v0.1.0) builds the wheels (wheels.yml), builds and pushes the
-# two images to GHCR, and publishes ombra, ombra-openfhe and langchain-ombra to PyPI.
+# two images to GHCR, and publishes ombra, ombra-openfhe, langchain-ombra and
+# llama-index-vector-stores-ombra to PyPI.
 # Manual run with dry_run on (the default): the same, but the wheels go to TestPyPI and the images
 # get the tag dryrun-<commit>, so nothing lands on the real index or under a release tag.
 # Publishing uses PyPI trusted publishing (OIDC): no API token is stored. The one-time setup is in
@@ -59,11 +60,12 @@ jobs:
         run: |
           version=$(python3 -c 'import tomllib; print(tomllib.load(open("client/pyproject.toml","rb"))["project"]["version"])')
           lc=$(python3 -c 'import tomllib; print(tomllib.load(open("integrations/langchain-ombra/pyproject.toml","rb"))["project"]["version"])')
+          li=$(python3 -c 'import tomllib; print(tomllib.load(open("integrations/llama-index-vector-stores-ombra/pyproject.toml","rb"))["project"]["version"])')
           cmake=$(sed -n 's/^project(ombra VERSION \([0-9.]*\) .*/\1/p' CMakeLists.txt)
           init=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' client/ombra/__init__.py)
-          for other in "$lc" "$cmake" "$init"; do
+          for other in "$lc" "$li" "$cmake" "$init"; do
             if [ "$other" != "$version" ]; then
-              echo "::error::version mismatch: client $version, langchain-ombra $lc, CMake $cmake, __init__ $init"
+              echo "::error::version mismatch: client $version, langchain-ombra $lc, llama-index-vector-stores-ombra $li, CMake $cmake, __init__ $init"
               exit 1
             fi
           done
@@ -98,6 +100,26 @@ jobs:
         with:
           name: dist-langchain-ombra
           path: dist-langchain/*
+          if-no-files-found: error
+
+  llamaindex:
+    name: llama-index-vector-stores-ombra
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.12"
+      - run: |
+          python -m pip install build==1.6.1
+          python -m build integrations/llama-index-vector-stores-ombra --outdir dist-llamaindex
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: dist-llama-index-vector-stores-ombra
+          path: dist-llamaindex/*
           if-no-files-found: error
 
   images:
@@ -194,7 +216,7 @@ jobs:
   publish-pypi:
     name: Publish to PyPI
     if: needs.check.outputs.dry_run != 'true'
-    needs: [check, wheels, langchain, images]
+    needs: [check, wheels, langchain, llamaindex, images]
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -204,7 +226,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
-          pattern: "{wheels-*,dist-langchain-ombra}"
+          pattern: "{wheels-*,dist-langchain-ombra,dist-llama-index-vector-stores-ombra}"
           path: dist
           merge-multiple: true
       - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
@@ -214,7 +236,7 @@ jobs:
   publish-testpypi:
     name: Publish to TestPyPI
     if: needs.check.outputs.dry_run == 'true'
-    needs: [check, wheels, langchain]
+    needs: [check, wheels, langchain, llamaindex]
     runs-on: ubuntu-latest
     environment:
       name: testpypi
@@ -224,7 +246,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
-          pattern: "{wheels-*,dist-langchain-ombra}"
+          pattern: "{wheels-*,dist-langchain-ombra,dist-llama-index-vector-stores-ombra}"
           path: dist
           merge-multiple: true
       - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
