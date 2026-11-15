@@ -46,8 +46,6 @@ Items are in two groups. "Next" is work that has started or is small and agreed.
 
 **Automatic normalization.** The client would normalize vectors for you. Today: normalize them before you insert.
 
-**Migration tools.** One tool would build a new collection next to the old one when you change embedding model, and switch over with no downtime. Another would convert files from older format versions. Today: create the new collection yourself and switch your application when it is ready.
-
 ### Housekeeping
 
 **Our own k-means.** The client uses faiss for clustering, in a child process, because faiss and OpenFHE cannot share a process on macOS. We may replace it with our own k-means. That removes a dependency and the child process, but it changes the clusters, so we would measure recall again first.
