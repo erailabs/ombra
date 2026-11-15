@@ -153,7 +153,8 @@ std::vector<AliasRow> Store::list_aliases() const {
 bool Store::alias_covers(const std::string& scope, const std::string& name) const {
   std::lock_guard lk(mu_);
   AliasRow a;
-  return catalog_->get_alias(scope, &a) && (a.target == name || (!a.previous.empty() && a.previous == name));
+  return catalog_->get_alias(scope, &a) &&
+         (a.target == name || (!a.previous.empty() && a.previous == name));
 }
 
 bool Store::name_in_use(const std::string& name) const {

@@ -99,7 +99,8 @@ RestReply RestAdmin::handle(const HttpRequest& req, const std::string& rid) {
   if (a == AuthResult::PermissionDenied) return denied("scope", "the API key's scope is too low");
   // The same answer whether the collection exists or not (no probing of other names).
   constexpr const char* kCollectionDenied = "the API key is not allowed to use this collection";
-  if (!list && !service_.key_allows(who, route.name)) return denied("collection", kCollectionDenied);
+  if (!list && !service_.key_allows(who, route.name))
+    return denied("collection", kCollectionDenied);
 
   RestReply out;
   bool failed = false;

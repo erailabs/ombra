@@ -89,10 +89,10 @@ int main() {
     c.create_collection(a);
 
     CHECK(c.create_alias("live", "docs") == AliasResult::Ok);
-    CHECK(c.create_alias("live", "docs") == AliasResult::NameTaken);       // alias exists
-    CHECK(c.create_alias("docs", "docs.g1") == AliasResult::NameTaken);    // a collection's name
-    CHECK(c.create_alias("x.g7", "docs") == AliasResult::BadName);         // generation name
-    CHECK(c.create_alias("x.gx", "docs") == AliasResult::Ok);              // not a generation name
+    CHECK(c.create_alias("live", "docs") == AliasResult::NameTaken);     // alias exists
+    CHECK(c.create_alias("docs", "docs.g1") == AliasResult::NameTaken);  // a collection's name
+    CHECK(c.create_alias("x.g7", "docs") == AliasResult::BadName);       // generation name
+    CHECK(c.create_alias("x.gx", "docs") == AliasResult::Ok);            // not a generation name
     CHECK(c.create_alias("y", "nope") == AliasResult::TargetNotFound);
     CHECK_THROWS(c.create_collection([&] {
       auto b = spec();

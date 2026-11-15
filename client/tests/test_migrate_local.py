@@ -131,9 +131,7 @@ def test_reembed_and_resume(tmp_path: Path) -> None:
         info = c.get_collection_info("docs.m1")
         assert info is not None and info["model"] == "model-b"
         # a dual write during the migration
-        m2.insert(
-            _unit(9, 1), ["late"], [{"tag": 1, "n": 99}], ["doc 77"]
-        )
+        m2.insert(_unit(9, 1), ["late"], [{"tag": 1, "n": 99}], ["doc 77"])
         m2.backfill()
         res = m2.verify(sample=4, k=3, min_recall=0.5)
         assert res["passed"]

@@ -95,7 +95,8 @@ Status classify_current() {
     // into RESOURCE_EXHAUSTED).
     return {Err::StorageFull, "the server's storage is full"};
   } catch (const storage::AliasTargetError&) {
-    return {Err::AliasConflict, "an alias points at this collection; switch or drop the alias first"};
+    return {Err::AliasConflict,
+            "an alias points at this collection; switch or drop the alias first"};
   } catch (const storage::BlockNotFound&) {
     return {Err::BlockNotFound, "block not found"};
   } catch (const storage::BlobSizeError&) {
@@ -432,7 +433,8 @@ grpc::Status OmbraService::SwitchAlias(grpc::ServerContext* ctx, const v1::Switc
   return guarded(ctx, Rpc::SwitchAlias, resp, [&] {
     try {
       storage::AliasRow a;
-      const auto r = store_.switch_alias(req->name(), req->new_target(), req->expected_target(), &a);
+      const auto r =
+          store_.switch_alias(req->name(), req->new_target(), req->expected_target(), &a);
       const Status st = alias_status(r);
       if (st.ok() && store_.get_alias(req->name(), &a))
         to_proto(a, resp->mutable_alias());

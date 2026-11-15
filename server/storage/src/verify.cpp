@@ -215,8 +215,7 @@ void verify_data_dir(const std::string& root, VerifyReport& r, const VerifyOptio
           add(r, Severity::Corrupt, "catalog", "catalog.db",
               "an alias has the name of a collection");
         if (is_generation_name(name))
-          add(r, Severity::Corrupt, "catalog", "catalog.db",
-              "an alias name ends in .g<number>");
+          add(r, Severity::Corrupt, "catalog", "catalog.db", "an alias name ends in .g<number>");
         if (!q.is_null(2) && !preset.count(q.text(2)))
           add(r, Severity::Corrupt, "catalog", "catalog.db",
               "an alias names a previous target that is not a collection");

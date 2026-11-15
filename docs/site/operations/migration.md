@@ -13,8 +13,8 @@ The pieces are:
 An alias is a name that resolves to a collection when a client opens it. Create one once, and let the application use the alias instead of the collection name.
 
 ```python
-client.create_alias("docs", "docs-v1")      # needs an admin key
-client.open_collection("docs", key_file="docs-v1.key", passphrase=pw)   # returns "docs-v1"
+client.create_alias("docs", "docs-v1")  # needs an admin key
+client.open_collection("docs", key_file="docs-v1.key", passphrase=pw)  # returns "docs-v1"
 ```
 
 `open_collection` asks the server what the alias points at and keeps the real name. After that the collection object works on that collection, also after the alias moves. It never follows a switch by itself, because its keys belong to one collection: a query made for one key set fails on the other. To follow a switch, open the alias again (for example every few minutes, or on a signal). Searches that are running when the switch happens finish on the old collection.
@@ -83,10 +83,15 @@ Between `start` and `switch` your application keeps writing to the old collectio
 ```python
 from ombra.migrate import Migration
 
-m = Migration.resume(client, state_path="ombra-migrate.json",
-                     source_passphrase=pw_old, target_passphrase=pw_new, embed=encode)
-m.insert(old_vectors, ids, metadata, documents)   # to both; re-embedded for the new one
-m.delete(ids)                                     # from both
+m = Migration.resume(
+    client,
+    state_path="ombra-migrate.json",
+    source_passphrase=pw_old,
+    target_passphrase=pw_new,
+    embed=encode,
+)
+m.insert(old_vectors, ids, metadata, documents)  # to both; re-embedded for the new one
+m.delete(ids)  # from both
 ```
 
 In re-embed mode `insert` embeds the documents with your function, or takes `new_vectors=` if you have them. An insert that bypasses the migration object after the last `backfill` is missed. Run `backfill` again before `verify`: it copies what the new collection lacks. A write to the migration object after `verify` makes the migration unverified, so run `verify` again.
@@ -115,7 +120,7 @@ After `switch`, the old collection stays for the drain period, 24 hours by defau
 The new collection has an encrypted record under a reserved id with the model label, the name of the source, the migration number, the preset and the creation time. Read it in your application:
 
 ```python
-info = client.get_collection_info("docs-v2")     # {"model": "model-b", ...}
+info = client.get_collection_info("docs-v2")  # {"model": "model-b", ...}
 assert info["model"] == MY_EMBEDDER_LABEL
 ```
 

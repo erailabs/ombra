@@ -282,9 +282,7 @@ class ClientCore:
         self._need_aliases()
         pb = self._t.pb
         r = self._t.stub.SwitchAlias(
-            pb.SwitchAliasRequest(
-                name=name, new_target=new_target, expected_target=expected_target
-            )
+            pb.SwitchAliasRequest(name=name, new_target=new_target, expected_target=expected_target)
         )
         if r.WhichOneof("result") == "error":
             raise collection_error(r.error.code, r.error.message)

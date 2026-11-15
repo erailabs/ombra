@@ -405,7 +405,9 @@ class Migration:
             raise MigrationError("the source has no live vectors")
         from ombra import presets
 
-        slots = presets.derive(s.target_preset or src.preset, 384).batch_size  # depends on the preset
+        slots = presets.derive(
+            s.target_preset or src.preset, 384
+        ).batch_size  # depends on the preset
         k = s.n_clusters or max(1, round(live / slots))
         want = min(live, max(20 * k, 1000)) if sample is None else min(live, sample)
         recs: list[Any] = []
@@ -423,7 +425,9 @@ class Migration:
             key_file=s.target_key_file,
             passphrase=self._target_pw,
             preset=s.target_preset,
-            metadata=[r.metadata for r in recs] if (cards or any(r.metadata for r in recs)) else None,
+            metadata=[r.metadata for r in recs]
+            if (cards or any(r.metadata for r in recs))
+            else None,
             documents=[r.document for r in recs],
             filter_fields=dict(zip(s.filter_fields, cards, strict=True)) or None,
             security_level=s.security_level,
@@ -472,7 +476,9 @@ class Migration:
                 s.target,
                 vecs,
                 [r.id for r in recs],
-                [r.metadata for r in recs] if (s.filter_fields or any(r.metadata for r in recs)) else None,
+                [r.metadata for r in recs]
+                if (s.filter_fields or any(r.metadata for r in recs))
+                else None,
                 [r.document for r in recs],
             )
             n = len(recs)
@@ -735,7 +741,10 @@ def build_parser() -> argparse.ArgumentParser:
         "downtime. The API key comes from OMBRA_API_KEY; passphrases from OMBRA_PASSPHRASE "
         "(source key file) and OMBRA_TARGET_PASSPHRASE (target key file) or a prompt.",
     )
-    p.add_argument("step", choices=["plan", "start", "backfill", "verify", "switch", "finish", "abort", "status"])
+    p.add_argument(
+        "step",
+        choices=["plan", "start", "backfill", "verify", "switch", "finish", "abort", "status"],
+    )
     p.add_argument("--state", default=DEFAULT_STATE, help="state file (default %(default)s)")
     p.add_argument("--address", help="server host:port")
     p.add_argument("--root-certificates", help="PEM file of the server's CA")

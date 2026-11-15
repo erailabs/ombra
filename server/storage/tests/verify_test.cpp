@@ -255,9 +255,13 @@ int main() {
       CHECK(run(d.path).clean());
       tamper(d.path, "UPDATE aliases SET previous='gone'");
       CHECK(!run(d.path).clean());
-      tamper(d.path, "UPDATE aliases SET previous=NULL; INSERT INTO aliases VALUES('docs', 'docs', NULL, 1)");
+      tamper(
+          d.path,
+          "UPDATE aliases SET previous=NULL; INSERT INTO aliases VALUES('docs', 'docs', NULL, 1)");
       CHECK(!run(d.path).clean());  // an alias with a collection's name
-      tamper(d.path, "DELETE FROM aliases WHERE name='docs'; INSERT INTO aliases VALUES('x.g3', 'docs', NULL, 1)");
+      tamper(d.path,
+             "DELETE FROM aliases WHERE name='docs'; INSERT INTO aliases VALUES('x.g3', 'docs', "
+             "NULL, 1)");
       CHECK(!run(d.path).clean());  // a generation name
     }
     {  // schema 2 (before aliases): a warning, the server upgrades it at the next start

@@ -264,7 +264,9 @@ def test_alias_rpcs_need_admin_and_scoped_keys_follow_the_alias(tmp_path):
         assert denied("a") and allowed("b") and allowed("c")
         # the scoped key lists its alias's collections and only its alias
         as_(scoped)
-        assert [c.spec.name for c in s.call("ListCollections", pb.ListCollectionsRequest()).collections] == [
+        assert [
+            c.spec.name for c in s.call("ListCollections", pb.ListCollectionsRequest()).collections
+        ] == [
             "b",
             "c",
         ]
@@ -315,9 +317,15 @@ def test_backup_copies_the_aliases(tmp_path):
     out = tmp_path / "bk"
     bin_dir = find_server_binary().parent
     r = subprocess.run(  # noqa: S603
-        [str(bin_dir.parent / "storage" / "ombra_backup"), "--data-dir",
-         str(s.server.data_dir), "--out", str(out)],
-        capture_output=True, text=True,
+        [
+            str(bin_dir.parent / "storage" / "ombra_backup"),
+            "--data-dir",
+            str(s.server.data_dir),
+            "--out",
+            str(out),
+        ],
+        capture_output=True,
+        text=True,
     )
     s.stop()
     assert r.returncode == 0, r.stderr
@@ -346,16 +354,30 @@ def test_client_pinned_to_the_old_collection_while_the_alias_moves(tmp_path):
     client = s.server.client()
     try:
         client.create_collection(
-            "docs", x, [f"i{i}" for i in range(6)], key_file=tmp_path / "docs.key",
-            passphrase="old", preset="fast", n_clusters=1, scrypt_params=(2**4, 8, 1),
+            "docs",
+            x,
+            [f"i{i}" for i in range(6)],
+            key_file=tmp_path / "docs.key",
+            passphrase="old",
+            preset="fast",
+            n_clusters=1,
+            scrypt_params=(2**4, 8, 1),
             documents=[f"d{i}" for i in range(6)],
         )
         client.create_alias("live", "docs")
-        assert client.open_collection("live", key_file=tmp_path / "docs.key", passphrase="old") == "docs"
+        assert (
+            client.open_collection("live", key_file=tmp_path / "docs.key", passphrase="old")
+            == "docs"
+        )
         m = Migration.plan(
-            client, "docs", source_key_file=tmp_path / "docs.key",
-            target_key_file=tmp_path / "docs.m1.key", source_passphrase="old",
-            target_passphrase="new", state_path=tmp_path / "state.json", alias="live",
+            client,
+            "docs",
+            source_key_file=tmp_path / "docs.key",
+            target_key_file=tmp_path / "docs.m1.key",
+            source_passphrase="old",
+            target_passphrase="new",
+            state_path=tmp_path / "state.json",
+            alias="live",
             scrypt_params=(2**4, 8, 1),
         )
         m.start()
@@ -379,9 +401,10 @@ def test_client_pinned_to_the_old_collection_while_the_alias_moves(tmp_path):
             client.switch_alias("live", "docs", "docs")  # it points at docs.m1 now
         # the alias resolves to the new collection for a fresh open
         assert client.get_collection("live").name == "docs.m1"
-        assert client.open_collection(
-            "live", key_file=tmp_path / "docs.m1.key", passphrase="new"
-        ) == "docs.m1"
+        assert (
+            client.open_collection("live", key_file=tmp_path / "docs.m1.key", passphrase="new")
+            == "docs.m1"
+        )
         # finish refuses before the drain period, then drops the old collection
         with pytest.raises(Exception, match="drain"):
             m.finish()

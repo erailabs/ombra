@@ -185,3 +185,6 @@ Blobs are opaque client ciphertexts. The server never parses them. A blob become
 | `ERROR_BLOCK_MISMATCH` | The ids of a `ReplaceBlock` are not exactly the live ids, or the cluster or columns differ. |
 | `ERROR_BLOB_NOT_FOUND` | No blob with this kind and id in the collection. |
 | `ERROR_STORAGE_FULL` | The server's disk or quota is full. Nothing was stored. The server sends this as the gRPC status `RESOURCE_EXHAUSTED`, and the client retries. |
+| `ERROR_ALIAS_NOT_FOUND` | No alias has this name. |
+| `ERROR_ALIAS_EXISTS` | The alias name is already a collection or an alias. |
+| `ERROR_ALIAS_CONFLICT` | `SwitchAlias`: the alias does not point at `expected_target`. `DropCollection`: an alias points at the collection. |
