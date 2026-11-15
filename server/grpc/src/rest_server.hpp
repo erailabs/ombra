@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 OR LicenseRef-Ombra-Commercial
-// REST admin port: GET /healthz and GET /readyz (no auth) and GET /metrics (admin key). HTTP/1.1
+// REST admin port: GET /healthz and GET /readyz (no auth), GET /metrics (admin key) and the
+// collection API under /v1/ (rest_admin.hpp, handled by the AdminHandler). HTTP/1.1
 // over OpenSSL (TLS 1.2+) or, with --insecure, plain TCP. One request per connection, header cap 8
-// KiB, a total deadline per connection that also covers the TLS handshake, a small worker pool so
+// KiB, a request body of at most 64 KiB (Content-Length only), a total deadline per connection that also covers the TLS handshake, a small worker pool so
 // that one slow client cannot block /healthz, and a cap on open connections (audit A-17). OpenSSL
 // is already a dependency of gRPC.
 #pragma once
@@ -17,9 +18,18 @@
 #include <vector>
 
 #include "ombra/server/auth.hpp"
+#include "ombra/server/http.hpp"
 #include "ombra/server/metrics.hpp"
 
 namespace ombra::server {
+
+struct RestReply {
+  int status = 200;
+  std::string body;
+  std::string extra_headers;  // complete "Name: value\r\n" lines (fixed texts)
+};
+// Handles a request whose path starts with /v1/; `request_id` is valid (the client's or ours).
+using AdminHandler = std::function<RestReply(const HttpRequest&, const std::string& request_id)>;
 
 class RestServer {
  public:
@@ -28,7 +38,7 @@ class RestServer {
   RestServer(const std::string& host, int port, const std::string& tls_cert,
              const std::string& tls_key, const ApiKeyStore* keys, Metrics& metrics,
              std::function<Gauges()> gauges, std::size_t workers = 4,
-             std::size_t max_connections = 32);
+             std::size_t max_connections = 32, AdminHandler admin = {});
   ~RestServer();
   RestServer(const RestServer&) = delete;
   RestServer& operator=(const RestServer&) = delete;
@@ -48,6 +58,7 @@ class RestServer {
   const ApiKeyStore* keys_;
   Metrics& metrics_;
   std::function<Gauges()> gauges_;
+  AdminHandler admin_;
   std::unique_ptr<Tls> tls_;
   int listen_fd_ = -1;
   int port_ = 0;

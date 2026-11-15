@@ -62,6 +62,7 @@
 #include "ombra/server/metrics.hpp"
 #include "ombra/server/policy.hpp"
 #include "ombra/storage/store.hpp"
+#include "rest_admin.hpp"
 #include "rest_server.hpp"
 #include "service.hpp"
 
@@ -432,12 +433,18 @@ int main(int argc, char** argv) {
     std::printf("ombra_server listening on %s:%d\n", host.c_str(), port);
     std::fflush(stdout);
 
+    std::unique_ptr<ombra::server::RestAdmin> rest_admin;
     std::unique_ptr<ombra::server::RestServer> rest;
     if (rest_port >= 0) {
+      rest_admin =
+          std::make_unique<ombra::server::RestAdmin>(service, store, keys.get(), metrics);
       rest = std::make_unique<ombra::server::RestServer>(
           rhost, rest_port, tls_cert, tls_key, keys.get(), metrics,
           [&store, &engine] { return collect_gauges(store, engine); },
-          static_cast<std::size_t>(rest_workers), static_cast<std::size_t>(rest_max_conns));
+          static_cast<std::size_t>(rest_workers), static_cast<std::size_t>(rest_max_conns),
+          [&rest_admin](const ombra::server::HttpRequest& r, const std::string& rid) {
+            return rest_admin->handle(r, rid);
+          });
       std::printf("ombra_server rest listening on %s:%d\n", rhost.c_str(), rest->port());
       std::fflush(stdout);
     }

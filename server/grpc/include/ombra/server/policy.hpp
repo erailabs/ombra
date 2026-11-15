@@ -34,6 +34,11 @@ enum class Err : int {
   StorageFull = 15,
 };
 
+// The proto name of an error code without its ERROR_ prefix ("COLLECTION_NOT_FOUND"), and the HTTP
+// status the REST admin API answers with. Fixed texts; the REST error body carries the name.
+const char* err_name(Err e);
+int err_http_status(Err e);
+
 struct Status {
   Err code = Err::Ok;
   std::string message;  // fixed text; never ids, bytes or values

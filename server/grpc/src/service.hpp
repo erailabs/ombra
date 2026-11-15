@@ -58,6 +58,15 @@ class OmbraService final : public ombra::v1::Ombra::Service {
   // later). Calls already running are not touched.
   void begin_drain() { draining_.store(true); }
 
+  // The bodies of the four collection RPCs without the call context, shared by the REST admin API
+  // (rest_admin.cpp). The caller has already authenticated the key, checked its scope and checked
+  // that it may use the collection; errors go into the response's `error` like over gRPC.
+  void create_collection_core(const v1::CollectionSpec&, v1::CreateCollectionResponse*);
+  void get_collection_core(const std::string& name, v1::GetCollectionResponse*);
+  // Only the collections `who` may use. False on an internal error (logged).
+  bool list_collections_core(const Verified& who, v1::ListCollectionsResponse*);
+  void drop_collection_core(const std::string& name, v1::DropCollectionResponse*);
+
   grpc::Status CreateCollection(grpc::ServerContext*, const v1::CreateCollectionRequest*,
                                 v1::CreateCollectionResponse*) override;
   grpc::Status GetCollection(grpc::ServerContext*, const v1::GetCollectionRequest*,

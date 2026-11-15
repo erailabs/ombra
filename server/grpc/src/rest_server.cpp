@@ -20,6 +20,7 @@
 
 #include "ombra/server/http.hpp"
 #include "ombra/server/log.hpp"
+#include "ombra/server/rest_api.hpp"
 
 namespace ombra::server {
 
@@ -43,10 +44,11 @@ struct RestServer::Tls {
 RestServer::RestServer(const std::string& host, int port, const std::string& tls_cert,
                        const std::string& tls_key, const ApiKeyStore* keys, Metrics& metrics,
                        std::function<Gauges()> gauges, std::size_t workers,
-                       std::size_t max_connections)
+                       std::size_t max_connections, AdminHandler admin)
     : keys_(keys),
       metrics_(metrics),
       gauges_(std::move(gauges)),
+      admin_(std::move(admin)),
       max_connections_(std::max<std::size_t>(1, max_connections)) {
   if (!tls_cert.empty() || !tls_key.empty()) {
     tls_ = std::make_unique<Tls>();
@@ -199,41 +201,84 @@ void RestServer::serve(int fd) {
     }
   };
 
+  // Every response carries X-Request-Id: the client's value if valid, else a random one.
+  std::string rid = log::new_request_id();
+  const auto reply = [&](int status, const std::string& body, const std::string& extra = {}) {
+    write_all(http_response(status, body, "application/json",
+                            "X-Request-Id: " + rid + "\r\n" + extra));
+  };
+
   std::string buf;
   HttpRequest req;
   HttpParse st = HttpParse::Incomplete;
+  std::size_t header_bytes = 0;
   while (st == HttpParse::Incomplete) {
     if (left_ms() <= 0) {
-      write_all(http_response(408, "{\"error\":\"timeout\"}"));
+      reply(408, "{\"error\":\"timeout\"}");
       return;
     }
     char chunk[1024];
     const long n = read_some(chunk, sizeof chunk);
     if (n <= 0) return;
     buf.append(chunk, static_cast<std::size_t>(n));
-    st = parse_http_request(buf, &req);
+    st = parse_http_request(buf, &req, &header_bytes);
   }
+  if (!req.request_id.empty() && log::valid_request_id(req.request_id)) rid = req.request_id;
+  const bool admin_path = req.path.rfind("/v1/", 0) == 0;
+  const auto fail = [&](int status, const char* code, const char* message, const char* legacy) {
+    reply(status, admin_path ? rest_error_body(code, message, rid) : std::string(legacy));
+  };
   if (st == HttpParse::TooLarge) {
-    write_all(http_response(431, "{\"error\":\"headers too large\"}"));
+    fail(431, "PAYLOAD_TOO_LARGE", "headers too large", "{\"error\":\"headers too large\"}");
+    return;
+  }
+  if (st == HttpParse::BodyTooLarge) {
+    fail(413, "PAYLOAD_TOO_LARGE", "the request body is larger than 64 KiB",
+         "{\"error\":\"body too large\"}");
     return;
   }
   if (st == HttpParse::Bad) {
-    write_all(http_response(400, "{\"error\":\"bad request\"}"));
+    reply(400, "{\"error\":\"bad request\"}");
+    return;
+  }
+  // The body, within the same total deadline.
+  while (buf.size() < header_bytes + req.content_length) {
+    if (left_ms() <= 0) {
+      fail(408, "INVALID_ARGUMENT", "timeout", "{\"error\":\"timeout\"}");
+      return;
+    }
+    char chunk[4096];
+    const long n = read_some(chunk, sizeof chunk);
+    if (n <= 0) return;
+    buf.append(chunk, static_cast<std::size_t>(n));
+  }
+  req.body = buf.substr(header_bytes, req.content_length);
+  if (admin_path) {
+    if (draining_.load()) {
+      reply(503, rest_error_body("UNAVAILABLE", "the server is shutting down", rid));
+      return;
+    }
+    if (!admin_) {
+      reply(404, rest_error_body("NOT_FOUND", "no such route", rid));
+      return;
+    }
+    RestReply r = admin_(req, rid);
+    reply(r.status, r.body, r.extra_headers);
     return;
   }
   if (req.method != "GET") {
-    write_all(http_response(405, "{\"error\":\"method not allowed\"}"));
+    reply(405, "{\"error\":\"method not allowed\"}");
     return;
   }
   if (req.path == "/healthz") {
-    write_all(http_response(200, "{\"status\":\"ok\"}"));
+    reply(200, "{\"status\":\"ok\"}");
     return;
   }
   if (req.path == "/readyz") {  // ready to take calls; 503 once shutdown has begun
     if (draining_.load())
-      write_all(http_response(503, "{\"status\":\"draining\"}"));
+      reply(503, "{\"status\":\"draining\"}");
     else
-      write_all(http_response(200, "{\"status\":\"ready\"}"));
+      reply(200, "{\"status\":\"ready\"}");
     return;
   }
   if (req.path == "/metrics") {
@@ -241,20 +286,20 @@ void RestServer::serve(int fd) {
     switch (authorize(keys_, req.authorization, Scope::Admin, &key_id)) {
       case AuthResult::Unauthenticated:
         metrics_.count_unauthenticated();
-        write_all(http_response(401, "{\"error\":\"unauthenticated\"}"));
+        reply(401, "{\"error\":\"unauthenticated\"}");
         return;
       case AuthResult::PermissionDenied:
         metrics_.count_permission_denied();
         log::warn("rest denied", {{"path", "/metrics"}, {"key_id", key_id}});
-        write_all(http_response(403, "{\"error\":\"permission denied\"}"));
+        reply(403, "{\"error\":\"permission denied\"}");
         return;
       case AuthResult::Ok:
         break;
     }
-    write_all(http_response(200, metrics_json(metrics_, gauges_())));
+    reply(200, metrics_json(metrics_, gauges_()));
     return;
   }
-  write_all(http_response(404, "{\"error\":\"not found\"}"));
+  reply(404, "{\"error\":\"not found\"}");
 }
 
 }  // namespace ombra::server

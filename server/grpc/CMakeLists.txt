@@ -51,6 +51,14 @@ target_include_directories(ombra_server_admin PUBLIC include)
 find_package(Threads REQUIRED)
 target_link_libraries(ombra_server_admin PUBLIC Threads::Threads)
 
+add_library(ombra_server_rest STATIC src/rest_api.cpp)
+target_include_directories(ombra_server_rest PUBLIC include)
+target_link_libraries(ombra_server_rest PUBLIC ombra_server_policy)
+
+add_executable(server_rest_test tests/rest_test.cpp)
+target_link_libraries(server_rest_test PRIVATE ombra_server_rest)
+add_test(NAME server_rest COMMAND server_rest_test)
+
 add_executable(server_limits_test tests/limits_test.cpp)
 target_link_libraries(server_limits_test PRIVATE ombra_server_admin)
 add_test(NAME server_limits COMMAND server_limits_test)
@@ -120,9 +128,10 @@ target_include_directories(ombra_gpu_info PUBLIC src)
 # The REST port speaks TLS with OpenSSL, which gRPC already depends on.
 find_package(OpenSSL REQUIRED)
 
-add_executable(ombra_server src/ombra_server.cpp src/service.cpp src/rest_server.cpp)
+add_executable(ombra_server src/ombra_server.cpp src/service.cpp src/rest_server.cpp
+               src/rest_admin.cpp)
 target_include_directories(ombra_server PRIVATE src)
-target_link_libraries(ombra_server PRIVATE ombra_server_policy ombra_server_admin ombra_gpu_info
+target_link_libraries(ombra_server PRIVATE ombra_server_policy ombra_server_rest ombra_server_admin ombra_gpu_info
                                            ombra_search ombra_proto OpenSSL::SSL OpenSSL::Crypto)
 target_compile_definitions(ombra_server PRIVATE OMBRA_VERSION="${PROJECT_VERSION}")
 if(NOT OMBRA_ENABLE_CUDA)
