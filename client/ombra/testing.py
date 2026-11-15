@@ -67,6 +67,7 @@ class FakeClient:
         metadata: Sequence[dict[str, Any]] | None = None,
         documents: Sequence[str | bytes | None] | None = None,
         filter_fields: Mapping[str, int] | None = None,
+        range_fields: Mapping[str, Any] | None = None,
         security_level: str = "fast",
         n_clusters: int | None = None,
         scrypt_params: tuple[int, int, int] | None = None,
@@ -180,4 +181,9 @@ class FakeClient:
     def _match(value: Any, want: Any) -> bool:
         if isinstance(want, list | tuple | set):
             return value in want
+        if isinstance(want, Mapping):  # a range: gte, gt, lte, lt
+            from ombra.ranges import parse_bounds
+
+            lo, hi = parse_bounds(want)
+            return isinstance(value, int | np.integer) and lo <= int(value) <= hi
         return bool(value == want)

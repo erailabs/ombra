@@ -106,6 +106,7 @@ class Client:
         metadata: Sequence[dict[str, Any]] | None = None,
         documents: Sequence[str | bytes | None] | None = None,
         filter_fields: Mapping[str, int] | None = None,
+        range_fields: Mapping[str, Any] | None = None,
         security_level: str = "fast",
         n_clusters: int | None = None,
         scrypt_params: tuple[int, int, int] | None = None,
@@ -114,7 +115,10 @@ class Client:
 
         `preset` defaults to "fast" in local mode and to "balanced" against a server.
         `filter_fields` maps a field name to its number of values; every metadata dict then needs
-        an integer in range under that name. Back up the key file: without it the data is lost.
+        an integer in range under that name. `range_fields` maps a field name to the cut points of
+        its buckets (a list of up to 63 ascending integers) or to {"kind": "two_digit"} (domain
+        0..4095); every metadata dict then needs the raw integer under that name, and a filter can
+        say {"year": {"gte": 2020, "lt": 2024}}. Back up the key file: without it the data is lost.
         """
         return self._core.create_collection(
             name,
@@ -126,6 +130,7 @@ class Client:
             metadata=metadata,
             documents=documents,
             filter_fields=filter_fields,
+            range_fields=range_fields,
             security_level=security_level,
             n_clusters=n_clusters,
             scrypt_params=scrypt_params,
@@ -238,6 +243,7 @@ class AsyncClient:
         metadata: Sequence[dict[str, Any]] | None = None,
         documents: Sequence[str | bytes | None] | None = None,
         filter_fields: Mapping[str, int] | None = None,
+        range_fields: Mapping[str, Any] | None = None,
         security_level: str = "fast",
         n_clusters: int | None = None,
         scrypt_params: tuple[int, int, int] | None = None,
@@ -246,7 +252,10 @@ class AsyncClient:
 
         `preset` defaults to "fast" in local mode and to "balanced" against a server.
         `filter_fields` maps a field name to its number of values; every metadata dict then needs
-        an integer in range under that name. Back up the key file: without it the data is lost.
+        an integer in range under that name. `range_fields` maps a field name to the cut points of
+        its buckets (a list of up to 63 ascending integers) or to {"kind": "two_digit"} (domain
+        0..4095); every metadata dict then needs the raw integer under that name, and a filter can
+        say {"year": {"gte": 2020, "lt": 2024}}. Back up the key file: without it the data is lost.
         """
         return self._core.create_collection(
             name,
@@ -258,6 +267,7 @@ class AsyncClient:
             metadata=metadata,
             documents=documents,
             filter_fields=filter_fields,
+            range_fields=range_fields,
             security_level=security_level,
             n_clusters=n_clusters,
             scrypt_params=scrypt_params,
