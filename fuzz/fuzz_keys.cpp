@@ -45,7 +45,8 @@ static ombra::storage::Store* g_store = nullptr;
 static ombra::search::EngineConfig g_cfg;
 using Bytes = std::vector<std::uint8_t>;
 static Bytes g_ctx, g_mult, g_auto;
-static std::size_t g_first_coeff[2];  // offset of the first coefficient array: EvalMult, automorphism
+static std::size_t
+    g_first_coeff[2];  // offset of the first coefficient array: EvalMult, automorphism
 // Where the old header check ended. Inputs that overwrite from here (bit 3) keep their meaning:
 // the known finding in fuzz/known/ was found with it.
 static constexpr std::size_t kBodyStart = 840;
@@ -85,9 +86,8 @@ extern "C" int LLVMFuzzerInitialize(int*, char***) {
   // every structure byte to the template's (the coefficient words stay as OpenFHE made them).
   det::conform_key_file_to_template(ombra::fuzz::kPreset, det::KeyKind::EvalMult, g_mult);
   det::conform_key_file_to_template(ombra::fuzz::kPreset, det::KeyKind::Automorphism, g_auto);
-  g_first_coeff[0] = det::describe_key_file(ombra::fuzz::kPreset, det::KeyKind::EvalMult, 1)
-                         .free_ranges[0]
-                         .first;
+  g_first_coeff[0] =
+      det::describe_key_file(ombra::fuzz::kPreset, det::KeyKind::EvalMult, 1).free_ranges[0].first;
   g_first_coeff[1] = det::describe_key_file(ombra::fuzz::kPreset, det::KeyKind::Automorphism, 2)
                          .free_ranges[0]
                          .first;

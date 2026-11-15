@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 OR LicenseRef-Ombra-Commercial
 // Test tool: checks one key file written by the real Python client against the structure template
-// of a preset (server/search/src/context_preflight.hpp). Used by tests/test_openfhe_key_templates.py
-// with synthetic keys.
+// of a preset (server/search/src/context_preflight.hpp). Used by
+// tests/test_openfhe_key_templates.py with synthetic keys.
 //
 //   search_key_file_check <preset> <evalmult|auto> <file>              accept or refuse (exit 0/1)
 //   search_key_file_check <preset> <evalmult|auto> <file> flips <step>  also flip every <step>-th
-//        structure byte (each change must be refused) and a few coefficient bytes (must be accepted)
+//        structure byte (each change must be refused) and a few coefficient bytes (must be
+//        accepted)
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>

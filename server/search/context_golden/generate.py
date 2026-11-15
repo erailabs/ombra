@@ -258,9 +258,7 @@ def build_templates(name: str) -> tuple[bytes, bytes, dict]:
             same[free_mid] = True
             same[0:4] = same[8:12] = True  # the two fields
             assert same.all(), f"block {j} differs from block 1 outside the known fields"
-            assert int.from_bytes(blk[0:4].tobytes(), "little") == expected_index(
-                ring, max_keys, j
-            )
+            assert int.from_bytes(blk[0:4].tobytes(), "little") == expected_index(ring, max_keys, j)
             assert int.from_bytes(blk[8:12].tobytes(), "little") == id1 + j - 1
     assert len(f2) == head_len + mid_len
     blk = f2[head_len:]

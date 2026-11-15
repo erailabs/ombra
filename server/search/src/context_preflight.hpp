@@ -12,10 +12,19 @@
 // parameters, so it is at least 128-bit secure whatever the upload claims.
 //
 // Two writers, one set of parameters: the C++ writer (this server) and the one in openfhe-python
-// (the client) differ in seven bytes for both presets, which are class-version words (1 in C++, 0
-// in the Python module; both load). So two byte strings are accepted per preset: the server's own,
-// and the client's, embedded from context_golden/ (a test rebuilds it with the real client and
-// checks that it differs from the server's only where the C++ side has 1 and the client 0).
+// (the client) differ in seven bytes for both presets (offsets 86, 90, 102, 218, 222, 234, 374 of
+// the context). They are cereal class-version words: 1 in a C++ binary that links the OpenFHE
+// libraries, 0 in the Python module. cereal takes a class version from a registry of the writing
+// binary (cereal::detail::Versions), filled by CEREAL_CLASS_VERSION static initializers; a C++
+// process has 17 types registered with version 1 (measured), the module of the wheel has not
+// registered those seven. Both load (OpenFHE only refuses a version above its own). The wheel and
+// docker/Dockerfile.server build the same OpenFHE release (v1.6.1), and the server links the
+// libraries the way this test does, so the deployed server writes the 1s. The server never sends a
+// context, so its own bytes only matter as a second accepted form, for a client written in C++.
+// Two byte strings are accepted per preset: the server's own, and the client's, embedded from
+// context_golden/ (a test rebuilds it with the real client and checks that it differs from the
+// server's only where the C++ side has 1 and the client 0). Key files are accepted in the
+// client's form only: their templates come from the client.
 //
 // Evaluation keys: their coefficients depend on a secret key, so no byte comparison is possible,
 // but nothing else does. A key file is a few bytes of cereal structure (length prefixes, counts,
@@ -24,7 +33,8 @@
 // learns, from independent key generations of the real client, a template of the structure; the
 // server requires every structure byte of a key file to equal it and lets only the coefficient
 // words differ. cereal allocates from a length prefix, so this keeps a damaged prefix away from
-// OpenFHE (a payload with a valid header and size used to make it allocate over 2 GB; fuzz/README.md).
+// OpenFHE (a payload with a valid header and size used to make it allocate over 2 GB;
+// fuzz/README.md).
 #pragma once
 
 #include <cstddef>

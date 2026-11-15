@@ -89,7 +89,8 @@ def key_files(tmp_path_factory: pytest.TempPathFactory) -> dict[str, list[dict[s
                     path = d / "evalmult"
                     path.write_bytes(ofhe.SerializeEvalMultKeyString(ofhe.BINARY, tag))
                     files["evalmult"] = path
-                cc.EvalAutomorphismKeyGen(kp.secretKey, [ring // (1 << k) + 1 for k in range(n_keys)])
+                indices = [ring // (1 << k) + 1 for k in range(n_keys)]
+                cc.EvalAutomorphismKeyGen(kp.secretKey, indices)
                 path = d / f"auto{n_keys}"
                 path.write_bytes(ofhe.SerializeEvalAutomorphismKeyString(ofhe.BINARY, tag))
                 files[f"auto{n_keys}"] = path
@@ -98,8 +99,10 @@ def key_files(tmp_path_factory: pytest.TempPathFactory) -> dict[str, list[dict[s
     return out
 
 
-def _run(tool: Path, preset: str, kind: str, path: Path, *extra: str) -> subprocess.CompletedProcess:
-    return subprocess.run(
+def _run(
+    tool: Path, preset: str, kind: str, path: Path, *extra: str
+) -> subprocess.CompletedProcess:
+    return subprocess.run(  # noqa: S603 - our own test tool, fixed arguments
         [str(tool), preset, kind, str(path), *extra], capture_output=True, text=True, timeout=600
     )
 

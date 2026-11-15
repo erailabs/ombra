@@ -257,9 +257,9 @@ const KeyTemplate* key_template(const std::string& preset, KeyKind kind) {
   auto& slot = cache[{preset, static_cast<int>(kind)}];
   if (!slot) {
     const bool mult = kind == KeyKind::EvalMult;
-    slot = std::make_unique<KeyTemplate>(
-        parse_template(mult ? p->evalmult_template : p->auto_template,
-                       mult ? p->evalmult_template_size : p->auto_template_size, kind, p->ring_dim));
+    slot = std::make_unique<KeyTemplate>(parse_template(
+        mult ? p->evalmult_template : p->auto_template,
+        mult ? p->evalmult_template_size : p->auto_template_size, kind, p->ring_dim));
   }
   return slot.get();
 }

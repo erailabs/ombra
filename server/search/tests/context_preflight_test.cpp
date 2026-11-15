@@ -18,13 +18,13 @@
 #include <string>
 #include <vector>
 
+#include "ciphertext-ser.h"
 #include "coll_keys.hpp"
+#include "cryptocontext-ser.h"
+#include "key/key-ser.h"
 #include "ombra/core/file_envelope.hpp"
 #include "ombra/search/session.hpp"
 #include "ombra/storage/store.hpp"
-#include "ciphertext-ser.h"
-#include "cryptocontext-ser.h"
-#include "key/key-ser.h"
 #include "openfhe.h"
 #include "scheme/ckksrns/ckksrns-ser.h"
 
@@ -158,8 +158,8 @@ int main() {
     for (const bool is_auto : {false, true}) {
       const auto kind = is_auto ? det::KeyKind::Automorphism : det::KeyKind::EvalMult;
       const std::size_t top = det::describe_key_file(p, kind, 1).max_keys;
-      for (const std::size_t n : is_auto ? std::vector<std::size_t>{1, 2, 3, top}
-                                         : std::vector<std::size_t>{1}) {
+      for (const std::size_t n :
+           is_auto ? std::vector<std::size_t>{1, 2, 3, top} : std::vector<std::size_t>{1}) {
         const auto map = det::describe_key_file(p, kind, n);
         std::vector<std::uint8_t> file(map.size, 0);
         det::conform_key_file_to_template(p, kind, file);
@@ -209,16 +209,19 @@ int main() {
         shorter.pop_back();
         CHECK(!refusal([&] { det::require_key_file(p, kind, shorter); }).empty());
         CHECK(!refusal([&] { det::require_key_file(p, kind, {}); }).empty());
-        CHECK(!refusal([&] { det::require_key_file(p, kind, std::vector<std::uint8_t>(35, 7)); })
-                   .empty());
+        CHECK(!refusal([&] {
+                 det::require_key_file(p, kind, std::vector<std::uint8_t>(35, 7));
+               }).empty());
       }
       // An automorphism file with more than log2(N) keys is refused, and the two kinds do not mix.
       if (is_auto) {
         const auto big = det::describe_key_file(p, kind, top);
         const auto small = det::describe_key_file(p, kind, 2);
-        std::vector<std::uint8_t> file(big.size + (small.size - det::describe_key_file(p, kind, 1).size), 0);
+        std::vector<std::uint8_t> file(
+            big.size + (small.size - det::describe_key_file(p, kind, 1).size), 0);
         CHECK(!refusal([&] { det::require_key_file(p, kind, file); }).empty());
-        std::vector<std::uint8_t> as_mult(det::describe_key_file(p, det::KeyKind::EvalMult, 1).size, 0);
+        std::vector<std::uint8_t> as_mult(det::describe_key_file(p, det::KeyKind::EvalMult, 1).size,
+                                          0);
         det::conform_key_file_to_template(p, det::KeyKind::EvalMult, as_mult);
         CHECK(!refusal([&] { det::require_key_file(p, kind, as_mult); }).empty());
       }
