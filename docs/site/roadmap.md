@@ -44,8 +44,6 @@ Items are in two groups. "Next" is work that has started or is small and agreed.
 
 **Plaintext-database mode.** For a corpus that any client may read, the server could keep vectors in the clear and hide only the query and the results. It would be faster. It does not exist: every vector is always encrypted.
 
-**A LlamaIndex adapter.** Only the LangChain adapter exists. Today: use the Python client directly.
-
 **Automatic normalization.** The client would normalize vectors for you. Today: normalize them before you insert.
 
 **Migration tools.** One tool would build a new collection next to the old one when you change embedding model, and switch over with no downtime. Another would convert files from older format versions. Today: create the new collection yourself and switch your application when it is ready.
