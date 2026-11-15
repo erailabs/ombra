@@ -32,6 +32,9 @@ enum class Err : int {
   BlockMismatch = 13,
   BlobNotFound = 14,
   StorageFull = 15,
+  AliasNotFound = 16,
+  AliasExists = 17,
+  AliasConflict = 18,
 };
 
 // The proto name of an error code without its ERROR_ prefix ("COLLECTION_NOT_FOUND"), and the HTTP

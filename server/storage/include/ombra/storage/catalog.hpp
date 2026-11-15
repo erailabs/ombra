@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 OR LicenseRef-Ombra-Commercial
-// SQLite catalog (schema_version 2, api_version 1; schema 1 catalogs are migrated, version 2 adds
-// the blob table). journal_mode=WAL, synchronous=FULL, foreign_keys=ON. Opening a catalog with
+// SQLite catalog (schema_version 3, api_version 1; schema 1 and 2 catalogs are migrated in place:
+// version 2 added the blob table, version 3 the alias table). journal_mode=WAL, synchronous=FULL, foreign_keys=ON. Opening a catalog with
 // another stored api_version or schema_version is refused.
 #pragma once
 
 #include <cstdint>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -13,7 +14,7 @@ struct sqlite3;
 
 namespace ombra::storage {
 
-inline constexpr int kCatalogSchemaVersion = 2;
+inline constexpr int kCatalogSchemaVersion = 3;
 inline constexpr int kCatalogApiVersion = 1;
 
 struct FilterField {
@@ -31,6 +32,31 @@ struct CollectionSpec {
   std::vector<FilterField> filter_fields;
   std::string key_tag;
   std::uint32_t cluster_count = 0;
+};
+
+// An alias is a name that points at one collection (decision 0028). `previous` is the target before
+// the last switch (empty if never switched); a key scoped to the alias may use both. Alias names
+// share the namespace of collection names.
+struct AliasRow {
+  std::string name, target, previous;
+  std::int64_t switched_at = 0;  // unix seconds of the last switch (or of the creation)
+};
+
+enum class AliasResult {
+  Ok,
+  NotFound,        // no alias with this name
+  NameTaken,       // a collection or an alias already has the name
+  BadName,         // the name looks like a generation name (<base>.g<n>)
+  TargetNotFound,  // the target collection does not exist
+  Conflict,        // compare-and-swap: the alias does not point at the expected collection
+};
+
+// True for names like "docs.g12": the form that re-clustering gives to a new generation.
+bool is_generation_name(const std::string& name);
+
+// Thrown by drop_collection when an alias still points at the collection.
+struct AliasTargetError : std::runtime_error {
+  AliasTargetError() : std::runtime_error("catalog: an alias points at this collection") {}
 };
 
 struct SegmentRow {
@@ -56,9 +82,23 @@ class Catalog {
   void create_collection(const CollectionSpec& spec);  // also creates the cluster rows
   bool get_collection(const std::string& name, CollectionSpec* out) const;
   std::vector<std::string> list_collections() const;
+  // Aliases. Each call is one transaction. create_alias refuses a name that is a collection or an
+  // alias or looks like a generation name. switch_alias is a compare-and-swap: it moves the alias
+  // to `new_target` only if it points at `expected_target` now (else Conflict, and *current, if
+  // given, holds the alias as it is). The old target becomes `previous`. Switching to the current
+  // target is a no-op that succeeds (a retry after a lost answer).
+  AliasResult create_alias(const std::string& name, const std::string& target);
+  AliasResult switch_alias(const std::string& name, const std::string& new_target,
+                           const std::string& expected_target, AliasRow* current = nullptr);
+  AliasResult drop_alias(const std::string& name);
+  bool get_alias(const std::string& name, AliasRow* out) const;
+  std::vector<AliasRow> list_aliases() const;
+
   // One transaction: removes the collection and every row that belongs to it (tombstones, vectors,
   // segments, clusters, key file rows). Returns the segment and key file names that were
   // registered, for the caller to unlink after the commit. False if the collection is unknown.
+  // Throws AliasTargetError, and removes nothing, while an alias points at it. An alias whose
+  // `previous` is this collection forgets it (the drain window is over).
   bool drop_collection(const std::string& name, std::vector<std::string>* segment_files,
                        std::vector<std::string>* key_files,
                        std::vector<std::string>* blob_files = nullptr);

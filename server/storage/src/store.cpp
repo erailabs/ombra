@@ -124,6 +124,43 @@ std::vector<std::string> Store::list_collections() const {
   return catalog_->list_collections();
 }
 
+AliasResult Store::create_alias(const std::string& name, const std::string& target) {
+  std::lock_guard lk(mu_);
+  return catalog_->create_alias(name, target);
+}
+
+AliasResult Store::switch_alias(const std::string& name, const std::string& new_target,
+                                const std::string& expected_target, AliasRow* current) {
+  std::lock_guard lk(mu_);
+  return catalog_->switch_alias(name, new_target, expected_target, current);
+}
+
+AliasResult Store::drop_alias(const std::string& name) {
+  std::lock_guard lk(mu_);
+  return catalog_->drop_alias(name);
+}
+
+bool Store::get_alias(const std::string& name, AliasRow* out) const {
+  std::lock_guard lk(mu_);
+  return catalog_->get_alias(name, out);
+}
+
+std::vector<AliasRow> Store::list_aliases() const {
+  std::lock_guard lk(mu_);
+  return catalog_->list_aliases();
+}
+
+bool Store::alias_covers(const std::string& scope, const std::string& name) const {
+  std::lock_guard lk(mu_);
+  AliasRow a;
+  return catalog_->get_alias(scope, &a) && (a.target == name || (!a.previous.empty() && a.previous == name));
+}
+
+bool Store::name_in_use(const std::string& name) const {
+  std::lock_guard lk(mu_);
+  return catalog_->get_collection(name, nullptr) || catalog_->get_alias(name, nullptr);
+}
+
 bool Store::is_live_data_id(const std::string& collection, const std::string& id) const {
   std::lock_guard lk(mu_);
   CollectionSpec spec;

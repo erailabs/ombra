@@ -50,6 +50,7 @@ struct Stmt {
                        static_cast<std::size_t>(sqlite3_column_bytes(s, i)));
   }
   long long num(int i) const { return sqlite3_column_int64(s, i); }
+  bool is_null(int i) const { return sqlite3_column_type(s, i) == SQLITE_NULL; }
 };
 
 bool exists(const std::string& p) {
@@ -177,11 +178,12 @@ void verify_data_dir(const std::string& root, VerifyReport& r, const VerifyOptio
         if (q.text(0) == "api_version") api = q.num(1);
       }
     }
-    if (schema != kCatalogSchemaVersion && schema != 1)
+    if (schema != kCatalogSchemaVersion && schema != 1 && schema != 2)
       add(r, Severity::Corrupt, "catalog", "catalog.db", "unsupported schema_version");
-    if (schema == 1)
+    if (schema == 1 || schema == 2)
       add(r, Severity::Warning, "catalog", "catalog.db",
-          "schema_version 1: the server migrates it at the next start");
+          "schema_version " + std::to_string(schema) +
+              ": the server migrates it at the next start");
     if (api != kCatalogApiVersion)
       add(r, Severity::Corrupt, "catalog", "catalog.db", "unsupported api_version");
     {
@@ -200,6 +202,25 @@ void verify_data_dir(const std::string& root, VerifyReport& r, const VerifyOptio
     if (schema >= 2) {
       Stmt q(db, "SELECT collection, file, kind, size FROM blobs");
       while (q.step()) blobs.push_back({q.text(0), q.text(1), q.num(2), q.num(3)});
+    }
+    if (schema >= 3) {
+      // Alias integrity: the target is a collection (foreign_key_check also covers it), the name
+      // is not a collection's and not a generation name, `previous` is empty or a collection.
+      Stmt q(db, "SELECT name, target, previous FROM aliases");
+      while (q.step()) {
+        const std::string name = q.text(0);
+        if (!preset.count(q.text(1)))
+          add(r, Severity::Corrupt, "catalog", "catalog.db", "an alias points at no collection");
+        if (preset.count(name))
+          add(r, Severity::Corrupt, "catalog", "catalog.db",
+              "an alias has the name of a collection");
+        if (is_generation_name(name))
+          add(r, Severity::Corrupt, "catalog", "catalog.db",
+              "an alias name ends in .g<number>");
+        if (!q.is_null(2) && !preset.count(q.text(2)))
+          add(r, Severity::Corrupt, "catalog", "catalog.db",
+              "an alias names a previous target that is not a collection");
+      }
     }
     {
       Stmt q(db, "SELECT segment, COUNT(*) FROM vectors GROUP BY segment");

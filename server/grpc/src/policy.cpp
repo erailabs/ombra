@@ -42,6 +42,12 @@ const char* err_name(Err e) {
       return "BLOB_NOT_FOUND";
     case Err::StorageFull:
       return "STORAGE_FULL";
+    case Err::AliasNotFound:
+      return "ALIAS_NOT_FOUND";
+    case Err::AliasExists:
+      return "ALIAS_EXISTS";
+    case Err::AliasConflict:
+      return "ALIAS_CONFLICT";
   }
   return "INTERNAL";
 }
@@ -53,12 +59,15 @@ int err_http_status(Err e) {
     case Err::CollectionNotFound:
     case Err::BlockNotFound:
     case Err::BlobNotFound:
+    case Err::AliasNotFound:
       return 404;
     case Err::CollectionExists:
     case Err::KeyTagMismatch:
     case Err::PresetMismatch:
     case Err::KeysMissing:
     case Err::BlockMismatch:
+    case Err::AliasExists:
+    case Err::AliasConflict:
       return 409;
     case Err::StorageFull:
       return 503;  // gRPC: RESOURCE_EXHAUSTED, retryable
