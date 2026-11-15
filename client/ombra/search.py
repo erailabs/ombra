@@ -29,7 +29,13 @@ from typing import Any
 import numpy as np
 
 from ombra.blobstore import KIND_RECORD
-from ombra.errors import CollectionError, OmbraError, collection_error, from_rpc_error
+from ombra.errors import (
+    CollectionError,
+    OmbraError,
+    collection_error,
+    from_rpc_error,
+    last_request_id,
+)
 from ombra.file_format import Kind, read_envelope
 from ombra.presets import FILTER_LAMBDA
 from ombra.probe import FIELDS_KEY, ProbePlanner, decoy_round_sizes, strict_halves
@@ -65,13 +71,19 @@ class _Stream:
     far is sent again, unchanged and in the same order: the same query ciphertext and the same
     cluster choices (real clusters and decoys). Two different decoy sets for one query would let
     the server intersect them and find the real clusters, so nothing is ever drawn a second time.
-    The answers already read are skipped on the new stream.
+    The answers already read are skipped on the new stream: the server sends exactly one answer
+    per request item (one centers message, then one SearchScores per chosen cluster, in order), so
+    the count is the same whatever the stored blocks look like by then. Each skipped answer must
+    be the same kind of answer, for the same cluster, as the one read before (`_seen`); anything
+    else raises instead of mixing the two streams. An answer carries its own block sizes, so
+    answers from before and after a block change (a repack, a compaction) are each read on their
+    own terms.
     """
 
     def __init__(self, stub: Any, first: Any) -> None:
         self._stub = stub
         self._sent: list[Any] = [first]
-        self._got = 0  # answers already handed to the caller
+        self._seen: list[tuple] = []  # identity of every answer handed to the caller, in order
         self._broken = False
         self._q: queue.Queue = queue.Queue()
         self._open()
@@ -84,6 +96,7 @@ class _Stream:
         for request in self._sent:
             self._q.put(request)
         self._call = self._stub.Search(self._requests(self._q))
+        self._rid = last_request_id()  # the id the server logs this stream under
 
     @staticmethod
     def _requests(q: queue.Queue):
@@ -105,7 +118,7 @@ class _Stream:
         except OmbraError:
             raise
         except Exception as exc:
-            mapped = from_rpc_error(exc, "Search")
+            mapped = from_rpc_error(exc, "Search", getattr(self, "_rid", None))
             if mapped is None:
                 raise
             raise mapped from exc
@@ -115,9 +128,15 @@ class _Stream:
         if cancel is not None:
             cancel()
         self._open()
-        for _ in range(self._got):  # answers the caller already has
-            self._read()
+        for ident in self._seen:  # answers the caller already has: read and check, not used
+            if self._identity(self._read()) != ident:
+                raise CollectionError(0, "search stream answered differently after a reconnect")
         self._broken = False
+
+    @staticmethod
+    def _identity(resp: Any) -> tuple:
+        kind = resp.WhichOneof("step")
+        return (kind, resp.scores.cluster_id) if kind == "scores" else (kind,)
 
     def _read_next(self) -> Any:
         try:
@@ -131,7 +150,7 @@ class _Stream:
 
     def next(self) -> Any:
         resp = retrying(self._stub, "Search", self._read_next)
-        self._got += 1
+        self._seen.append(self._identity(resp))
         if resp.WhichOneof("step") == "error":
             self._q.put(None)
             raise collection_error(resp.error.code, resp.error.message)
@@ -243,12 +262,6 @@ def run_search(
     n_fields = len(col.cards)
     ext = filter_query(q, col.cards, filter)
     total = col.cluster_count
-    sizes: dict[int, list[int]] = {}
-    listing = col.stub.ListBlocks(
-        pb.ListBlocksRequest(api_version=API_VERSION, collection=col.name)
-    )
-    for b in listing.blocks:
-        sizes.setdefault(b.cluster_id, []).append(b.n_vectors)  # catalog order = result order
     # Decoys and the request order must be unpredictable. `_rng` is a private hook for tests only;
     # Collection.search refuses it (audit A-42).
     rng = secrets.SystemRandom() if _rng is None else _rng
@@ -286,9 +299,9 @@ def run_search(
             for m in msgs:
                 if m.cluster_id not in part:
                     raise RuntimeError("server answered a cluster that was not asked")
-                blocks = sizes.get(m.cluster_id, [])
+                blocks = [int(n) for n in m.block_sizes]  # the answer's own layout
                 if len(m.score_blocks) != len(blocks) or len(m.ids) != sum(blocks):
-                    raise RuntimeError("block layout changed during the search")
+                    raise RuntimeError("search answer does not describe its blocks")
                 pos = 0
                 for env, n in zip(m.score_blocks, blocks, strict=True):
                     envs.append(bytes(env))
