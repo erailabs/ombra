@@ -38,7 +38,7 @@ D_DOMAIN = DIGIT * DIGIT  # 4096
 FETCH_FACTOR = 4  # records fetched per query = FETCH_FACTOR * rerank_factor * k (fixed)
 _MAGIC = b"OSCH"
 _VERSION = 1
-_HEAD = struct.Struct("<4sHI")
+_HEAD = struct.Struct("<4sHxxI")  # 12 bytes
 _BIG = 1 << 62
 
 KINDS = ("buckets", "two_digit")
@@ -237,6 +237,7 @@ class RangeSchema:
             ],
             separators=(",", ":"),
         ).encode()
+        body += b" " * (-len(body) % 4)  # a record blob holds whole float32 values
         return _HEAD.pack(_MAGIC, _VERSION, len(body)) + body
 
     @classmethod
