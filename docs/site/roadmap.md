@@ -28,7 +28,7 @@ Items are in two groups. "Next" is work that has started or is small and agreed.
 
 **A REST admin API.** The REST port serves only a health check and metrics. Collections are managed through gRPC and the Python client. We plan REST calls for collection management.
 
-**Other operations features.** Mutual TLS as an alternative to API keys, API keys limited to one collection, a Helm chart for Kubernetes, backup to object storage such as S3, and a scheduler that runs several queries in one pass over the stored data. Today: see [Backups](operations/backups.md) for how to back up the data directory.
+**Other operations features.** Mutual TLS as an alternative to API keys, a Helm chart for Kubernetes, backup to object storage such as S3, and a scheduler that runs several queries in one pass over the stored data. Today: see [Backups](operations/backups.md) for how to back up the data directory.
 
 **More platforms.** Windows client wheels and support for Blackwell GPUs. Today the client has no Windows build, and the server is built for Turing, Ampere, Ada and Hopper GPUs only.
 
