@@ -39,6 +39,8 @@ import numpy as np
 from ombra import _seeding, presets
 from ombra import query as oq
 from ombra._decrypt import ExpectedShapes, check_ciphertext, decrypt_values
+from ombra._proto import insert_requests
+from ombra._transport import id_batches
 from ombra.blobstore import KIND_DOCUMENT, KIND_RECORD, BlobStore, BlobStoreError, GrpcBlobStore
 from ombra.clustering import assign, cluster_vectors
 from ombra.documents import DocumentCodec
@@ -143,14 +145,15 @@ class KeyKit:
         pk = ofhe.Serialize(self._keys.publicKey, ofhe.BINARY)
         return self._BLOB_MAGIC + struct.pack("<HI", self._BLOB_VERSION, len(sk)) + sk + pk
 
-    def _restore(self, blob: bytes) -> Any:
+    @classmethod
+    def _restore(cls, blob: bytes) -> Any:
         import openfhe as ofhe
 
         head = struct.Struct("<4sHI")
         if len(blob) < head.size:
             raise ValueError("key blob is truncated")
         magic, version, n = head.unpack_from(blob)
-        if magic != self._BLOB_MAGIC or version != self._BLOB_VERSION:
+        if magic != cls._BLOB_MAGIC or version != cls._BLOB_VERSION:
             raise ValueError("key blob has an unknown format or version")
         sk_raw, pk_raw = blob[head.size : head.size + n], blob[head.size + n :]
 
@@ -164,6 +167,17 @@ class KeyKit:
             secretKey=load(sk_raw, ofhe.DeserializePrivateKeyString),
             publicKey=load(pk_raw, ofhe.DeserializePublicKeyString),
         )
+
+    @classmethod
+    def key_tag_of_blob(cls, blob: bytes) -> str:
+        """The key tag of a saved secret blob. Both keys must deserialize and carry the same tag
+        (a public key that does not belong to the secret key is refused). Returns only the tag,
+        which is public (the server stores it); nothing secret leaves."""
+        keys = cls._restore(blob)
+        tag = keys.publicKey.GetKeyTag()
+        if keys.secretKey.GetKeyTag() != tag:
+            raise ValueError("the secret key and the public key in the key file do not match")
+        return str(tag)
 
     def save(
         self,
@@ -597,7 +611,9 @@ class Collection:
         self._insert(blocks)
 
     def _insert(self, blocks: list[Any]) -> int:
-        r = self.stub.Insert(Replayable(lambda: iter(blocks)))
+        # The blocks are encrypted once and kept: a retry after a lost answer sends the same bytes,
+        # and the server then recognizes the stored block and stores nothing twice.
+        r = self.stub.Insert(Replayable(lambda: insert_requests(self.pb, blocks)))
         _check(r.error)
         return r.inserted
 
@@ -653,13 +669,16 @@ class Collection:
     def delete(self, ids: Sequence[bytes]) -> int:
         """Delete vectors (tombstones on the server) and their record and document blobs."""
         self._stats_for_delete(ids)
-        r = self.stub.Delete(
-            self.pb.DeleteRequest(api_version=API_VERSION, collection=self.name, ids=list(ids))
-        )
-        _check(r.error)
+        deleted = 0
+        for batch in id_batches(ids):  # each request stays under the server's receive limit
+            r = self.stub.Delete(
+                self.pb.DeleteRequest(api_version=API_VERSION, collection=self.name, ids=batch)
+            )
+            _check(r.error)
+            deleted += r.deleted
         for kind in (KIND_RECORD, KIND_DOCUMENT):
             self.blobs.delete(self.name, kind, ids)
-        return r.deleted
+        return deleted
 
     def _save_stats(self) -> None:
         """Store the cluster statistics as an encrypted blob under the reserved id (never plain)."""
