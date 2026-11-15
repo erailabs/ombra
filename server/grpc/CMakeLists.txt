@@ -143,3 +143,9 @@ find_package(OpenFHE QUIET)
 if(DEFINED OpenFHE_VERSION)
   target_compile_definitions(ombra_server PRIVATE OMBRA_OPENFHE_VERSION="${OpenFHE_VERSION}")
 endif()
+
+# ---- ombra_router (decision 0029): CPU only, no OpenFHE, no GPU ---------------------------------
+add_executable(ombra_router ../router/src/ombra_router.cpp ../router/src/router_service.cpp)
+target_include_directories(ombra_router PRIVATE ../router/src)
+target_link_libraries(ombra_router PRIVATE ombra_router_placement ombra_server_admin ombra_proto)
+target_compile_definitions(ombra_router PRIVATE OMBRA_VERSION="${PROJECT_VERSION}")

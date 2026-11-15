@@ -107,6 +107,20 @@ The server keeps everything in its data directory, laid out as in [Backups](../o
 
 **API key file, version 2** (`api_keys.v2`): the same, with an optional fourth field on a line, the collection the key is limited to. The first line is `OMBRA-API-KEYS v2`. A line is `<salt, 32 hex> <hash, 64 hex> <scope> [<collection>]`, separated by single spaces. The collection is 1 to 128 printable ASCII characters without a space. An `admin` line with a collection, a fifth field, a bad hex string, an unknown scope or a file that group or others can read is refused, and so is a v1 file with a fourth field. The server reads both versions: it opens `api_keys.v2` if it exists, else `api_keys.v1`. It writes v1 until you create the first key with `--collection`. Then it writes v2 with the old keys copied unchanged and renames the old file to `api_keys.v1.migrated`. A v2 file is never turned back into v1. Version 1 files keep working with no change.
 
+## Placement file
+
+The map that `ombra_router` reads (see [Several nodes and a router](../operations/routing.md)). UTF-8 text with one record per line. A line that starts with `#` is a comment.
+
+```text
+ombra-placement 1
+epoch 7
+node a 10.0.0.1:50051
+node b 10.0.0.2:50051
+collection docs a b
+```
+
+The first line is the version header. The router refuses any other version, and any other first line. `epoch` is a counter of map changes, written to the log when the map is loaded. A `node` line has an id (1 to 64 characters from `A-Z a-z 0-9 . _ -`) and the `HOST:PORT` of the node. The order of the `node` lines is the order of the nodes. The first node holds the alias table. A `collection` line limits a collection to the listed nodes; a collection with no line is on every node. A duplicate node id, a collection that names an unknown node and a file with no node are refused. The file holds no cluster numbers: the owner of a cluster is computed from the node ids (highest random weight of cluster number and node id), so it never depends on the data. The router never writes the file; tools that do write it with a temporary file, a sync and a rename.
+
 ## Collection info
 
 A small encrypted record that says which embedding model a collection was built for (see [Migrating a collection](../operations/migration.md)). It is a record blob (kind 1) under the reserved id `\x00ombra/info`, sealed like the cluster statistics, so the server sees only a blob of the smallest size. The plaintext, which only the client reads, is: magic `OINF`, a 2-byte version (1), a 4-byte length, a UTF-8 JSON object of at most 4096 bytes, and zero padding to a multiple of 4. A reader refuses another magic or version. `ombra-migrate` writes the keys `model`, `source`, `migration`, `created` and `preset`; other keys are kept as they are.

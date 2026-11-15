@@ -7,3 +7,5 @@ add_subdirectory(cache)
 add_subdirectory(search)
 # gRPC server: policy on the CPU, service and executable with CUDA and gRPC for C++.
 add_subdirectory(grpc)
+# Router over several nodes: placement logic on the CPU, ombra_router with gRPC for C++.
+add_subdirectory(router)

@@ -35,6 +35,7 @@ enum class Err : int {
   AliasNotFound = 16,
   AliasExists = 17,
   AliasConflict = 18,
+  Unavailable = 19,  // sent by the router only
 };
 
 // The proto name of an error code without its ERROR_ prefix ("COLLECTION_NOT_FOUND"), and the HTTP

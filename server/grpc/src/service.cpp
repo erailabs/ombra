@@ -52,6 +52,7 @@ static_assert(static_cast<int>(v1::ERROR_STORAGE_FULL) == static_cast<int>(Err::
 static_assert(static_cast<int>(v1::ERROR_ALIAS_NOT_FOUND) == static_cast<int>(Err::AliasNotFound));
 static_assert(static_cast<int>(v1::ERROR_ALIAS_EXISTS) == static_cast<int>(Err::AliasExists));
 static_assert(static_cast<int>(v1::ERROR_ALIAS_CONFLICT) == static_cast<int>(Err::AliasConflict));
+static_assert(static_cast<int>(v1::ERROR_UNAVAILABLE) == static_cast<int>(Err::Unavailable));
 static_assert(static_cast<std::uint64_t>(v1::LIMIT_BLOB_BUCKET_0) == storage::kBlobBuckets[0]);
 static_assert(static_cast<std::uint64_t>(v1::LIMIT_BLOB_BUCKET_1) == storage::kBlobBuckets[1]);
 static_assert(static_cast<std::uint64_t>(v1::LIMIT_BLOB_BUCKET_2) == storage::kBlobBuckets[2]);
