@@ -15,7 +15,7 @@ FUZZ_CXX    ?= $(shell command -v clang++ || echo clang++-18)
 CMD         ?= nvidia-smi
 
 .DEFAULT_GOAL := help
-.PHONY: help venv build build-cpu test test-asan fuzz fuzz-corpus test-gpu test-openfhe test-openfhe-local bench gpu-info results-pull fmt lint clean prebuild on-gpu
+.PHONY: help venv build build-cpu test test-crash test-asan fuzz fuzz-corpus test-gpu test-openfhe test-openfhe-local bench gpu-info results-pull fmt lint clean prebuild on-gpu
 
 help: ## List commands
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-14s %s\n", $$1, $$2}'
@@ -36,6 +36,9 @@ build-cpu: ## Build C++ code without CUDA, with a CPU-only ombra_server (tests a
 test: build-cpu ## Run CPU tests locally (C++ and Python)
 	ctest --test-dir $(BUILD_DIR)-cpu --output-on-failure --no-tests=ignore
 	$(PYTHON) -m pytest -m "not gpu and not openfhe"; code=$$?; [ $$code -eq 0 ] || [ $$code -eq 5 ]
+
+test-crash: build-cpu ## Kill and recovery tests (long; needs OpenFHE 1.6.1 and the native client); OMBRA_CRASH_ITERS, OMBRA_CRASH_DIR
+	OMBRA_SERVER_BIN=$(or $(OMBRA_SERVER_BIN),$(CURDIR)/$(BUILD_DIR)-cpu/server/grpc/ombra_server) $(PYTHON) -m pytest -m crash -v
 
 test-asan: ## Run the CPU C++ tests under AddressSanitizer and UBSan (build-asan)
 	cmake -S . -B $(BUILD_DIR)-asan -DCMAKE_BUILD_TYPE=Debug -DOMBRA_ENABLE_CUDA=OFF -DOMBRA_ENABLE_SANITIZERS=ON
@@ -70,7 +73,7 @@ test-openfhe-local: build-cpu ## Run tests marked openfhe here, no Modal (needs 
 		-DPython_EXECUTABLE=$$($(PYTHON) -c 'import sys; print(sys.executable)')
 	cmake --build $(BUILD_DIR)-native -j
 	cp $(BUILD_DIR)-native/_native*.so client/ombra/
-	OMBRA_SERVER_BIN=$(CURDIR)/$(BUILD_DIR)-cpu/server/grpc/ombra_server $(PYTHON) -m pytest -m openfhe -v
+	OMBRA_SERVER_BIN=$(CURDIR)/$(BUILD_DIR)-cpu/server/grpc/ombra_server $(PYTHON) -m pytest -m "openfhe and not crash and not upgrade" -v
 
 bench: ## Run benchmarks on Modal (A100); TASK=<name> to pick one
 	modal run modal_app.py::bench --task $(TASK)

@@ -246,7 +246,16 @@ def test_openfhe(pytest_args: str = "") -> None:
     """
     _build("Release", targets=("ombra_expand", "ombra_encoding_check"))
     _build_native()  # local mode runs the compiled expansion in a child process
-    cmd = ["python", "-m", "pytest", "-m", "openfhe", "-v", "-s", *pytest_args.split()]
+    cmd = [
+        "python",
+        "-m",
+        "pytest",
+        "-m",
+        "openfhe and not crash and not upgrade",
+        "-v",
+        "-s",
+        *pytest_args.split(),
+    ]
     _run_no_skips(cmd)
     volume.commit()
 

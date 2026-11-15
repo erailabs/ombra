@@ -108,3 +108,5 @@ Thumbs.db
 .claude/worktrees/
 CLAUDE.local.md
 /site/
+crash-work/
+/*.log

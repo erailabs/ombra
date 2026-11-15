@@ -98,6 +98,7 @@ nav:
       - operations/docker.md
       - operations/gpus.md
       - operations/backups.md
+      - operations/durability.md
       - operations/monitoring.md
       - operations/upgrades.md
   - Roadmap: roadmap.md

@@ -420,6 +420,7 @@ std::string Store::insert(const std::string& collection, std::uint32_t cluster,
     }
     SegmentData sd{cluster, ids, cols};
     info = write_segment(path, sd);  // rename crash points fire inside
+    maybe_crash(CrashPoint::InsertAfterUnlockedWrite);
   } catch (...) {
     discard_new_file();
     throw;

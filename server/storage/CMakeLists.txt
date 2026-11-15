@@ -23,6 +23,10 @@ add_library(ombra_storage STATIC src/segment.cpp src/wal.cpp src/catalog.cpp src
 target_include_directories(ombra_storage PUBLIC include
                            ${CMAKE_CURRENT_SOURCE_DIR}/../../core/include)
 target_link_libraries(ombra_storage PUBLIC ombra_sqlite)
+if(OMBRA_ENABLE_TEST_HOOKS)
+  # PUBLIC: failpoint.hpp is header-only, so every user must see the same definition (ODR).
+  target_compile_definitions(ombra_storage PUBLIC OMBRA_ENABLE_TEST_HOOKS)
+endif()
 
 # Offline tools: read-only integrity check and online backup. CPU only, no OpenFHE.
 add_executable(ombra_verify tools/ombra_verify.cpp)

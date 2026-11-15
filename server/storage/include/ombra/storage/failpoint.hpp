@@ -9,6 +9,8 @@
 #include <atomic>
 #include <cerrno>
 #include <chrono>
+#include <cstdlib>
+#include <cstring>
 #include <thread>
 
 namespace ombra::storage {
@@ -19,6 +21,7 @@ enum class CrashPoint : int {
   InsertAfterIntent,
   InsertBeforeSegmentRename,
   InsertAfterSegmentRename,
+  InsertAfterUnlockedWrite,  // block file durable, the store lock not yet retaken (step 2 to 3)
   InsertAfterCatalog,
   InsertAfterCommit,
   DeleteBeforeRecord,
@@ -47,8 +50,57 @@ enum class CrashPoint : int {
 
 inline constexpr int kCrashExitCode = 42;
 
+#ifdef OMBRA_ENABLE_TEST_HOOKS
+// Test builds only (CMake option OMBRA_ENABLE_TEST_HOOKS, defined for every user of this header by
+// the ombra_storage target): the environment variable OMBRA_CRASH_POINT=<enum name> arms a point
+// when the process first reaches one, so the process tests can crash a real server. Release builds
+// do not compile this and never read the variable.
+inline int crash_point_from_env() {
+  const char* env = std::getenv("OMBRA_CRASH_POINT");
+  if (env == nullptr) return 0;
+  static const struct {
+    const char* name;
+    CrashPoint point;
+  } kNames[] = {
+      {"InsertBeforeIntent", CrashPoint::InsertBeforeIntent},
+      {"InsertAfterIntent", CrashPoint::InsertAfterIntent},
+      {"InsertBeforeSegmentRename", CrashPoint::InsertBeforeSegmentRename},
+      {"InsertAfterSegmentRename", CrashPoint::InsertAfterSegmentRename},
+      {"InsertAfterUnlockedWrite", CrashPoint::InsertAfterUnlockedWrite},
+      {"InsertAfterCatalog", CrashPoint::InsertAfterCatalog},
+      {"InsertAfterCommit", CrashPoint::InsertAfterCommit},
+      {"DeleteBeforeRecord", CrashPoint::DeleteBeforeRecord},
+      {"DeleteAfterRecord", CrashPoint::DeleteAfterRecord},
+      {"DeleteAfterCatalog", CrashPoint::DeleteAfterCatalog},
+      {"DropBeforeCatalog", CrashPoint::DropBeforeCatalog},
+      {"DropAfterCatalog", CrashPoint::DropAfterCatalog},
+      {"DropAfterWalReset", CrashPoint::DropAfterWalReset},
+      {"DropAfterFirstFile", CrashPoint::DropAfterFirstFile},
+      {"ReplaceBeforeNewFile", CrashPoint::ReplaceBeforeNewFile},
+      {"ReplaceAfterNewFile", CrashPoint::ReplaceAfterNewFile},
+      {"ReplaceAfterCatalog", CrashPoint::ReplaceAfterCatalog},
+      {"ReplaceAfterFirstUnlink", CrashPoint::ReplaceAfterFirstUnlink},
+      {"ReplaceAfterUnlink", CrashPoint::ReplaceAfterUnlink},
+      {"CompactBeforeCatalog", CrashPoint::CompactBeforeCatalog},
+      {"CompactAfterCatalog", CrashPoint::CompactAfterCatalog},
+      {"CompactAfterUnlink", CrashPoint::CompactAfterUnlink},
+      {"BlobBeforeRename", CrashPoint::BlobBeforeRename},
+      {"BlobAfterRename", CrashPoint::BlobAfterRename},
+      {"BlobAfterCatalog", CrashPoint::BlobAfterCatalog},
+      {"BlobDeleteAfterCatalog", CrashPoint::BlobDeleteAfterCatalog},
+  };
+  for (const auto& e : kNames)
+    if (std::strcmp(env, e.name) == 0) return static_cast<int>(e.point);
+  return 0;
+}
+#endif
+
 inline std::atomic<int>& crash_point_storage() {
+#ifdef OMBRA_ENABLE_TEST_HOOKS
+  static std::atomic<int> p{crash_point_from_env()};
+#else
   static std::atomic<int> p{0};
+#endif
   return p;
 }
 inline void set_crash_point(CrashPoint p) { crash_point_storage().store(static_cast<int>(p)); }
