@@ -154,7 +154,7 @@ class RangeSchema:
                 raise ValueError(f"range field kind must be one of {list(KINDS)}")
             edges = tuple(int(e) for e in edges)
             if kind == "buckets":
-                if len(edges) > BUCKETS - 1 or any(a >= b for a, b in zip(edges, edges[1:])):
+                if len(edges) > BUCKETS - 1 or any(a >= b for a, b in zip(edges, edges[1:], strict=False)):
                     raise ValueError(
                         f"edges of {name!r}: strictly ascending, at most {BUCKETS - 1} cut points"
                     )

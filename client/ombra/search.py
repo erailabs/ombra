@@ -32,8 +32,8 @@ from ombra.blobstore import KIND_RECORD
 from ombra.errors import CollectionError, OmbraError, collection_error, from_rpc_error
 from ombra.file_format import Kind, read_envelope
 from ombra.presets import FILTER_LAMBDA
-from ombra.ranges import FETCH_FACTOR
 from ombra.probe import FIELDS_KEY, ProbePlanner, decoy_round_sizes, strict_halves
+from ombra.ranges import FETCH_FACTOR
 from ombra.retry import retrying
 from ombra.topk import ParallelTopk
 
@@ -426,8 +426,10 @@ def _finish_range(
     order = top + pad
     rng.shuffle(order)
     real = set(top)
-    eq = {fi: ([w] if isinstance(w, int | np.integer) else [int(v) for v in w])
-          for fi, w in (filter or {}).items()}
+    eq = {
+        fi: ([w] if isinstance(w, int | np.integer) else [int(v) for v in w])
+        for fi, w in (filter or {}).items()
+    }
     scored, rejected = [], 0
     for ident in order:
         rec = col.codec.open_record(ident, col.blobs.get(col.name, KIND_RECORD, ident))

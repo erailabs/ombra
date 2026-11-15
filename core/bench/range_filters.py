@@ -165,7 +165,9 @@ def bucket_fp_rate(field_kind, edges, v, lo, hi):
     inr = (v >= lo) & (v <= hi)
     if field_kind == "buckets":
         b = np.searchsorted(edges, v, side="right")
-        passed = (b >= np.searchsorted(edges, lo, "right")) & (b <= np.searchsorted(edges, hi, "right"))
+        passed = (b >= np.searchsorted(edges, lo, "right")) & (
+            b <= np.searchsorted(edges, hi, "right")
+        )
     else:
         c, f = v // 64, v % 64
         cl, ch = lo // 64, hi // 64

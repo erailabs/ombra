@@ -105,7 +105,15 @@ def test_decode_and_exactness(kind, with_eq) -> None:
     eq_cards = (5,) if with_eq else ()
     eq_vals = rng.integers(0, 5, (n, 1)) if with_eq else np.zeros((n, 0), dtype=np.int64)
     n_fields = len(eq_cards) + schema.n_fields
-    for lo, hi in [(100, 100), (100, 150), (0, 63), (63, 64), (130, 2000), (0, D_DOMAIN - 1), (4000, 5000)]:
+    for lo, hi in [
+        (100, 100),
+        (100, 150),
+        (0, 63),
+        (63, 64),
+        (130, 2000),
+        (0, D_DOMAIN - 1),
+        (4000, 5000),
+    ]:
         plan = schema.plan({"x": {"gte": lo, "lte": hi}})
         eqf = {0: [1, 3]} if with_eq else None
         slot, score = _slots(schema, plan, eq_cards, eqf, eq_vals, raw, rng)
@@ -116,7 +124,11 @@ def test_decode_and_exactness(kind, with_eq) -> None:
         truth = (raw >= lo) & (raw <= hi)
         if with_eq:
             truth &= np.isin(eq_vals[:, 0], [1, 3])
-        ok = [i for i in cand if plan.exact({"x": int(raw[i])}) and (not with_eq or eq_vals[i, 0] in (1, 3))]
+        ok = [
+            i
+            for i in cand
+            if plan.exact({"x": int(raw[i])}) and (not with_eq or eq_vals[i, 0] in (1, 3))
+        ]
         assert sorted(ok) == sorted(np.nonzero(truth)[0])  # no true match is lost, none is added
         assert truth.sum() <= len(cand)
 

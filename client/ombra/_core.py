@@ -137,9 +137,7 @@ class ClientCore:
             raise ValueError("vectors must be a non-empty 2-D array")
         names = tuple(filter_fields or {})
         eq_cards = tuple((filter_fields or {}).values())
-        schema = (
-            RangeSchema.from_spec(range_fields, len(names), names) if range_fields else None
-        )
+        schema = RangeSchema.from_spec(range_fields, len(names), names) if range_fields else None
         cards = eq_cards + (schema.cards if schema else ())
         id_bytes = self._make_ids(ids, len(x))
         derived = presets.derive(preset, x.shape[1])

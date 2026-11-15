@@ -71,6 +71,18 @@ The defaults are 4 attempts, a 0.25 s base delay, an 8 s cap and a 120 s total b
     options:
       show_if_no_docstring: true
 
+## Range filters
+
+`Client.create_collection(range_fields=...)` and the filter bounds are described in [Filters](../how-it-works/filters.md#range-fields). These helpers make the cut points.
+
+::: ombra.ranges.quantile_edges
+    options:
+      show_if_no_docstring: true
+
+::: ombra.ranges.equal_width_edges
+    options:
+      show_if_no_docstring: true
+
 ## Presets
 
 The preset values themselves are listed on the [Presets](presets.md) page.

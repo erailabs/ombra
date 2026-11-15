@@ -18,7 +18,7 @@ where $c$ is the number of fields on which the vector matches the filter. A fiel
 
 Example with $\lambda = {{ const("ombra.presets.FILTER_LAMBDA") }}$ and two fields, language (3 values) and year (2 values). The filter is language in {0, 2} and year = 1. The query extension is $[4, 0, 4,\ 0, 4]$. A vector with language 2, year 1 gets $4 + 4 = 8$ on top of its score, so $c = 2$. A vector with language 1, year 1 gets $0 + 4$, so $c = 1$. A vector with language 0, year 0 gets $4 + 0$, also $c = 1$.
 
-Matching inside a field is OR, across fields it is AND. Fields and values are numbered integers; there are no ranges and no text matching.
+Matching inside a field is OR, across fields it is AND. Fields and values are numbered integers. There is no text matching. Integer ranges are built on top of this, see [Range fields](#range-fields).
 
 ## Bands
 
@@ -45,6 +45,31 @@ where $F_{cap}$ is the server's cap on filter fields, {{ const("ombra.presets.MA
 {% set fq = preset("fast", "first_mod_size") %}{% set fs = preset("fast", "scaling_mod_size") %}{% set bq = preset("balanced", "first_mod_size") %}{% set bs = preset("balanced", "scaling_mod_size") %}{% set lam = const("ombra.presets.FILTER_LAMBDA") %}Fast has $q_0 = {{ fq }}$ and $\Delta = {{ fs }}$, so $A = 2^{ {{ fq-fs-4 }} } = {{ 2 ** (fq-fs-4) }}$ and the formula gives $\lfloor {{ 2 ** (fq-fs-4)-1 }} / {{ lam }} \rfloor-1 = {{ (2 ** (fq-fs-4)-1) // lam-1 }}$, which the cap brings down to $F_{max} = {{ fmax("fast") }}$. Balanced has $q_0 = {{ bq }}$ and $\Delta = {{ bs }}$, so $A = 2^{ {{ bq-bs-4 }} } = {{ 2 ** (bq-bs-4) }}$ and $\lfloor {{ 2 ** (bq-bs-4)-1 }} / {{ lam }} \rfloor-1 = {{ (2 ** (bq-bs-4)-1) // lam-1 }}$, so $F_{max} = {{ fmax("balanced") }}$. Balanced has the larger scale, so less room is left for the filter weight.
 
 Creating a collection with more than $F_{max}$ fields fails. Two more limits apply: a field has between 1 and {{ const("ombra.presets.MAX_FILTER_CARDINALITY") }} values, and $d + \sum_f m_f$ must be at most half the ring dimension ({{ preset("fast", "ring_dim") // 2 }} for Fast, {{ preset("balanced", "ring_dim") // 2 }} for Balanced). A field with many distinct values, such as a user id, does not fit. Bucket it into at most {{ const("ombra.presets.MAX_FILTER_CARDINALITY") }} values or keep it out of the filter.
+
+## Range fields
+
+A filter such as `year >= 2020` or `price` between two numbers is still a sum of one-hot columns. The server sees ordinary filter fields and never learns that a field is a range. You declare range fields when you create the collection and put the raw integer in each record's metadata:
+
+```python
+client.create_collection(
+    "shop", vectors, ids, key_file=key_file, passphrase=passphrase,
+    metadata=[{"year": 2019, "price": 120}, ...],
+    range_fields={"year": [1995, 2000, 2010, 2020], "price": {"kind": "two_digit"}},
+)
+hits = client.search("shop", query, filter={"year": {"gte": 2015, "lt": 2022}})
+```
+
+A bound is `gte`, `gt`, `lte` or `lt`, alone or two together. A plain integer means equality. Ranges and equality fields combine with AND like any other filter.
+
+**Buckets (the default).** A range field has 64 values, called buckets. You give up to 63 cut points; bucket $b$ holds the values from cut point $b-1$ up to, not including, cut point $b$. The client stores the cut points in an encrypted blob next to the cluster statistics (a client format, version 1, under a reserved id). A record goes in its bucket, and its raw integer stays in its encrypted record. A range turns into the list of buckets it touches, and the query is the ordinary equality query on that list. A range with both ends on cut points is exact. Otherwise the two edge buckets also hold some values outside the range. The client reads the raw integer of every candidate it fetches for re-ranking and drops those. `ombra.ranges.quantile_edges` gives cut points with about the same number of records per bucket, and `equal_width_edges` gives equal widths. Quantile buckets keep the edge buckets small when the values are skewed.
+
+Example: cut points 10, 20, 30 give the buckets below 10, 10 to 19, 20 to 29 and 30 and above. The range 12 to 25 asks for buckets 1 and 2. A record with value 11 comes back from the server as a match and the client drops it.
+
+**Two digits (prototype).** `{"kind": "two_digit"}` stores a value from 0 to 4095 in two 64-value fields, the coarse digit $v \div 64$ and the fine digit $v \bmod 64$. The query gives weight 2 to every coarse digit strictly inside the range, weight 1 to the two edge coarse digits, and weight 1 to the fine digits the edges need. A record in range scores 2 or 3 units for the field and a record outside scores at most 1; with a range over several coarse digits the shared fine weights let a few outside records reach 2. The client accepts totals from $F$ to $F+m$ (with $m$ digit fields in the filter) and checks the raw value. The field counts as 3 units toward $F_{max}$.
+
+**Fetch count.** Dropping edge candidates needs their records, and the number of records fetched must not tell the server how selective a filter is. In a collection with range fields every search fetches the same number of record blobs, {{ const("ombra.ranges.FETCH_FACTOR") }} times the usual $3k$, whatever the filter. If fewer candidates exist, the client fetches other ids it saw in the probed clusters and throws those records away, in random order. If fewer than $k$ verified matches remain, the result says `incomplete`.
+
+**What the server learns.** The same as for equality fields: the number of fields and their size. Every range field has 64 values (two fields of 64 for two digits), so its size does not stand out. It sees the fixed fetch count and, in Fast, the round count. It does not see the bounds, the cut points or the values.
 
 ## Choosing clusters for a filter
 
