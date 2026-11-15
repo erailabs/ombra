@@ -279,3 +279,73 @@ def test_cli_status_and_missing_state(tmp_path: Path, capsys: pytest.CaptureFixt
     assert main(["status", "--state", str(tmp_path / "state.json")]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["phase"] == "planned" and out["target"] == "docs.m1"
+
+
+# ---- key rotation (decision 0031, option B): `plan(new_keys=True)` -------------------------------
+def test_new_keys_is_a_same_model_same_preset_rebuild(tmp_path: Path) -> None:
+    c = _client()
+    with pytest.raises(MigrationError, match="keeps the model"):
+        _plan(c, tmp_path, new_keys=True, embed=_embed, model="m")
+    with pytest.raises(MigrationError, match="keeps the model"):
+        _plan(c, tmp_path, new_keys=True, model="other")
+    with pytest.raises(MigrationError, match="keeps the preset"):
+        _plan(c, tmp_path, new_keys=True, target_preset="compact")
+    assert not (tmp_path / "state.json").exists()  # nothing was written by the refusals
+    m = _plan(c, tmp_path, new_keys=True)
+    assert m.state.mode == "rebuild" and m.state.target == "docs.m1"
+
+
+def test_the_target_key_file_must_not_be_the_source_key_file(tmp_path: Path) -> None:
+    c = _client()
+    with pytest.raises(MigrationError, match="new file"):
+        Migration.plan(
+            c,
+            "docs",
+            source_key_file=tmp_path / "s.key",
+            target_key_file=tmp_path / "." / "s.key",
+            source_passphrase="a",
+            target_passphrase="a",
+            state_path=tmp_path / "state.json",
+            new_keys=True,
+        )
+
+
+def test_rotation_flow_and_a_crash_in_the_build_resumes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    c = _client()
+    c.create_alias("live", "docs")
+    m = _plan(c, tmp_path, alias="live", new_keys=True, batch_size=6, drain_hours=0)
+    m.start(sample=5)
+    real_insert, calls = c.insert, [0]
+
+    def dying_insert(*a, **kw):
+        calls[0] += 1
+        if calls[0] == 3:  # the process dies between two backfill segments
+            raise KeyboardInterrupt
+        return real_insert(*a, **kw)
+
+    monkeypatch.setattr(c, "insert", dying_insert)
+    with pytest.raises(KeyboardInterrupt):
+        m.backfill()
+    partial = len(list(c.iter_records("docs.m1", ids_only=True)))
+    assert 5 < partial < N
+    monkeypatch.setattr(c, "insert", real_insert)
+    m2 = Migration.resume(
+        c, state_path=tmp_path / "state.json", source_passphrase="a", target_passphrase="b"
+    )
+    m2.backfill()  # copies only what is missing
+    assert {r.id for r in c.iter_records("docs", ids_only=True)} == {
+        r.id for r in c.iter_records("docs.m1", ids_only=True)
+    }
+    m2.verify(sample=5, k=3)
+    assert "live" in m2.switch()
+    m2.finish()
+    assert c.list_collections() == ["docs.m1"]
+
+
+def test_cli_new_keys_flag(tmp_path: Path) -> None:
+    from ombra.migrate import build_parser
+
+    a = build_parser().parse_args(["plan", "--new-keys", "--source", "docs"])
+    assert a.new_keys is True

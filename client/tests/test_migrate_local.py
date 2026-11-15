@@ -180,3 +180,121 @@ def test_cli_full_flow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) 
     assert main(["finish", *base, "--force"]) == 0
     assert main(["status", "--state", st]) == 0
     assert json.loads(capsys.readouterr().out.splitlines()[-1])["phase"] == "finished"
+
+
+# ---- key rotation (decision 0031, option B) ------------------------------------------------
+def _rotate(c: Client, root: Path, **kw) -> Migration:
+    return Migration.plan(
+        c,
+        "docs",
+        source_key_file=root / "docs.key",
+        target_key_file=root / "docs.m1.key",
+        source_passphrase="old",
+        target_passphrase="new",
+        state_path=root / "state.json",
+        filter_fields=["tag"],
+        scrypt_params=SCRYPT,
+        batch_size=4,
+        new_keys=True,
+        **kw,
+    )
+
+
+def _blob(c: Client, coll: str, blob_id: bytes) -> bytes:
+    from ombra.blobstore import KIND_RECORD
+
+    col = c._core._open[coll][0]
+    return col.blobs.get(coll, KIND_RECORD, blob_id)
+
+
+def test_rotation_round_trip_and_keys_are_new(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], caplog: pytest.LogCaptureFixture
+) -> None:
+    from ombra.documents import DocumentCodec, DocumentError
+    from ombra.errors import OmbraError
+    from ombra.keyfile import import_key_file
+
+    c, x = _make_source(tmp_path)
+    try:
+        before = {i: [h.id for h in c.search("docs", x[i], k=5)] for i in (0, 3, 7)}
+        m = _rotate(c, tmp_path)
+        m.start(sample=3)
+        m.backfill()
+        m.verify(sample=4, k=3, min_recall=0.5)
+        m.switch()
+        after = {i: [h.id for h in c.search("docs.m1", x[i], k=5)] for i in (0, 3, 7)}
+        assert after == before  # the same answers on the same data
+        recs = {r.id: r for r in c.iter_records("docs.m1")}
+        assert recs["id4"].document == "doc 4" and recs["id4"].metadata["n"] == 4
+
+        old = import_key_file(tmp_path / "docs.key", "old")
+        new = import_key_file(tmp_path / "docs.m1.key", "new")
+        assert old.secret_key != new.secret_key  # a new FHE key pair
+        assert old.master_key != new.master_key  # and a new master key
+
+        # the old key file is refused on the new collection (key tag mismatch)
+        with pytest.raises(OmbraError):
+            c.open_collection("docs.m1", key_file=tmp_path / "docs.key", passphrase="old")
+
+        # blobs: sealed under one master key, closed to the other
+        bid = b"id3"
+        old_codec = DocumentCodec(old.master_key, "docs.m1")
+        new_codec = DocumentCodec(new.master_key, "docs.m1")
+        blob_new = _blob(c, "docs.m1", bid)
+        assert new_codec.open_record(bid, blob_new).vector
+        with pytest.raises(DocumentError):
+            old_codec.open_record(bid, blob_new)
+        from ombra.probe import STATS_ID
+
+        for special in (STATS_ID,):  # the stats blob is re-sealed under the new master key too
+            blob = _blob(c, "docs.m1", special)
+            with pytest.raises(DocumentError):
+                old_codec.open_record(special, blob)
+            new_codec.open_record(special, blob)
+        sealed_old = old_codec.seal_record(bid, b"\0\0\0\0", {})
+        with pytest.raises(DocumentError):
+            new_codec.open_record(bid, sealed_old)
+
+        # no secret material in the state file or in anything printed or logged
+        state = (tmp_path / "state.json").read_bytes()
+        out = capsys.readouterr()
+        text = state + out.out.encode() + out.err.encode() + caplog.text.encode()
+        for secret in (old.secret_key, new.secret_key, old.master_key, new.master_key):
+            assert secret not in text and secret.hex().encode() not in text
+    finally:
+        c.close()
+
+
+def test_rotation_crash_between_segments_resumes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    c, x = _make_source(tmp_path)
+    try:
+        m = _rotate(c, tmp_path)
+        m.start(sample=2)
+        real, calls = c.insert, [0]
+
+        def dying(*a, **kw):
+            calls[0] += 1
+            if calls[0] == 2:
+                raise KeyboardInterrupt
+            return real(*a, **kw)
+
+        monkeypatch.setattr(c, "insert", dying)
+        with pytest.raises(KeyboardInterrupt):
+            m.backfill()
+        monkeypatch.setattr(c, "insert", real)
+        m2 = Migration.resume(
+            c,
+            state_path=tmp_path / "state.json",
+            source_passphrase="old",
+            target_passphrase="new",
+            scrypt_params=SCRYPT,
+            batch_size=4,
+        )
+        m2.backfill()
+        res = m2.verify(sample=4, k=3, min_recall=0.5)
+        assert res["target_live"] == N
+        assert c.search("docs.m1", x[6], k=1)[0].id == "id6"
+    finally:
+        c.close()

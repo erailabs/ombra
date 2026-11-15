@@ -180,6 +180,10 @@ def target_name_for(source: str, existing: Iterable[str]) -> tuple[str, int]:
     return f"{base}.m{n + 1}", n + 1
 
 
+def _same_path(a: str | os.PathLike[str], b: str | os.PathLike[str]) -> bool:
+    return Path(a).resolve() == Path(b).resolve()
+
+
 def _supports_aliases(client: Any) -> bool:
     core = getattr(client, "_core", None)
     return bool(getattr(getattr(core, "_t", None), "supports_aliases", True))
@@ -245,10 +249,25 @@ class Migration:
         model: str | None = None,
         drain_hours: float = DEFAULT_DRAIN_HOURS,
         n_clusters: int | None = None,
+        new_keys: bool = False,
         **options: Any,
     ) -> Migration:
         """Choose the target and write the state file. `embed` (or `embedder` as `pkg.mod:fn`)
-        selects re-embed mode, otherwise the mode is rebuild. Nothing is created on the server."""
+        selects re-embed mode, otherwise the mode is rebuild. Nothing is created on the server.
+
+        `new_keys=True` is key rotation (decision 0031, option B): same preset and dimension,
+        rebuild mode, so the target gets a fresh OpenFHE key pair and a fresh master key (every
+        target does) and every vector is encrypted again from its float32 copy. It is refused
+        together with an embedder, a model label or another preset, and the target key file must
+        be a different file from the source's. Nothing is re-keyed by algebra: the old key never
+        touches a new ciphertext."""
+        if new_keys:
+            if embed is not None or embedder or model:
+                raise MigrationError("--new-keys keeps the model: do not give an embedder or model")
+            if target_preset is not None:
+                raise MigrationError("--new-keys keeps the preset: do not give a target preset")
+        if _same_path(source_key_file, target_key_file):
+            raise MigrationError("the target key file must be a new file, not the source's")
         if Path(state_path).exists():
             raise MigrationError(f"{state_path} exists: resume it, or abort and remove it first")
         if Path(target_key_file).exists():
@@ -677,7 +696,10 @@ class Migration:
         s.phase = "finished"
         s.finished_at = self._now()
         self._save()
-        return f"dropped {s.source!r}; keep {s.source_key_file} as long as you keep backups"
+        return (
+            f"dropped {s.source!r}; keep {s.source_key_file} as long as you keep backups "
+            "made before the migration, and destroy it when you no longer need them"
+        )
 
     def abort(self) -> str:
         """Drop the target. Not possible after the switch (switch the alias back yourself)."""
@@ -757,6 +779,11 @@ def build_parser() -> argparse.ArgumentParser:
     plan.add_argument("--source-key-file")
     plan.add_argument("--target-key-file", help="new key file to write (must not exist)")
     plan.add_argument("--alias", help="alias the application opens; switched at `switch`")
+    plan.add_argument(
+        "--new-keys",
+        action="store_true",
+        help="key rotation: same model and preset, new FHE key pair and new master key",
+    )
     plan.add_argument("--target-preset", help="preset of the target (default: the source's)")
     plan.add_argument("--model", help="label of the embedding model (required with --embedder)")
     plan.add_argument("--filter-fields", default="", help="comma-separated names, creation order")
@@ -812,6 +839,7 @@ def _run(client: Any, args: argparse.Namespace) -> int:
             model=args.model,
             drain_hours=args.drain_hours,
             n_clusters=args.clusters,
+            new_keys=args.new_keys,
             batch_size=args.batch_size,
         )
         print(f"planned {m.state.source} -> {m.state.target} ({m.state.mode})")
