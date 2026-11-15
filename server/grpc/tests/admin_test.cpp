@@ -351,8 +351,9 @@ static void test_http() {
   CHECK(parse_http_request("GET\r\n\r\n", &r) == HttpParse::Bad);
   CHECK(parse_http_request("GET /x HTTP/1.1\r\nnocolon\r\n\r\n", &r) == HttpParse::Bad);
   std::size_t hb = 0;
-  CHECK(parse_http_request("POST /x HTTP/1.1\r\nContent-Length: 5\r\nX-Request-Id: abc\r\n\r\nhello",
-                           &r, &hb) == HttpParse::Ok &&
+  CHECK(parse_http_request(
+            "POST /x HTTP/1.1\r\nContent-Length: 5\r\nX-Request-Id: abc\r\n\r\nhello", &r, &hb) ==
+            HttpParse::Ok &&
         r.content_length == 5 && r.request_id == "abc" && hb == 58);
   CHECK(parse_http_request("POST /x HTTP/1.1\r\n\r\n", &r) == HttpParse::Ok &&
         r.content_length == 0);
@@ -362,10 +363,8 @@ static void test_http() {
         HttpParse::BodyTooLarge);
   CHECK(parse_http_request("POST /x HTTP/1.1\r\nContent-Length: 99999999999\r\n\r\n", &r) ==
         HttpParse::Bad);
-  CHECK(parse_http_request("POST /x HTTP/1.1\r\nContent-Length: -1\r\n\r\n", &r) ==
-        HttpParse::Bad);
-  CHECK(parse_http_request("POST /x HTTP/1.1\r\nContent-Length: 1x\r\n\r\n", &r) ==
-        HttpParse::Bad);
+  CHECK(parse_http_request("POST /x HTTP/1.1\r\nContent-Length: -1\r\n\r\n", &r) == HttpParse::Bad);
+  CHECK(parse_http_request("POST /x HTTP/1.1\r\nContent-Length: 1x\r\n\r\n", &r) == HttpParse::Bad);
   CHECK(parse_http_request("POST /x HTTP/1.1\r\nContent-Length: 1\r\nContent-Length: 1\r\n\r\n",
                            &r) == HttpParse::Bad);
   CHECK(parse_http_request("POST /x HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n", &r) ==

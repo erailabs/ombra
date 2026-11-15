@@ -78,14 +78,30 @@ struct Reader {
       if (i >= t.size()) break;
       const char e = t[i++];
       switch (e) {
-        case '"': out->push_back('"'); break;
-        case '\\': out->push_back('\\'); break;
-        case '/': out->push_back('/'); break;
-        case 'b': out->push_back('\b'); break;
-        case 'f': out->push_back('\f'); break;
-        case 'n': out->push_back('\n'); break;
-        case 'r': out->push_back('\r'); break;
-        case 't': out->push_back('\t'); break;
+        case '"':
+          out->push_back('"');
+          break;
+        case '\\':
+          out->push_back('\\');
+          break;
+        case '/':
+          out->push_back('/');
+          break;
+        case 'b':
+          out->push_back('\b');
+          break;
+        case 'f':
+          out->push_back('\f');
+          break;
+        case 'n':
+          out->push_back('\n');
+          break;
+        case 'r':
+          out->push_back('\r');
+          break;
+        case 't':
+          out->push_back('\t');
+          break;
         case 'u': {
           std::uint32_t u = 0;
           if (!hex4(&u)) return false;
@@ -103,7 +119,8 @@ struct Reader {
           put_utf8(out, u);
           break;
         }
-        default: return fail("bad escape");
+        default:
+          return fail("bad escape");
       }
     }
     return fail("unterminated string");
@@ -246,11 +263,21 @@ std::string json_string(std::string_view s) {
   std::string o = "\"";
   for (const unsigned char c : s) {
     switch (c) {
-      case '"': o += "\\\""; break;
-      case '\\': o += "\\\\"; break;
-      case '\n': o += "\\n"; break;
-      case '\r': o += "\\r"; break;
-      case '\t': o += "\\t"; break;
+      case '"':
+        o += "\\\"";
+        break;
+      case '\\':
+        o += "\\\\";
+        break;
+      case '\n':
+        o += "\\n";
+        break;
+      case '\r':
+        o += "\\r";
+        break;
+      case '\t':
+        o += "\\t";
+        break;
       default:
         if (c < 0x20) {
           char b[8];
@@ -306,10 +333,14 @@ std::string rest_error_body(std::string_view code, std::string_view message,
 
 const char* security_level_name(std::uint32_t level) {
   switch (level) {
-    case 1: return "fast";
-    case 2: return "decoy";
-    case 3: return "strict";
-    default: return "unspecified";
+    case 1:
+      return "fast";
+    case 2:
+      return "decoy";
+    case 3:
+      return "strict";
+    default:
+      return "unspecified";
   }
 }
 
@@ -322,9 +353,9 @@ bool parse_create_body(std::string_view body, storage::CollectionSpec* spec, std
   std::string why;
   if (!parse_json(body, &j, &why)) return fail("the body is not valid JSON");
   if (j.type != Json::Type::Object) return fail("the body must be a JSON object");
-  static constexpr std::string_view kKnown[] = {"name",          "preset",         "dimension",
-                                                "security_level", "key_tag",       "cluster_count",
-                                                "filter_fields", "api_version"};
+  static constexpr std::string_view kKnown[] = {"name",           "preset",     "dimension",
+                                                "security_level", "key_tag",    "cluster_count",
+                                                "filter_fields",  "api_version"};
   for (const auto& f : j.fields) {
     bool known = false;
     for (const auto k : kKnown) known = known || f.first == k;

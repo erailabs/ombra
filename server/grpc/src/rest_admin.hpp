@@ -27,8 +27,7 @@ namespace ombra::server {
 class RestAdmin {
  public:
   // keys == nullptr: authentication is off (--no-auth), as for the service.
-  RestAdmin(OmbraService& service, storage::Store& store, const ApiKeyStore* keys,
-            Metrics& metrics)
+  RestAdmin(OmbraService& service, storage::Store& store, const ApiKeyStore* keys, Metrics& metrics)
       : service_(service), store_(store), keys_(keys), metrics_(metrics) {}
   // Handles one request whose path is under /v1/. `request_id` is already valid.
   RestReply handle(const HttpRequest& req, const std::string& request_id);

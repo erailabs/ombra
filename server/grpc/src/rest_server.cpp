@@ -204,8 +204,8 @@ void RestServer::serve(int fd) {
   // Every response carries X-Request-Id: the client's value if valid, else a random one.
   std::string rid = log::new_request_id();
   const auto reply = [&](int status, const std::string& body, const std::string& extra = {}) {
-    write_all(http_response(status, body, "application/json",
-                            "X-Request-Id: " + rid + "\r\n" + extra));
+    write_all(
+        http_response(status, body, "application/json", "X-Request-Id: " + rid + "\r\n" + extra));
   };
 
   std::string buf;

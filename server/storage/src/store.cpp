@@ -622,7 +622,7 @@ void Store::blob_totals(const std::string& collection, std::uint64_t* count,
 
 std::uint64_t Store::disk_bytes(const std::string& collection) const {
   const auto size_of = [](const std::string& path) -> std::uint64_t {
-    struct stat st{};
+    struct stat st {};
     return ::stat(path.c_str(), &st) == 0 ? static_cast<std::uint64_t>(st.st_size) : 0;
   };
   std::lock_guard lk(mu_);

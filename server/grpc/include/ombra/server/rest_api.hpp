@@ -32,8 +32,8 @@ inline constexpr int kMaxJsonDepth = 8;
 inline constexpr std::size_t kMaxJsonNodes = 2000;
 
 // Parses one complete JSON document (RFC 8259) of at most 64 KiB. False on any error (the reason
-// is a fixed text), nesting above kMaxJsonDepth or more than kMaxJsonNodes values. Strings must be free of
-// control characters; \u escapes become UTF-8. Duplicate keys are refused.
+// is a fixed text), nesting above kMaxJsonDepth or more than kMaxJsonNodes values. Strings must be
+// free of control characters; \u escapes become UTF-8. Duplicate keys are refused.
 bool parse_json(std::string_view text, Json* out, std::string* error);
 
 // The text as a JSON string literal with quotes.
@@ -41,10 +41,10 @@ std::string json_string(std::string_view s);
 
 // ---- Routes -----------------------------------------------------------------------------------
 enum class RouteKind {
-  None,         // not under /v1/
-  Unknown,      // under /v1/ but not a route
-  List,         // /v1/collections
-  Collection,   // /v1/collections/{name}
+  None,        // not under /v1/
+  Unknown,     // under /v1/ but not a route
+  List,        // /v1/collections
+  Collection,  // /v1/collections/{name}
 };
 struct Route {
   RouteKind kind = RouteKind::None;
@@ -62,8 +62,9 @@ Route match_route(std::string_view path);
 bool parse_create_body(std::string_view body, storage::CollectionSpec* spec, std::string* error);
 
 // {"error":{"code":"...","message":"...","request_id":"..."}}. `code` is a proto error name
-// (policy.hpp err_name), a gRPC status name (UNAUTHENTICATED, PERMISSION_DENIED, UNAVAILABLE) or one
-// of NOT_FOUND, METHOD_NOT_ALLOWED, PAYLOAD_TOO_LARGE. `message` is a fixed text, never user data.
+// (policy.hpp err_name), a gRPC status name (UNAUTHENTICATED, PERMISSION_DENIED, UNAVAILABLE) or
+// one of NOT_FOUND, METHOD_NOT_ALLOWED, PAYLOAD_TOO_LARGE. `message` is a fixed text, never user
+// data.
 std::string rest_error_body(std::string_view code, std::string_view message,
                             std::string_view request_id);
 

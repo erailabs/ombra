@@ -34,7 +34,8 @@ HttpParse parse_http_request(std::string_view buf, HttpRequest* out,
                              std::size_t* header_bytes = nullptr);
 
 // A complete response with Connection: close.
-// `extra_headers` is zero or more complete "Name: value\r\n" lines (no user input without checking).
+// `extra_headers` is zero or more complete "Name: value\r\n" lines (no user input without
+// checking).
 std::string http_response(int status, std::string_view body,
                           std::string_view content_type = "application/json",
                           std::string_view extra_headers = {});

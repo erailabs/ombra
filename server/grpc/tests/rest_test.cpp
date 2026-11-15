@@ -79,8 +79,8 @@ static void test_create_body() {
       R"({"name":"docs","preset":"m0_depth2","dimension":16,"security_level":"decoy",)"
       R"("key_tag":"t","cluster_count":4,"filter_fields":[{"field_id":0,"cardinality":3}]})";
   CHECK(parse_create_body(good, &s, &e));
-  CHECK(s.name == "docs" && s.preset == "m0_depth2" && s.dimension == 16 &&
-        s.security_level == 2 && s.key_tag == "t" && s.cluster_count == 4 && s.api_version == 1 &&
+  CHECK(s.name == "docs" && s.preset == "m0_depth2" && s.dimension == 16 && s.security_level == 2 &&
+        s.key_tag == "t" && s.cluster_count == 4 && s.api_version == 1 &&
         s.filter_fields.size() == 1 && s.filter_fields[0].cardinality == 3);
   const auto bad = [&](const std::string& body) {
     ombra::storage::CollectionSpec x;
@@ -105,7 +105,8 @@ static void test_create_body() {
             R"("security_level":"fast","filter_fields":[{"field_id":0}]})"));
   CHECK(bad(R"({"name":"d","preset":"p","dimension":1,"key_tag":"t","cluster_count":1,)"
             R"("security_level":"fast","filter_fields":{}})"));
-  CHECK(std::string(security_level_name(1)) == "fast" && std::string(security_level_name(3)) == "strict");
+  CHECK(std::string(security_level_name(1)) == "fast" &&
+        std::string(security_level_name(3)) == "strict");
 }
 
 static void test_errors() {

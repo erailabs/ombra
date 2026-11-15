@@ -13,9 +13,9 @@
 // ombra_server --version
 //
 // The ombra.v1 gRPC server over the storage engine and the GPU search engine, with TLS,
-// API keys and a REST admin port. A build with OMBRA_ENABLE_CUDA=OFF (tests and development only)
-// has no GPU: every call works except Search, which answers with an error that says so, and
-// /metrics reports gpu_available false.
+// API keys and a REST port (/healthz, /readyz, /metrics and the collection API under /v1/). A build
+// with OMBRA_ENABLE_CUDA=OFF (tests and development only) has no GPU: every call works except
+// Search, which answers with an error that says so, and /metrics reports gpu_available false.
 //
 // Safe defaults: the server refuses to start without TLS unless --insecure is given, and without an
 // API key file (D/api_keys.v1, made with --create-api-key) unless --no-auth is given. Both flags
@@ -436,8 +436,7 @@ int main(int argc, char** argv) {
     std::unique_ptr<ombra::server::RestAdmin> rest_admin;
     std::unique_ptr<ombra::server::RestServer> rest;
     if (rest_port >= 0) {
-      rest_admin =
-          std::make_unique<ombra::server::RestAdmin>(service, store, keys.get(), metrics);
+      rest_admin = std::make_unique<ombra::server::RestAdmin>(service, store, keys.get(), metrics);
       rest = std::make_unique<ombra::server::RestServer>(
           rhost, rest_port, tls_cert, tls_key, keys.get(), metrics,
           [&store, &engine] { return collect_gauges(store, engine); },
