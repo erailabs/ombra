@@ -6,11 +6,7 @@ Items are in two groups. "Next" is work that has started or is small and agreed.
 
 ## Next
 
-**A smaller receive limit for single requests.** The server has one receive limit for every call, 1 GiB by default (`--max-message-mb`). One insert of a block of stored columns needs that much (about 600 MB at 1536 dimensions on Balanced), but most single requests are small. We plan a small limit for those, kept apart from the limit for streaming uploads. Today: the server refuses a call without a valid API key before it reaches the handler, and a memory quota caps what all calls hold together. Lower `--max-message-mb` if your collections are small.
-
 **Checks on uploaded contexts before they are read.** The server rebuilds the encryption context from bytes the client sends. It checks the size and the file header first, then lets OpenFHE read the bytes, and only then checks the security floor and compares the context with the collection's preset. We plan to check the floor and the preset from the raw bytes, before OpenFHE reads them. Today: give API keys only to clients you trust.
-
-**Shorter global locks in the storage layer.** The server holds some store locks while it writes to disk, so one slow writer can delay every other request. We plan to release them before the disk work. Today: this costs speed under many concurrent writers. It does not affect results.
 
 **Bucketing of filter value counts in the client.** The server sees how many fields a filter uses and how many distinct values each field has. The client does not yet round those counts up to a few sizes, so the exact counts leak. [What the server learns](security/what-the-server-learns.md) lists them as they are. Today: keep the number of values per field in mind when you design your fields.
 
@@ -30,7 +26,7 @@ Items are in two groups. "Next" is work that has started or is small and agreed.
 
 **Several nodes and a router.** One server runs on one machine, so a collection must fit there. We plan a router that sends each query to the nodes holding the clusters it needs and merges the encrypted results. Today: split your data across separate collections or servers in your own code.
 
-**Other operations features.** Mutual TLS as an alternative to API keys, API keys limited to one collection, a Helm chart for Kubernetes, backup to object storage such as S3, and a scheduler that runs several queries in one pass over the stored data. Today: see [Backups](operations/backups.md) for how to back up the data directory.
+**Other operations features.** Mutual TLS as an alternative to API keys, a Helm chart for Kubernetes, backup to object storage such as S3, and a scheduler that runs several queries in one pass over the stored data. Today: see [Backups](operations/backups.md) for how to back up the data directory.
 
 **More platforms.** Windows client wheels and support for Blackwell GPUs. Today the client has no Windows build, and the server is built for Turing, Ampere, Ada and Hopper GPUs only.
 
