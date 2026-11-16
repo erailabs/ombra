@@ -14,6 +14,7 @@ protobuf
 cryptography==50.0.2
 langchain-core
 langchain-tests
+llama-index-core
 ruff
 # Pinned: the version of clang-format changes what `make lint` accepts. Ubuntu 24.04 ships 18.
 clang-format==18.1.8

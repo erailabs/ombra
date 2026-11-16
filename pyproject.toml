@@ -22,7 +22,7 @@ ignore = ["S101"]  # assert is fine in tests
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "client", "core", "integrations", "docs"]
-pythonpath = ["client", "integrations/langchain-ombra"]
+pythonpath = ["client", "integrations/langchain-ombra", "integrations/llama-index-vector-stores-ombra"]
 markers = [
     "openfhe: needs openfhe-python; runs in the pinned image on Modal via `make test-openfhe`",
     "gpu: needs a CUDA GPU; runs on Modal via `make test-gpu`",

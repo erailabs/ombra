@@ -17,7 +17,7 @@ For GPU speed, run the server with `docker compose up -d` on a host with a [supp
 
 ## Status
 
-Version 0.1.0. One server on one machine, with the Python client and a LangChain adapter. The server is single-tenant: an API key has a scope (read, write or admin) but no collection, so any read key reads every collection on that server. Not built yet: several nodes, a plaintext-database mode, range filters, key rotation and a LlamaIndex adapter. The [roadmap](docs/site/roadmap.md) lists what is planned.
+Version 0.1.0. One server on one machine, with the Python client and LangChain and LlamaIndex adapters. The server is single-tenant: an API key has a scope (read, write or admin) but no collection, so any read key reads every collection on that server. Not built yet: several nodes, a plaintext-database mode, range filters, and key rotation. The [roadmap](docs/site/roadmap.md) lists what is planned.
 
 ## Security
 
@@ -36,7 +36,7 @@ Version 0.1.0. One server on one machine, with the Python client and a LangChain
 - [Security](docs/site/security/threat-model.md): the threat model and what the server learns
 - [Performance](docs/site/performance/latency-and-throughput.md): latency, throughput and storage
 
-The `examples/` folder has runnable scripts, and the LangChain adapter is in `integrations/langchain-ombra/`.
+The `examples/` folder has runnable scripts, and the adapters are in `integrations/langchain-ombra/` and `integrations/llama-index-vector-stores-ombra/`.
 
 ## Repository layout
 
@@ -45,7 +45,7 @@ The `examples/` folder has runnable scripts, and the LangChain adapter is in `in
 | `core/` | CUDA kernels and OpenFHE ciphertext format handling (C++/CUDA) |
 | `server/` | API, storage, clustering and GPU scheduling (C++) |
 | `client/` | Python client: keys, encryption, top-k, re-ranking |
-| `integrations/` | LangChain adapter |
+| `integrations/` | LangChain and LlamaIndex adapters |
 | `examples/` | Runnable scripts |
 | `tests/` | Cross-component and end-to-end tests |
 | `docs/` | The documentation site (`docs/site/`) and internal notes |

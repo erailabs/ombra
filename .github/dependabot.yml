@@ -10,6 +10,11 @@ updates:
     target-branch: dev
     schedule:
       interval: weekly
+  - package-ecosystem: pip
+    directory: /integrations/llama-index-vector-stores-ombra
+    target-branch: dev
+    schedule:
+      interval: weekly
   - package-ecosystem: github-actions
     directory: /
     target-branch: dev
