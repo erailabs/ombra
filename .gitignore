@@ -36,6 +36,7 @@ results-raw/
 *.bin
 !tests/fixtures/envelope_v1_ciphertext.bin
 !tests/fixtures/envelope_v2_seeded.bin
+!server/search/context_golden/*.bin
 
 # ---------------------------------------------------------------
 # C++ / CUDA / CMake
