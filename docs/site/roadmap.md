@@ -26,8 +26,6 @@ Items are in two groups. "Next" is work that has started or is small and agreed.
 
 **Several nodes and a router.** One server runs on one machine, so a collection must fit there. We plan a router that sends each query to the nodes holding the clusters it needs and merges the encrypted results. Today: split your data across separate collections or servers in your own code.
 
-**A REST admin API.** The REST port serves only a health check and metrics. Collections are managed through gRPC and the Python client. We plan REST calls for collection management.
-
 **Other operations features.** Mutual TLS as an alternative to API keys, a Helm chart for Kubernetes, backup to object storage such as S3, and a scheduler that runs several queries in one pass over the stored data. Today: see [Backups](operations/backups.md) for how to back up the data directory.
 
 **More platforms.** Windows client wheels and support for Blackwell GPUs. Today the client has no Windows build, and the server is built for Turing, Ampere, Ada and Hopper GPUs only.

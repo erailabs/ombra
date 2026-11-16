@@ -6,7 +6,7 @@ What the API never carries: the secret key, plaintext vectors, queries, document
 
 ## Is there a REST API?
 
-There is no REST data API. Everything that reads or writes vectors, blobs or collections goes over gRPC. The server has a small HTTP port for operators, turned on with `--rest-port` (the Docker image turns it on at 8080). It answers `GET` only and has three paths. `/healthz` needs no key and returns `{"status":"ok"}` while the process lives. `/readyz` needs no key and returns `{"status":"ready"}`, or 503 with `{"status":"draining"}` once the server has been told to stop. `/metrics` needs an admin API key and returns counters as JSON. See [Monitoring](../operations/monitoring.md). Any other path returns 404 and any other method 405.
+There is a small REST API for collection management and no REST data API. Everything that reads or writes vectors, blobs or documents goes over gRPC. The server has an HTTP port, turned on with `--rest-port` (the Docker image turns it on at 8080). It has `/healthz` and `/readyz` (no key), `/metrics` (admin key) and `/v1/collections` to list, create, inspect and drop collections. See [REST API](rest-api.md) and [Monitoring](../operations/monitoring.md).
 
 ## Connecting and authenticating
 

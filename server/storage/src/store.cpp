@@ -620,6 +620,21 @@ void Store::blob_totals(const std::string& collection, std::uint64_t* count,
   catalog_->blob_totals(collection, count, bytes);
 }
 
+std::uint64_t Store::disk_bytes(const std::string& collection) const {
+  const auto size_of = [](const std::string& path) -> std::uint64_t {
+    struct stat st {};
+    return ::stat(path.c_str(), &st) == 0 ? static_cast<std::uint64_t>(st.st_size) : 0;
+  };
+  std::lock_guard lk(mu_);
+  std::uint64_t total = 0;
+  for (const auto& r : catalog_->segments(collection)) total += size_of(segment_path(r.file));
+  for (const auto& kv : catalog_->key_files(collection))
+    total += size_of(key_dir() + "/" + kv.second);
+  std::uint64_t n = 0, bytes = 0;
+  catalog_->blob_totals(collection, &n, &bytes);
+  return total + bytes;  // the payload size of the blobs (the files add a small header)
+}
+
 std::size_t Store::delete_blobs(const std::string& collection, std::uint32_t kind,
                                 const std::vector<std::string>& ids) {
   std::lock_guard lk(mu_);

@@ -221,6 +221,10 @@ class Store {
   std::size_t delete_blobs(const std::string& collection, std::uint32_t kind,
                            const std::vector<std::string>& ids);
 
+  // Bytes on disk of one collection: its segment files, key files and blobs (not the catalog or
+  // the log). A file that is gone is counted as 0. For admin statistics; reads no file content.
+  std::uint64_t disk_bytes(const std::string& collection) const;
+
   const std::string& openfhe_version() const { return ofhe_; }
 
   SegmentData read_segment(const std::string& collection, const std::string& segment) const;

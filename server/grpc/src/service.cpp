@@ -235,24 +235,30 @@ grpc::Status OmbraService::run_CreateCollection(grpc::ServerContext* ctx,
                                                 const v1::CreateCollectionRequest* req,
                                                 v1::CreateCollectionResponse* resp) {
   if (auto d = check_collection(ctx, req->spec().name()); !d.ok()) return d;
-  const auto spec = to_storage(req->spec());
+  create_collection_core(req->spec(), resp);
+  return grpc::Status::OK;
+}
+
+void OmbraService::create_collection_core(const v1::CollectionSpec& pspec,
+                                          v1::CreateCollectionResponse* resp) {
+  const auto spec = to_storage(pspec);
   Status st = validate_spec(spec);
   if (!st.ok()) {
     fill(resp->mutable_error(), st);
-    return grpc::Status::OK;
+    return;
   }
   if (spec.cluster_count > limits_.max_cluster_count) {
     fill(resp->mutable_error(), err(Err::SizeLimit, "cluster_count is above the server's limit"));
-    return grpc::Status::OK;
+    return;
   }
   try {
     if (store_.get_collection(spec.name, nullptr)) {
       fill(resp->mutable_error(), err(Err::CollectionExists, "collection exists"));
-      return grpc::Status::OK;
+      return;
     }
     if (store_.list_collections().size() >= limits_.max_collections) {
       fill(resp->mutable_error(), err(Err::SizeLimit, "too many collections"));
-      return grpc::Status::OK;
+      return;
     }
     store_.create_collection(spec);
     forget(spec.name);
@@ -265,7 +271,6 @@ grpc::Status OmbraService::run_CreateCollection(grpc::ServerContext* ctx,
     else
       fill(resp->mutable_error(), classify_current());
   }
-  return grpc::Status::OK;
 }
 
 static void fill_info(storage::Store& store, const storage::CollectionSpec& spec,
@@ -286,16 +291,20 @@ grpc::Status OmbraService::run_GetCollection(grpc::ServerContext* ctx,
                                              const v1::GetCollectionRequest* req,
                                              v1::GetCollectionResponse* resp) {
   if (auto d = check_collection(ctx, req->name()); !d.ok()) return d;
+  get_collection_core(req->name(), resp);
+  return grpc::Status::OK;
+}
+
+void OmbraService::get_collection_core(const std::string& name, v1::GetCollectionResponse* resp) {
   try {
     storage::CollectionSpec spec;
-    if (!store_.get_collection(req->name(), &spec))
+    if (!store_.get_collection(name, &spec))
       fill(resp->mutable_error(), err(Err::CollectionNotFound, "collection not found"));
     else
       fill_info(store_, spec, resp->mutable_info());
   } catch (...) {
     fill(resp->mutable_error(), classify_current());
   }
-  return grpc::Status::OK;
 }
 
 grpc::Status OmbraService::run_ListCollections(grpc::ServerContext* ctx,
@@ -303,6 +312,12 @@ grpc::Status OmbraService::run_ListCollections(grpc::ServerContext* ctx,
                                                v1::ListCollectionsResponse* resp) {
   Verified who;
   (void)authorize_who(keys_, bearer_of(ctx), Scope::Read, &who);
+  if (!list_collections_core(who, resp))
+    return grpc::Status(grpc::StatusCode::INTERNAL, "internal error");
+  return grpc::Status::OK;
+}
+
+bool OmbraService::list_collections_core(const Verified& who, v1::ListCollectionsResponse* resp) {
   try {
     for (const auto& n : store_.list_collections()) {
       if (!who.allows_collection(n)) continue;  // a scoped key sees only its own collection
@@ -311,24 +326,28 @@ grpc::Status OmbraService::run_ListCollections(grpc::ServerContext* ctx,
     }
   } catch (...) {
     (void)classify_current();  // logs the reason
-    return grpc::Status(grpc::StatusCode::INTERNAL, "internal error");
+    return false;
   }
-  return grpc::Status::OK;
+  return true;
 }
 
 grpc::Status OmbraService::run_DropCollection(grpc::ServerContext* ctx,
                                               const v1::DropCollectionRequest* req,
                                               v1::DropCollectionResponse* resp) {
   if (auto d = check_collection(ctx, req->name()); !d.ok()) return d;
+  drop_collection_core(req->name(), resp);
+  return grpc::Status::OK;
+}
+
+void OmbraService::drop_collection_core(const std::string& name, v1::DropCollectionResponse* resp) {
   try {
-    if (!store_.drop_collection(req->name()))
+    if (!store_.drop_collection(name))
       fill(resp->mutable_error(), err(Err::CollectionNotFound, "collection not found"));
     else
-      forget(req->name());
+      forget(name);
   } catch (...) {
     fill(resp->mutable_error(), classify_current());
   }
-  return grpc::Status::OK;
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -8,6 +8,67 @@
 
 namespace ombra::server {
 
+const char* err_name(Err e) {
+  switch (e) {
+    case Err::Ok:
+      return "OK";
+    case Err::UnsupportedVersion:
+      return "UNSUPPORTED_VERSION";
+    case Err::CollectionNotFound:
+      return "COLLECTION_NOT_FOUND";
+    case Err::CollectionExists:
+      return "COLLECTION_EXISTS";
+    case Err::InvalidArgument:
+      return "INVALID_ARGUMENT";
+    case Err::SizeLimit:
+      return "SIZE_LIMIT";
+    case Err::KeyTagMismatch:
+      return "KEY_TAG_MISMATCH";
+    case Err::PresetMismatch:
+      return "PRESET_MISMATCH";
+    case Err::InvalidFilterLayout:
+      return "INVALID_FILTER_LAYOUT";
+    case Err::KeysMissing:
+      return "KEYS_MISSING";
+    case Err::BadSequence:
+      return "BAD_SEQUENCE";
+    case Err::Internal:
+      return "INTERNAL";
+    case Err::BlockNotFound:
+      return "BLOCK_NOT_FOUND";
+    case Err::BlockMismatch:
+      return "BLOCK_MISMATCH";
+    case Err::BlobNotFound:
+      return "BLOB_NOT_FOUND";
+    case Err::StorageFull:
+      return "STORAGE_FULL";
+  }
+  return "INTERNAL";
+}
+
+int err_http_status(Err e) {
+  switch (e) {
+    case Err::Ok:
+      return 200;
+    case Err::CollectionNotFound:
+    case Err::BlockNotFound:
+    case Err::BlobNotFound:
+      return 404;
+    case Err::CollectionExists:
+    case Err::KeyTagMismatch:
+    case Err::PresetMismatch:
+    case Err::KeysMissing:
+    case Err::BlockMismatch:
+      return 409;
+    case Err::StorageFull:
+      return 503;  // gRPC: RESOURCE_EXHAUSTED, retryable
+    case Err::Internal:
+      return 500;
+    default:
+      return 400;  // version, argument, size, layout, sequence
+  }
+}
+
 const PresetInfo* find_preset(const std::string& name) {
   for (const auto& p : generated::kPresets)
     if (name == p.name) return &p;

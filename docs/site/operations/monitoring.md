@@ -72,7 +72,7 @@ The same insert as JSON:
 
 Lines written by the storage and search code (they start with `[ombra.storage]` or `[ombra.search]`) are plain text in both formats and carry no request id.
 
-`count` is a number of items, `bytes` a size and `ms` the time of the call. The server logs a line for each write and each search round, for refused calls (with the first characters of the key's hash, not the token), for REST requests denied by scope, for compaction, and for internal errors. A line never contains an id, a collection name, a value or a token. A key limited to another collection is refused with `reason=collection`.
+`count` is a number of items, `bytes` a size and `ms` the time of the call. The server logs a line for each write and each search round, for refused calls (with the first characters of the key's hash, not the token), for REST requests (route name, status and time, never the collection name) and those denied by scope, for compaction, and for internal errors. A line never contains an id, a collection name, a value or a token. A key limited to another collection is refused with `reason=collection`.
 
 On start, the server prints the gRPC address (and the REST address) to stdout, and warns on stderr when it runs with `--insecure` or `--no-auth`. The Docker entrypoint also prints one line when it makes a certificate or an API key on the first start, and never the key itself.
 
