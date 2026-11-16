@@ -33,12 +33,20 @@ const char* reason(int status) {
       return "Unauthorized";
     case 403:
       return "Forbidden";
+    case 201:
+      return "Created";
     case 404:
       return "Not Found";
     case 405:
       return "Method Not Allowed";
     case 408:
       return "Request Timeout";
+    case 409:
+      return "Conflict";
+    case 413:
+      return "Payload Too Large";
+    case 500:
+      return "Internal Server Error";
     case 503:
       return "Service Unavailable";
     case 431:
@@ -50,7 +58,7 @@ const char* reason(int status) {
 
 }  // namespace
 
-HttpParse parse_http_request(std::string_view buf, HttpRequest* out) {
+HttpParse parse_http_request(std::string_view buf, HttpRequest* out, std::size_t* header_bytes) {
   const std::size_t end = buf.find("\r\n\r\n");
   if (end == std::string_view::npos)
     return buf.size() >= kMaxHttpHeaderBytes ? HttpParse::TooLarge : HttpParse::Incomplete;
@@ -70,6 +78,7 @@ HttpParse parse_http_request(std::string_view buf, HttpRequest* out) {
   req.path = std::string(line.substr(s1 + 1, s2 - s1 - 1));
   if (req.path.empty() || req.path[0] != '/') return HttpParse::Bad;
 
+  bool have_length = false;
   std::string_view rest = eol == std::string_view::npos ? std::string_view{} : head.substr(eol + 2);
   while (!rest.empty()) {
     const std::size_t e = rest.find("\r\n");
@@ -83,19 +92,34 @@ HttpParse parse_http_request(std::string_view buf, HttpRequest* out) {
       req.authorization = std::string(value);
     else if (iequals(name, "transfer-encoding"))
       return HttpParse::Bad;
-    else if (iequals(name, "content-length") && value != "0")
-      return HttpParse::Bad;
+    else if (iequals(name, "x-request-id"))
+      req.request_id = std::string(value);
+    else if (iequals(name, "content-length")) {
+      if (have_length || value.empty() || value.size() > 9) return HttpParse::Bad;
+      std::size_t n = 0;
+      for (const char c : value) {
+        if (c < '0' || c > '9') return HttpParse::Bad;
+        n = n * 10 + static_cast<std::size_t>(c - '0');
+      }
+      have_length = true;
+      req.content_length = n;
+    }
   }
-  *out = std::move(req);
+  if (header_bytes) *header_bytes = end + 4;
+  const bool too_big = req.content_length > kMaxHttpBodyBytes;
+  *out = std::move(req);  // also when too big: the caller needs the path to shape its answer
+  if (too_big) return HttpParse::BodyTooLarge;
   return HttpParse::Ok;
 }
 
-std::string http_response(int status, std::string_view body, std::string_view content_type) {
+std::string http_response(int status, std::string_view body, std::string_view content_type,
+                          std::string_view extra_headers) {
   std::string s = "HTTP/1.1 " + std::to_string(status) + " " + reason(status) + "\r\n";
   s += "Content-Type: " + std::string(content_type) + "\r\n";
   s += "Content-Length: " + std::to_string(body.size()) + "\r\n";
   s += "Cache-Control: no-store\r\nConnection: close\r\n";
   if (status == 401) s += "WWW-Authenticate: Bearer\r\n";
+  s += extra_headers;
   s += "\r\n";
   s += body;
   return s;

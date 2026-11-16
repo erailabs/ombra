@@ -124,6 +124,44 @@ std::vector<std::string> Store::list_collections() const {
   return catalog_->list_collections();
 }
 
+AliasResult Store::create_alias(const std::string& name, const std::string& target) {
+  std::lock_guard lk(mu_);
+  return catalog_->create_alias(name, target);
+}
+
+AliasResult Store::switch_alias(const std::string& name, const std::string& new_target,
+                                const std::string& expected_target, AliasRow* current) {
+  std::lock_guard lk(mu_);
+  return catalog_->switch_alias(name, new_target, expected_target, current);
+}
+
+AliasResult Store::drop_alias(const std::string& name) {
+  std::lock_guard lk(mu_);
+  return catalog_->drop_alias(name);
+}
+
+bool Store::get_alias(const std::string& name, AliasRow* out) const {
+  std::lock_guard lk(mu_);
+  return catalog_->get_alias(name, out);
+}
+
+std::vector<AliasRow> Store::list_aliases() const {
+  std::lock_guard lk(mu_);
+  return catalog_->list_aliases();
+}
+
+bool Store::alias_covers(const std::string& scope, const std::string& name) const {
+  std::lock_guard lk(mu_);
+  AliasRow a;
+  return catalog_->get_alias(scope, &a) &&
+         (a.target == name || (!a.previous.empty() && a.previous == name));
+}
+
+bool Store::name_in_use(const std::string& name) const {
+  std::lock_guard lk(mu_);
+  return catalog_->get_collection(name, nullptr) || catalog_->get_alias(name, nullptr);
+}
+
 bool Store::is_live_data_id(const std::string& collection, const std::string& id) const {
   std::lock_guard lk(mu_);
   CollectionSpec spec;
@@ -619,6 +657,21 @@ void Store::blob_totals(const std::string& collection, std::uint64_t* count,
                         std::uint64_t* bytes) const {
   std::lock_guard lk(mu_);
   catalog_->blob_totals(collection, count, bytes);
+}
+
+std::uint64_t Store::disk_bytes(const std::string& collection) const {
+  const auto size_of = [](const std::string& path) -> std::uint64_t {
+    struct stat st {};
+    return ::stat(path.c_str(), &st) == 0 ? static_cast<std::uint64_t>(st.st_size) : 0;
+  };
+  std::lock_guard lk(mu_);
+  std::uint64_t total = 0;
+  for (const auto& r : catalog_->segments(collection)) total += size_of(segment_path(r.file));
+  for (const auto& kv : catalog_->key_files(collection))
+    total += size_of(key_dir() + "/" + kv.second);
+  std::uint64_t n = 0, bytes = 0;
+  catalog_->blob_totals(collection, &n, &bytes);
+  return total + bytes;  // the payload size of the blobs (the files add a small header)
 }
 
 std::size_t Store::delete_blobs(const std::string& collection, std::uint32_t kind,

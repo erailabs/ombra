@@ -10,14 +10,17 @@ to try Ombra itself.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+import re
+import time
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from ombra._core import CollectionInfo, SearchHit
+from ombra._core import AliasInfo, CollectionInfo, SearchHit, StoredRecord
+from ombra.errors import AliasConflictError, OmbraError
 from ombra.retry import RetryPolicy
 
 
@@ -50,6 +53,8 @@ class FakeClient:
         retry: RetryPolicy | None = None,
     ) -> None:
         self._colls: dict[str, _Coll] = {}
+        self._aliases: dict[str, AliasInfo] = {}
+        self._info: dict[str, dict[str, Any]] = {}
 
     @classmethod
     def local(cls, path: str | Path) -> FakeClient:
@@ -90,10 +95,12 @@ class FakeClient:
         passphrase: str,
         filter_fields: Sequence[str] | None = None,
     ) -> str:
-        self._get(name)
-        return name
+        real = self._aliases[name].target if name in self._aliases else name
+        self._get(real)
+        return real
 
     def get_collection(self, name: str) -> CollectionInfo:
+        name = self._aliases[name].target if name in self._aliases else name
         c = self._get(name)
         dim = len(c.vectors[0]) if c.vectors else 0
         return CollectionInfo(
@@ -112,7 +119,54 @@ class FakeClient:
 
     def drop_collection(self, name: str) -> None:
         self._get(name)
+        if any(a.target == name for a in self._aliases.values()):
+            raise OmbraError("an alias points at this collection")
         del self._colls[name]
+        self._info.pop(name, None)
+
+    def create_alias(self, name: str, target: str) -> AliasInfo:
+        if name in self._colls or name in self._aliases or re.search(r"\.g\d+$", name):
+            raise OmbraError("the alias name is taken or not allowed")
+        self._get(target)
+        self._aliases[name] = AliasInfo(name, target, "", int(time.time()))
+        return self._aliases[name]
+
+    def switch_alias(self, name: str, new_target: str, expected_target: str) -> AliasInfo:
+        a = self._aliases.get(name)
+        if a is None:
+            raise OmbraError("alias not found")
+        if a.target == new_target and expected_target in (new_target, a.previous):
+            return a  # a repeat of a switch that was applied
+        if a.target != expected_target:
+            raise AliasConflictError("the alias does not point at the expected collection")
+        self._get(new_target)
+        self._aliases[name] = AliasInfo(name, new_target, a.target, int(time.time()))
+        return self._aliases[name]
+
+    def drop_alias(self, name: str) -> None:
+        if self._aliases.pop(name, None) is None:
+            raise OmbraError("alias not found")
+
+    def list_aliases(self) -> list[AliasInfo]:
+        return [self._aliases[n] for n in sorted(self._aliases)]
+
+    def iter_records(self, collection: str, *, ids_only: bool = False) -> Iterator[StoredRecord]:
+        c = self._get(collection)
+        for i, ident in enumerate(list(c.ids)):
+            if ids_only:
+                yield StoredRecord(ident)
+            else:
+                yield StoredRecord(
+                    ident, c.vectors[i].astype("<f4"), dict(c.metadata[i]), c.documents[i]
+                )
+
+    def get_collection_info(self, collection: str) -> dict[str, Any] | None:
+        self._get(collection)
+        return self._info.get(collection)
+
+    def set_collection_info(self, collection: str, info: dict[str, Any]) -> None:
+        self._get(collection)
+        self._info[collection] = dict(info)
 
     def insert(
         self,

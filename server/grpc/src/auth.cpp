@@ -197,6 +197,14 @@ const char* rpc_name(Rpc r) {
       return "GetBlob";
     case Rpc::DeleteBlobs:
       return "DeleteBlobs";
+    case Rpc::CreateAlias:
+      return "CreateAlias";
+    case Rpc::SwitchAlias:
+      return "SwitchAlias";
+    case Rpc::DropAlias:
+      return "DropAlias";
+    case Rpc::ListAliases:
+      return "ListAliases";
     case Rpc::kCount:
       break;
   }
@@ -211,6 +219,7 @@ Scope required_scope(Rpc r) {
     case Rpc::GetBlock:
     case Rpc::GetBlob:
     case Rpc::Search:
+    case Rpc::ListAliases:
       return Scope::Read;
     case Rpc::CreateCollection:
     case Rpc::UploadKeys:
@@ -221,6 +230,9 @@ Scope required_scope(Rpc r) {
     case Rpc::DeleteBlobs:
       return Scope::Write;
     case Rpc::DropCollection:
+    case Rpc::CreateAlias:
+    case Rpc::SwitchAlias:
+    case Rpc::DropAlias:
     case Rpc::kCount:
       break;
   }

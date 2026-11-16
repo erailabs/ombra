@@ -57,6 +57,7 @@ def test_scripts_exist():
     assert {s.name for s in SCRIPTS} == {
         "filters_and_updates.py",
         "langchain_search.py",
+        "llamaindex_search.py",
         "local_search.py",
         "server_search.py",
     }
@@ -84,7 +85,11 @@ def test_every_script_is_on_the_examples_page():
 
 def run_script(name: str, tmp_path: Path) -> list[str]:
     """Run an example in a subprocess with its data under tmp_path; return its output lines."""
-    paths = [str(ROOT / "client"), str(ROOT / "integrations" / "langchain-ombra")]
+    paths = [
+        str(ROOT / "client"),
+        str(ROOT / "integrations" / "langchain-ombra"),
+        str(ROOT / "integrations" / "llama-index-vector-stores-ombra"),
+    ]
     if importlib.util.find_spec("sentence_transformers") is None:
         paths.insert(0, str(FAKE))
     env = {**os.environ, "TMPDIR": str(tmp_path)}
@@ -128,6 +133,15 @@ def test_langchain_search_runs(tmp_path):
     pytest.importorskip("langchain_core")
     needs_local_mode()
     lines = [ln for ln in run_script("langchain_search.py", tmp_path) if SCORE_LINE.match(ln)]
+    assert len(lines) == 2
+    assert lines[0].endswith(CENTRAL_BANK)
+
+
+@pytest.mark.openfhe
+def test_llamaindex_search_runs(tmp_path):
+    pytest.importorskip("llama_index.core")
+    needs_local_mode()
+    lines = [ln for ln in run_script("llamaindex_search.py", tmp_path) if SCORE_LINE.match(ln)]
     assert len(lines) == 2
     assert lines[0].endswith(CENTRAL_BANK)
 

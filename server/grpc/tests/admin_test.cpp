@@ -74,6 +74,11 @@ static void test_scopes() {
   CHECK(required_scope(Rpc::DeleteBlobs) == Scope::Write);
   CHECK(required_scope(Rpc::GetBlob) == Scope::Read);
   CHECK(required_scope(Rpc::DropCollection) == Scope::Admin);
+  // Aliases: a switch moves every client of a name, like a drop, so changing them is admin.
+  CHECK(required_scope(Rpc::CreateAlias) == Scope::Admin);
+  CHECK(required_scope(Rpc::SwitchAlias) == Scope::Admin);
+  CHECK(required_scope(Rpc::DropAlias) == Scope::Admin);
+  CHECK(required_scope(Rpc::ListAliases) == Scope::Read);
   CHECK(scope_allows(Scope::Admin, Scope::Write) && scope_allows(Scope::Write, Scope::Read));
   CHECK(!scope_allows(Scope::Read, Scope::Write) && !scope_allows(Scope::Write, Scope::Admin));
   for (std::size_t i = 0; i < kRpcCount; ++i)
@@ -350,8 +355,23 @@ static void test_http() {
   CHECK(parse_http_request("GET x HTTP/1.1\r\n\r\n", &r) == HttpParse::Bad);
   CHECK(parse_http_request("GET\r\n\r\n", &r) == HttpParse::Bad);
   CHECK(parse_http_request("GET /x HTTP/1.1\r\nnocolon\r\n\r\n", &r) == HttpParse::Bad);
-  CHECK(parse_http_request("POST /x HTTP/1.1\r\nContent-Length: 5\r\n\r\nhello", &r) ==
+  std::size_t hb = 0;
+  CHECK(parse_http_request(
+            "POST /x HTTP/1.1\r\nContent-Length: 5\r\nX-Request-Id: abc\r\n\r\nhello", &r, &hb) ==
+            HttpParse::Ok &&
+        r.content_length == 5 && r.request_id == "abc" && hb == 58);
+  CHECK(parse_http_request("POST /x HTTP/1.1\r\n\r\n", &r) == HttpParse::Ok &&
+        r.content_length == 0);
+  CHECK(parse_http_request("POST /x HTTP/1.1\r\nContent-Length: 65536\r\n\r\n", &r) ==
+        HttpParse::Ok);
+  CHECK(parse_http_request("POST /x HTTP/1.1\r\nContent-Length: 65537\r\n\r\n", &r) ==
+        HttpParse::BodyTooLarge);
+  CHECK(parse_http_request("POST /x HTTP/1.1\r\nContent-Length: 99999999999\r\n\r\n", &r) ==
         HttpParse::Bad);
+  CHECK(parse_http_request("POST /x HTTP/1.1\r\nContent-Length: -1\r\n\r\n", &r) == HttpParse::Bad);
+  CHECK(parse_http_request("POST /x HTTP/1.1\r\nContent-Length: 1x\r\n\r\n", &r) == HttpParse::Bad);
+  CHECK(parse_http_request("POST /x HTTP/1.1\r\nContent-Length: 1\r\nContent-Length: 1\r\n\r\n",
+                           &r) == HttpParse::Bad);
   CHECK(parse_http_request("POST /x HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n", &r) ==
         HttpParse::Bad);
   // Header cap: no terminator within 8 KiB is refused without waiting; a block over 8 KiB too.
@@ -361,6 +381,8 @@ static void test_http() {
       "GET / HTTP/1.1\r\nX: " + std::string(kMaxHttpHeaderBytes, 'a') + "\r\n\r\n";
   CHECK(parse_http_request(big, &r) == HttpParse::TooLarge);
 
+  CHECK(http_response(201, "{}", "application/json", "X-Request-Id: ab\r\n")
+            .find("X-Request-Id: ab\r\n") != std::string::npos);
   const std::string resp = http_response(401, "{}");
   CHECK(resp.rfind("HTTP/1.1 401 Unauthorized\r\n", 0) == 0);
   CHECK(resp.find("Content-Length: 2\r\n") != std::string::npos);

@@ -82,7 +82,7 @@ An admin key can do everything, including dropping collections. For an applicati
 
 ## Ports
 
-Port 50051 is gRPC. Port 8080 is the HTTP admin port, with `/healthz`, `/readyz` and `/metrics`. The compose file publishes it on `127.0.0.1` only, so it is reachable from the machine and not from the network. Change the mapping only if you put something in front of it that restricts access. To turn it off, set `OMBRA_REST_PORT=0` in the service's `environment`.
+Port 50051 is gRPC. Port 8080 is the HTTP admin port, with `/healthz`, `/readyz`, `/metrics` and the [collection API](../reference/rest-api.md). The compose file publishes it on `127.0.0.1` only, so it is reachable from the machine and not from the network. Change the mapping only if you put something in front of it that restricts access. To turn it off, set `OMBRA_REST_PORT=0` in the service's `environment`.
 
 ## Settings
 

@@ -153,7 +153,20 @@ class Store {
   // later collection of the same name. (3) The segment and key files are unlinked. A crash after
   // (1) leaves only unreferenced files, which recovery sweeps; a crash before (1) leaves the
   // collection untouched. Same-name re-creation is therefore safe at any point.
+  // Throws AliasTargetError (and changes nothing) while an alias points at the collection.
   bool drop_collection(const std::string& name);
+  // Aliases (see Catalog). One catalog transaction each; no files are involved.
+  AliasResult create_alias(const std::string& name, const std::string& target);
+  AliasResult switch_alias(const std::string& name, const std::string& new_target,
+                           const std::string& expected_target, AliasRow* current = nullptr);
+  AliasResult drop_alias(const std::string& name);
+  bool get_alias(const std::string& name, AliasRow* out) const;
+  std::vector<AliasRow> list_aliases() const;
+  // True if `scope` (the collection field of a key) names an alias whose target or previous target
+  // is `name`.
+  bool alias_covers(const std::string& scope, const std::string& name) const;
+  // True if `name` is a collection or an alias.
+  bool name_in_use(const std::string& name) const;
   // True if `id` exists in a data cluster (not the center cluster spec.cluster_count) and is not
   // tombstoned yet. Used by the server to filter a delete request.
   bool is_live_data_id(const std::string& collection, const std::string& id) const;
@@ -220,6 +233,10 @@ class Store {
   void blob_totals(const std::string& collection, std::uint64_t* count, std::uint64_t* bytes) const;
   std::size_t delete_blobs(const std::string& collection, std::uint32_t kind,
                            const std::vector<std::string>& ids);
+
+  // Bytes on disk of one collection: its segment files, key files and blobs (not the catalog or
+  // the log). A file that is gone is counted as 0. For admin statistics; reads no file content.
+  std::uint64_t disk_bytes(const std::string& collection) const;
 
   const std::string& openfhe_version() const { return ofhe_; }
 

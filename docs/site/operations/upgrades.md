@@ -17,7 +17,7 @@ OMBRA_VERSION=0.2.0 docker compose up -d
 
 The version number here is an example. Without `OMBRA_VERSION` the compose file uses the version it shipped with.
 
-On start the server opens the catalog. If the catalog has an older schema version, the server upgrades it in place. If it has a newer one, the server refuses to start with `unsupported schema_version`. Segments, blobs, the write-ahead log and the API key file are read as they are, and a file with a version the server does not know is refused. The certificate and the API keys in the volume are reused.
+On start the server opens the catalog. If the catalog has an older schema version, the server upgrades it in place, in one transaction: schema 1 and 2 become schema 3, which adds the table of [aliases](migration.md#aliases). A catalog at schema 3 cannot be opened by an older server, so take the backup first. If it has a newer one, the server refuses to start with `unsupported schema_version`. Segments, blobs, the write-ahead log and the API key file are read as they are, and a file with a version the server does not know is refused. The certificate and the API keys in the volume are reused.
 
 You cannot go back by starting an older image on a volume that a newer one has upgraded. Restore the backup instead.
 
@@ -27,6 +27,21 @@ Install the new wheel with `pip install -U ombra`. The client and the server tal
 
 The OpenFHE version matters more than the Ombra version. Every envelope carries the OpenFHE version that wrote it (1.6.1 for the 0.1 series), and a reader refuses an envelope from another version, so a collection created with one OpenFHE version can only be used by a client and a server built with the same one. The `ombra[grpc]` and `ombra[local]` extras pin the matching `openfhe` package.
 
+## What the tests check
+
+The repository has upgrade tests (`make test-upgrade`, marker `upgrade`). They run on the CPU build of the server, so Search is checked only as far as it starts and fails with the "without GPU support" error, not with a protocol error. The previous release is the highest `v*` tag below the commit under test. The tests build that release's CPU server and run its client, and they skip while no release tag exists.
+
+- **Old client, new server.** The previous client creates a collection, uploads keys, inserts, deletes, replaces a block, writes and deletes blobs, and reads everything back, against the new server.
+- **New client, old server.** The same session with the new client against the previous server.
+- **Old data directory, new server.** The previous server writes a data directory and is stopped. `ombra_verify` of the new version reports it clean, the new server opens it, the new client reads all of it and can write, and the recovery counts in the log are plausible (no torn bytes after a clean stop).
+- **Every frozen data directory.** At each release a small data directory is frozen under `tests/fixtures/datadir-<version>/`. The new server must open every one of them, and the tests also write one with the current code. If a frozen directory would be too large for git, it is kept as a release asset instead.
+
+For a release with a tag, any failure in these tests is a failure of the build. For an untagged commit given by `OMBRA_PREV_REF`, a failure in a pairing is reported as an expected incompatibility, so a deliberate protocol change before the first release does not fail the build.
+
+## What is promised
+
+Only what the tests above check: a client and a server that are one release apart work together for the calls listed, and a data directory written by a release can be opened by the next one. Two releases apart is not tested. The OpenFHE version rule below still applies. This page does not promise anything about GPU search across versions, because the upgrade tests have no GPU.
+
 ## Existing collections
 
 A collection keeps its preset, its dimension and its key tag for life. A new Ombra version reads it as long as the formats are at versions the new version still reads. The formats, with their versions, are listed on [File formats](../reference/file-formats.md).
@@ -34,3 +49,7 @@ A collection keeps its preset, its dimension and its key tag for life. A new Omb
 The client's key file has a version too, currently 1. A key file with a version the client does not know is refused with an error.
 
 If a release changes a ciphertext layout or a preset, collections made before it cannot be read in place. You would create a new collection with the new version and insert your vectors again. Ombra has no tool to convert encrypted data between layouts, because the server cannot decrypt it. No release so far has needed this.
+
+The tool for it is [`ombra-migrate`](migration.md). It builds a new collection from the vectors stored in the old one (or re-embeds the documents with a new model), switches an alias to it and drops the old one after a drain period. The same tool changes the preset or the keys of a collection.
+
+What does convert in place, because it is metadata: the catalog (schema 1 and 2 to 3) and the API key file (`api_keys.v1` to `api_keys.v2` when the first key limited to a collection is made), both when the server opens them, with the old file set aside. A future change to an immutable server file (segment, blob) will come with an offline `ombra_convert --data-dir` tool for a stopped server and a fresh backup. A key file will get `ombra convert-keyfile`.
