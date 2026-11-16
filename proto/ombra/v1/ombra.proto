@@ -48,6 +48,10 @@ enum ErrorCode {
   ERROR_BLOCK_MISMATCH = 13;        // ReplaceBlock ids are not exactly the live ids, or cluster/columns differ
   ERROR_BLOB_NOT_FOUND = 14;        // no blob with this (kind, id) in the collection
   ERROR_STORAGE_FULL = 15;          // the server's disk or quota is full; nothing was stored; retry later
+  ERROR_ALIAS_NOT_FOUND = 16;       // no alias with this name
+  ERROR_ALIAS_EXISTS = 17;          // the alias name is a collection or an alias already
+  ERROR_ALIAS_CONFLICT = 18;        // SwitchAlias: the alias does not point at expected_target; or
+                                    // DropCollection: an alias points at the collection
 }
 
 message Error {
@@ -102,6 +106,30 @@ message ListCollectionsResponse { repeated CollectionInfo collections = 1; }
 
 message DropCollectionRequest { string name = 1; }
 message DropCollectionResponse { Error error = 1; }  // unset on success
+
+// Aliases (decision 0028). An alias is a name that points at one collection; it shares the namespace
+// of collection names. Only GetCollection resolves an alias (spec.name of the answer is the real
+// name). Data calls never do: a client opens the real name and keeps it.
+message AliasInfo {
+  string name = 1;
+  string target = 2;
+  string previous = 3;     // target before the last switch; empty if never switched
+  int64 switched_at = 4;   // unix seconds
+}
+
+message CreateAliasRequest { string name = 1; string target = 2; }
+message CreateAliasResponse { oneof result { AliasInfo alias = 1; Error error = 2; } }
+
+// Compare-and-swap in one transaction: the alias moves to new_target only if it points at
+// expected_target now (otherwise ERROR_ALIAS_CONFLICT). A repeat of a switch that was applied succeeds.
+message SwitchAliasRequest { string name = 1; string new_target = 2; string expected_target = 3; }
+message SwitchAliasResponse { oneof result { AliasInfo alias = 1; Error error = 2; } }
+
+message DropAliasRequest { string name = 1; }
+message DropAliasResponse { Error error = 1; }  // unset on success
+
+message ListAliasesRequest {}
+message ListAliasesResponse { repeated AliasInfo aliases = 1; }
 
 // Evaluation keys (public): multiplication key and automorphism keys, in versioned envelopes. Sent as
 // a client stream of chunks; `kind` says which file the bytes belong to.
@@ -293,4 +321,8 @@ service Ombra {
   rpc PutBlob(stream PutBlobRequest) returns (PutBlobResponse);
   rpc GetBlob(GetBlobRequest) returns (stream GetBlobResponse);
   rpc DeleteBlobs(DeleteBlobsRequest) returns (DeleteBlobsResponse);
+  rpc CreateAlias(CreateAliasRequest) returns (CreateAliasResponse);
+  rpc SwitchAlias(SwitchAliasRequest) returns (SwitchAliasResponse);
+  rpc DropAlias(DropAliasRequest) returns (DropAliasResponse);
+  rpc ListAliases(ListAliasesRequest) returns (ListAliasesResponse);
 }

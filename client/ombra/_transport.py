@@ -50,10 +50,20 @@ DEFAULT_TIMEOUT = 120.0  # calls with one request and one answer that change dat
 DEFAULT_STREAM_TIMEOUT = 1800.0  # calls that stream big data or search
 DEFAULT_BLOB_TIMEOUT = 300.0  # one blob is at most 16 MiB
 DEFAULT_METADATA_TIMEOUT = 30.0  # small reads
-_METADATA = frozenset({"GetCollection", "ListCollections", "ListBlocks"})
+_METADATA = frozenset({"GetCollection", "ListCollections", "ListBlocks", "ListAliases"})
 _BLOB = frozenset({"PutBlob", "GetBlob"})
 _STREAMING = frozenset({"UploadKeys", "Insert", "Search", "GetBlock", "ReplaceBlock"})
-_UNARY = frozenset({"CreateCollection", "DropCollection", "Delete", "DeleteBlobs"})
+_UNARY = frozenset(
+    {
+        "CreateCollection",
+        "DropCollection",
+        "Delete",
+        "DeleteBlobs",
+        "CreateAlias",
+        "SwitchAlias",
+        "DropAlias",
+    }
+)
 ALL_RPCS = _METADATA | _BLOB | _STREAMING | _UNARY
 # Streams of answers that are read to the end inside the retry loop, so a break in the middle is
 # repeated as a whole (the answers are bounded: one block or one blob).
@@ -68,7 +78,9 @@ def may_retry(rpc: str) -> bool:
 
     A call is listed only if doing it twice leaves the same state: reads, Search, Delete (an id
     that is already gone is ignored), PutBlob (atomic replace), DeleteBlobs and UploadKeys (atomic
-    replace with the same keys) and Insert: the server treats a block whose ids are all stored in
+    replace with the same keys), SwitchAlias (a repeat of a switch that was applied is a success:
+    the alias is at the new target and its previous target is the expected one) and Insert: the
+    server treats a block whose ids are all stored in
     one block with byte-identical columns as a success that stores nothing, so a repeat after a
     lost answer neither duplicates nor fails (the call site sends the same encrypted bytes, as a
     `Replayable`). ReplaceBlock is NOT listed: after a lost answer the old blocks are gone, so a
@@ -78,9 +90,11 @@ def may_retry(rpc: str) -> bool:
         "GetCollection",
         "ListCollections",
         "ListBlocks",
+        "ListAliases",
         "GetBlock",
         "GetBlob",
         "Search",
+        "SwitchAlias",
         "Insert",
         "Delete",
         "PutBlob",

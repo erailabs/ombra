@@ -99,7 +99,8 @@ RestReply RestAdmin::handle(const HttpRequest& req, const std::string& rid) {
   if (a == AuthResult::PermissionDenied) return denied("scope", "the API key's scope is too low");
   // The same answer whether the collection exists or not (no probing of other names).
   constexpr const char* kCollectionDenied = "the API key is not allowed to use this collection";
-  if (!list && !who.allows_collection(route.name)) return denied("collection", kCollectionDenied);
+  if (!list && !service_.key_allows(who, route.name))
+    return denied("collection", kCollectionDenied);
 
   RestReply out;
   bool failed = false;
@@ -126,8 +127,9 @@ RestReply RestAdmin::handle(const HttpRequest& req, const std::string& rid) {
       std::string extra;
       try {
         std::uint64_t n = 0, bytes = 0;
-        store_.blob_totals(route.name, &n, &bytes);
-        extra = ",\"disk_bytes\":" + std::to_string(store_.disk_bytes(route.name)) +
+        const std::string& real = resp.info().spec().name();  // an alias resolves
+        store_.blob_totals(real, &n, &bytes);
+        extra = ",\"disk_bytes\":" + std::to_string(store_.disk_bytes(real)) +
                 ",\"blob_count\":" + std::to_string(n) + ",\"blob_bytes\":" + std::to_string(bytes);
       } catch (const std::exception&) {  // e.g. dropped meanwhile: leave the sizes out
       }
@@ -143,7 +145,7 @@ RestReply RestAdmin::handle(const HttpRequest& req, const std::string& rid) {
       if (!parse_create_body(req.body, &spec, &why)) {
         failed = true;
         out = error_reply(400, "INVALID_ARGUMENT", why, rid);
-      } else if (!who.allows_collection(spec.name)) {
+      } else if (!service_.key_allows(who, spec.name)) {
         return denied("collection", kCollectionDenied);
       } else {
         v1::CreateCollectionRequest preq;

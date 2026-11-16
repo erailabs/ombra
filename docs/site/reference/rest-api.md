@@ -29,7 +29,9 @@ Names in the path are percent-decoded. A name with a `/`, a control character or
 
 ### Get one collection
 
-`GET /v1/collections/{name}` returns the statistics of one collection:
+`GET /v1/collections/{name}` returns the statistics of one collection. If `{name}` is an [alias](../operations/migration.md#aliases), it answers for the collection the alias points at and `name` in the answer is the real name. There are no REST routes to create, switch or drop aliases yet; use gRPC or the Python client.
+
+
 
 ```json
 {

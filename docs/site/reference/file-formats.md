@@ -11,6 +11,8 @@ Every file Ombra writes starts with a magic string and a version number, so a pr
 | [Stored blob](#server-files) | server | `OBLB` | {{ cpp("server/storage/include/ombra/storage/blob.hpp", "kBlobVersion") }} |
 | [Write-ahead log](#server-files) | server | `OWAL` | {{ cpp("server/storage/include/ombra/storage/wal.hpp", "kWalVersion") }} |
 | [Catalog](#server-files) | server | SQLite file, `schema_version` in its `meta` table | {{ cpp("server/storage/include/ombra/storage/catalog.hpp", "kCatalogSchemaVersion") }} |
+| [Collection info](#collection-info) | client | `OINF`, inside a record blob | 1 |
+| [Migration state](#migration-state) | client | JSON, field `format` is `ombra-migrate` | 1 |
 | [API key file](#server-files) | server | first line `OMBRA-API-KEYS v1` or `OMBRA-API-KEYS v2` | 1, and 2 for keys limited to a collection |
 
 A format changes only with a version bump. The version of a file never depends on the version of the package that wrote it.
@@ -99,10 +101,18 @@ The server keeps everything in its data directory, laid out as in [Backups](../o
 
 **Write-ahead log** (`wal.log`): magic `OWAL`, a 2-byte version, then records of a length, a CRC32 and a body. Records are insert intent, insert commit and delete. On start the server replays the log: an insert that was acknowledged is rolled forward, one that was not is discarded. Source: `server/storage/include/ombra/storage/wal.hpp`.
 
-**Catalog** (`catalog.db`): a SQLite database with the collections, segments, blobs and tombstones. Its `meta` table holds `schema_version` and `api_version`. The server upgrades an older schema when it opens it, and refuses a newer one. The current schema version is {{ cpp("server/storage/include/ombra/storage/catalog.hpp", "kCatalogSchemaVersion") }}.
+**Catalog** (`catalog.db`): a SQLite database with the collections, aliases, segments, blobs and tombstones. Its `meta` table holds `schema_version` and `api_version`. The server upgrades an older schema when it opens it, in one transaction, and refuses a newer one. Schema 2 added the blob table. Schema 3 added the `aliases` table: `name` (primary key), `target` (a collection), `previous` (the target before the last switch, or null) and `switched_at` (unix seconds). Alias names and collection names are one namespace. An older server cannot open a schema 3 catalog, so going back means restoring a backup. `ombra_verify` accepts schema 1 and 2 as "migrates at the next start" and checks that every alias points at a collection. The current schema version is {{ cpp("server/storage/include/ombra/storage/catalog.hpp", "kCatalogSchemaVersion") }}.
 
 **API key file** (`api_keys.v1`): text, mode 0600. The first line is `OMBRA-API-KEYS v1`, then one line per key with a salt, a salted SHA-256 hash and a scope. It holds no token.
 
 **API key file, version 2** (`api_keys.v2`): the same, with an optional fourth field on a line, the collection the key is limited to. The first line is `OMBRA-API-KEYS v2`. A line is `<salt, 32 hex> <hash, 64 hex> <scope> [<collection>]`, separated by single spaces. The collection is 1 to 128 printable ASCII characters without a space. An `admin` line with a collection, a fifth field, a bad hex string, an unknown scope or a file that group or others can read is refused, and so is a v1 file with a fourth field. The server reads both versions: it opens `api_keys.v2` if it exists, else `api_keys.v1`. It writes v1 until you create the first key with `--collection`. Then it writes v2 with the old keys copied unchanged and renames the old file to `api_keys.v1.migrated`. A v2 file is never turned back into v1. Version 1 files keep working with no change.
+
+## Collection info
+
+A small encrypted record that says which embedding model a collection was built for (see [Migrating a collection](../operations/migration.md)). It is a record blob (kind 1) under the reserved id `\x00ombra/info`, sealed like the cluster statistics, so the server sees only a blob of the smallest size. The plaintext, which only the client reads, is: magic `OINF`, a 2-byte version (1), a 4-byte length, a UTF-8 JSON object of at most 4096 bytes, and zero padding to a multiple of 4. A reader refuses another magic or version. `ombra-migrate` writes the keys `model`, `source`, `migration`, `created` and `preset`; other keys are kept as they are.
+
+## Migration state
+
+The state file of `ombra-migrate` (default `ombra-migrate.json`): a JSON object with `format` set to `ombra-migrate` and `version` set to 1, then the source and target names, the mode, the phase, the alias, the paths of the key files, the counts and the result of `verify`. It holds no passphrase, key, vector or document. The tool writes it atomically and refuses a file with another format or version.
 
 **Collection format**: a collection is the set of the files above plus its catalog rows. The wire version is the `api_version` field, 1, stored with every collection spec. See the [gRPC API](grpc-api.md).

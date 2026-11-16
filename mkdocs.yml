@@ -99,6 +99,7 @@ nav:
       - operations/docker.md
       - operations/gpus.md
       - operations/backups.md
+      - operations/migration.md
       - operations/monitoring.md
       - operations/upgrades.md
   - Roadmap: roadmap.md

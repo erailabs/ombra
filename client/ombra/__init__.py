@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 OR LicenseRef-Ombra-Commercial
 """Ombra client package."""
 
-from ombra._core import CollectionInfo, SearchHit
+from ombra._core import AliasInfo, CollectionInfo, SearchHit, StoredRecord
 from ombra.client import AsyncClient, Client
 from ombra.errors import OmbraError
 from ombra.retry import RetryPolicy
@@ -11,11 +11,13 @@ API_VERSION = "ombra.v1"  # matches the proto package in proto/ombra/v1
 
 __all__ = [
     "API_VERSION",
+    "AliasInfo",
     "AsyncClient",
     "Client",
     "CollectionInfo",
     "OmbraError",
     "RetryPolicy",
     "SearchHit",
+    "StoredRecord",
     "__version__",
 ]

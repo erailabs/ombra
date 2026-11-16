@@ -17,7 +17,7 @@ OMBRA_VERSION=0.2.0 docker compose up -d
 
 The version number here is an example. Without `OMBRA_VERSION` the compose file uses the version it shipped with.
 
-On start the server opens the catalog. If the catalog has an older schema version, the server upgrades it in place. If it has a newer one, the server refuses to start with `unsupported schema_version`. Segments, blobs, the write-ahead log and the API key file are read as they are, and a file with a version the server does not know is refused. The certificate and the API keys in the volume are reused.
+On start the server opens the catalog. If the catalog has an older schema version, the server upgrades it in place, in one transaction: schema 1 and 2 become schema 3, which adds the table of [aliases](migration.md#aliases). A catalog at schema 3 cannot be opened by an older server, so take the backup first. If it has a newer one, the server refuses to start with `unsupported schema_version`. Segments, blobs, the write-ahead log and the API key file are read as they are, and a file with a version the server does not know is refused. The certificate and the API keys in the volume are reused.
 
 You cannot go back by starting an older image on a volume that a newer one has upgraded. Restore the backup instead.
 
@@ -49,3 +49,7 @@ A collection keeps its preset, its dimension and its key tag for life. A new Omb
 The client's key file has a version too, currently 1. A key file with a version the client does not know is refused with an error.
 
 If a release changes a ciphertext layout or a preset, collections made before it cannot be read in place. You would create a new collection with the new version and insert your vectors again. Ombra has no tool to convert encrypted data between layouts, because the server cannot decrypt it. No release so far has needed this.
+
+The tool for it is [`ombra-migrate`](migration.md). It builds a new collection from the vectors stored in the old one (or re-embeds the documents with a new model), switches an alias to it and drops the old one after a drain period. The same tool changes the preset or the keys of a collection.
+
+What does convert in place, because it is metadata: the catalog (schema 1 and 2 to 3) and the API key file (`api_keys.v1` to `api_keys.v2` when the first key limited to a collection is made), both when the server opens them, with the old file set aside. A future change to an immutable server file (segment, blob) will come with an offline `ombra_convert --data-dir` tool for a stopped server and a fresh backup. A key file will get `ombra convert-keyfile`.

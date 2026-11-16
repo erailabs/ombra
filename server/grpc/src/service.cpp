@@ -49,6 +49,9 @@ static_assert(static_cast<int>(v1::ERROR_BLOCK_NOT_FOUND) == static_cast<int>(Er
 static_assert(static_cast<int>(v1::ERROR_BLOCK_MISMATCH) == static_cast<int>(Err::BlockMismatch));
 static_assert(static_cast<int>(v1::ERROR_BLOB_NOT_FOUND) == static_cast<int>(Err::BlobNotFound));
 static_assert(static_cast<int>(v1::ERROR_STORAGE_FULL) == static_cast<int>(Err::StorageFull));
+static_assert(static_cast<int>(v1::ERROR_ALIAS_NOT_FOUND) == static_cast<int>(Err::AliasNotFound));
+static_assert(static_cast<int>(v1::ERROR_ALIAS_EXISTS) == static_cast<int>(Err::AliasExists));
+static_assert(static_cast<int>(v1::ERROR_ALIAS_CONFLICT) == static_cast<int>(Err::AliasConflict));
 static_assert(static_cast<std::uint64_t>(v1::LIMIT_BLOB_BUCKET_0) == storage::kBlobBuckets[0]);
 static_assert(static_cast<std::uint64_t>(v1::LIMIT_BLOB_BUCKET_1) == storage::kBlobBuckets[1]);
 static_assert(static_cast<std::uint64_t>(v1::LIMIT_BLOB_BUCKET_2) == storage::kBlobBuckets[2]);
@@ -91,6 +94,9 @@ Status classify_current() {
     // Nothing was stored; the same call may succeed once space is freed (guarded() turns this
     // into RESOURCE_EXHAUSTED).
     return {Err::StorageFull, "the server's storage is full"};
+  } catch (const storage::AliasTargetError&) {
+    return {Err::AliasConflict,
+            "an alias points at this collection; switch or drop the alias first"};
   } catch (const storage::BlockNotFound&) {
     return {Err::BlockNotFound, "block not found"};
   } catch (const storage::BlobSizeError&) {
@@ -218,10 +224,22 @@ void OmbraService::forget(const std::string& c) {
 // the collection up, stores anything or parses a key. The answer is the same whether the collection
 // exists or not, so a scoped key cannot probe for other names. The key is verified again from the
 // call's metadata (a few hashes), which keeps the check stateless and closed: no key, no access.
+// A key scoped to a name may use that name; if the name is an alias, also the alias's target and
+// its previous target (decision 0028). The catalog is read only for a scoped key that names
+// something else, and the caller's answer does not depend on whether `name` exists.
+bool OmbraService::key_allows(const Verified& who, std::string_view name) const {
+  if (who.allows_collection(name)) return true;
+  try {
+    return store_.alias_covers(who.collection, std::string(name));
+  } catch (...) {
+    return false;  // closed on an error
+  }
+}
+
 grpc::Status OmbraService::check_collection(grpc::ServerContext* ctx, std::string_view name) {
   Verified who;
   const AuthResult a = authorize_who(keys_, bearer_of(ctx), Scope::Read, &who);
-  if (a == AuthResult::Ok && who.allows_collection(name)) return grpc::Status::OK;
+  if (a == AuthResult::Ok && key_allows(who, name)) return grpc::Status::OK;
   metrics_.count_permission_denied();
   log::warn("refused", {{"reason", "collection"}});
   return grpc::Status(grpc::StatusCode::PERMISSION_DENIED,
@@ -252,7 +270,7 @@ void OmbraService::create_collection_core(const v1::CollectionSpec& pspec,
     return;
   }
   try {
-    if (store_.get_collection(spec.name, nullptr)) {
+    if (store_.name_in_use(spec.name)) {
       fill(resp->mutable_error(), err(Err::CollectionExists, "collection exists"));
       return;
     }
@@ -266,7 +284,7 @@ void OmbraService::create_collection_core(const v1::CollectionSpec& pspec,
     log_line("create_collection", spec.filter_fields.size(), 0, 0);
   } catch (...) {
     // A concurrent create of the same name loses at the catalog's primary key.
-    if (store_.get_collection(spec.name, nullptr))
+    if (store_.name_in_use(spec.name))
       fill(resp->mutable_error(), err(Err::CollectionExists, "collection exists"));
     else
       fill(resp->mutable_error(), classify_current());
@@ -297,8 +315,11 @@ grpc::Status OmbraService::run_GetCollection(grpc::ServerContext* ctx,
 
 void OmbraService::get_collection_core(const std::string& name, v1::GetCollectionResponse* resp) {
   try {
+    // The only place an alias is resolved: the answer carries the real name in spec.name.
+    storage::AliasRow alias;
+    const std::string& real = store_.get_alias(name, &alias) ? alias.target : name;
     storage::CollectionSpec spec;
-    if (!store_.get_collection(name, &spec))
+    if (!store_.get_collection(real, &spec))
       fill(resp->mutable_error(), err(Err::CollectionNotFound, "collection not found"));
     else
       fill_info(store_, spec, resp->mutable_info());
@@ -320,7 +341,7 @@ grpc::Status OmbraService::run_ListCollections(grpc::ServerContext* ctx,
 bool OmbraService::list_collections_core(const Verified& who, v1::ListCollectionsResponse* resp) {
   try {
     for (const auto& n : store_.list_collections()) {
-      if (!who.allows_collection(n)) continue;  // a scoped key sees only its own collection
+      if (!key_allows(who, n)) continue;  // a scoped key sees only its own collection
       storage::CollectionSpec spec;
       if (store_.get_collection(n, &spec)) fill_info(store_, spec, resp->add_collections());
     }
@@ -348,6 +369,112 @@ void OmbraService::drop_collection_core(const std::string& name, v1::DropCollect
   } catch (...) {
     fill(resp->mutable_error(), classify_current());
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Aliases (decision 0028). CreateAlias, SwitchAlias and DropAlias need the admin scope, which a
+// collection-scoped key cannot have, so they need no collection check. ListAliases is read: a
+// scoped key sees only the alias it is scoped to.
+
+namespace {
+void to_proto(const storage::AliasRow& a, v1::AliasInfo* p) {
+  p->set_name(a.name);
+  p->set_target(a.target);
+  p->set_previous(a.previous);
+  p->set_switched_at(a.switched_at);
+}
+
+// Fixed texts; the alias result of a call that did not succeed.
+Status alias_status(storage::AliasResult r) {
+  using R = storage::AliasResult;
+  switch (r) {
+    case R::Ok:
+      return {};
+    case R::NotFound:
+      return err(Err::AliasNotFound, "alias not found");
+    case R::NameTaken:
+      return err(Err::AliasExists, "the name is a collection or an alias already");
+    case R::BadName:
+      return err(Err::InvalidArgument, "an alias name may not end in .g<number>");
+    case R::TargetNotFound:
+      return err(Err::CollectionNotFound, "target collection not found");
+    case R::Conflict:
+      return err(Err::AliasConflict, "the alias does not point at the expected collection");
+  }
+  return err(Err::Internal, "internal error");
+}
+
+Status check_alias_name(const std::string& n) {
+  if (n.empty()) return err(Err::InvalidArgument, "alias name is empty");
+  if (n.size() > kMaxNameBytes) return err(Err::SizeLimit, "alias name is too long");
+  return {};
+}
+}  // namespace
+
+grpc::Status OmbraService::CreateAlias(grpc::ServerContext* ctx, const v1::CreateAliasRequest* req,
+                                       v1::CreateAliasResponse* resp) {
+  return guarded(ctx, Rpc::CreateAlias, resp, [&] {
+    try {
+      Status st = check_alias_name(req->name());
+      if (st.ok()) st = alias_status(store_.create_alias(req->name(), req->target()));
+      storage::AliasRow a;
+      if (st.ok() && store_.get_alias(req->name(), &a)) to_proto(a, resp->mutable_alias());
+      if (!st.ok()) fill(resp->mutable_error(), st);
+      if (st.ok()) log::info("create_alias", {});
+    } catch (...) {
+      fill(resp->mutable_error(), classify_current());
+    }
+    return grpc::Status::OK;
+  });
+}
+
+grpc::Status OmbraService::SwitchAlias(grpc::ServerContext* ctx, const v1::SwitchAliasRequest* req,
+                                       v1::SwitchAliasResponse* resp) {
+  return guarded(ctx, Rpc::SwitchAlias, resp, [&] {
+    try {
+      storage::AliasRow a;
+      const auto r =
+          store_.switch_alias(req->name(), req->new_target(), req->expected_target(), &a);
+      const Status st = alias_status(r);
+      if (st.ok() && store_.get_alias(req->name(), &a))
+        to_proto(a, resp->mutable_alias());
+      else if (!st.ok())
+        fill(resp->mutable_error(), st);
+      if (st.ok()) log::info("switch_alias", {});
+    } catch (...) {
+      fill(resp->mutable_error(), classify_current());
+    }
+    return grpc::Status::OK;
+  });
+}
+
+grpc::Status OmbraService::DropAlias(grpc::ServerContext* ctx, const v1::DropAliasRequest* req,
+                                     v1::DropAliasResponse* resp) {
+  return guarded(ctx, Rpc::DropAlias, resp, [&] {
+    try {
+      const Status st = alias_status(store_.drop_alias(req->name()));
+      if (!st.ok()) fill(resp->mutable_error(), st);
+    } catch (...) {
+      fill(resp->mutable_error(), classify_current());
+    }
+    return grpc::Status::OK;
+  });
+}
+
+grpc::Status OmbraService::ListAliases(grpc::ServerContext* ctx, const v1::ListAliasesRequest*,
+                                       v1::ListAliasesResponse* resp) {
+  return guarded(ctx, Rpc::ListAliases, resp, [&] {
+    Verified who;
+    (void)authorize_who(keys_, bearer_of(ctx), Scope::Read, &who);
+    try {
+      for (const auto& a : store_.list_aliases())
+        if (who.collection.empty() || who.collection == a.name) to_proto(a, resp->add_aliases());
+    } catch (...) {
+      (void)classify_current();
+      return grpc::Status(grpc::StatusCode::INTERNAL, "internal error");
+    }
+    return grpc::Status::OK;
+  });
 }
 
 // ---------------------------------------------------------------------------------------------

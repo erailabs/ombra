@@ -24,6 +24,12 @@ An `admin` key cannot be limited: the server refuses to create one, and refuses 
 
 Limited keys do not make the server multi-tenant. Collections still share the GPU, the disk and the limits, and a client with a write key can fill the disk. For hard separation run one server per trust domain, see the [threat model](threat-model.md). `/metrics` on the HTTP port takes only an admin key.
 
+## Keys limited to an alias
+
+A key can be limited to the name of an [alias](../operations/migration.md#aliases) instead of a collection. Such a key may use the collection that the alias points at and the one it pointed at before the last switch, and nothing else. After a switch the key works on both collections during the drain period. After the next switch the oldest one is refused. The key file does not change: the `collection` field of a line is a name, and the server checks at each call whether that name is an alias.
+
+The check needs one catalog read, and the answer is the same whether a name exists or not. A key limited to a name that is a collection is not widened: if someone later creates an alias with that name, the server refuses it, because alias names and collection names are one namespace. `ListCollections` returns the collections the key may use, and `ListAliases` returns only the alias it is limited to. Creating, switching and dropping aliases needs an `admin` key, which cannot be limited. So a switch is an operator action, and a limited key cannot move its own alias.
+
 ## The key file
 
 The keys are in `api_keys.v1`, or `api_keys.v2` once a key is limited to a collection. See [File formats](../reference/file-formats.md#server-files). The file must be mode 0600. Create keys while the server runs and then send it SIGHUP to load them. To revoke a key, remove its line and send SIGHUP. A file that does not parse keeps the loaded keys and logs an error.

@@ -74,6 +74,11 @@ static void test_scopes() {
   CHECK(required_scope(Rpc::DeleteBlobs) == Scope::Write);
   CHECK(required_scope(Rpc::GetBlob) == Scope::Read);
   CHECK(required_scope(Rpc::DropCollection) == Scope::Admin);
+  // Aliases: a switch moves every client of a name, like a drop, so changing them is admin.
+  CHECK(required_scope(Rpc::CreateAlias) == Scope::Admin);
+  CHECK(required_scope(Rpc::SwitchAlias) == Scope::Admin);
+  CHECK(required_scope(Rpc::DropAlias) == Scope::Admin);
+  CHECK(required_scope(Rpc::ListAliases) == Scope::Read);
   CHECK(scope_allows(Scope::Admin, Scope::Write) && scope_allows(Scope::Write, Scope::Read));
   CHECK(!scope_allows(Scope::Read, Scope::Write) && !scope_allows(Scope::Write, Scope::Admin));
   for (std::size_t i = 0; i < kRpcCount; ++i)

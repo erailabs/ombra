@@ -66,6 +66,9 @@ class OmbraService final : public ombra::v1::Ombra::Service {
   // Only the collections `who` may use. False on an internal error (logged).
   bool list_collections_core(const Verified& who, v1::ListCollectionsResponse*);
   void drop_collection_core(const std::string& name, v1::DropCollectionResponse*);
+  // True if the key may use `name`: its own collection, or, if its scope is an alias, the alias's
+  // target and previous target.
+  bool key_allows(const Verified& who, std::string_view name) const;
 
   grpc::Status CreateCollection(grpc::ServerContext*, const v1::CreateCollectionRequest*,
                                 v1::CreateCollectionResponse*) override;
@@ -75,6 +78,14 @@ class OmbraService final : public ombra::v1::Ombra::Service {
                                v1::ListCollectionsResponse*) override;
   grpc::Status DropCollection(grpc::ServerContext*, const v1::DropCollectionRequest*,
                               v1::DropCollectionResponse*) override;
+  grpc::Status CreateAlias(grpc::ServerContext*, const v1::CreateAliasRequest*,
+                           v1::CreateAliasResponse*) override;
+  grpc::Status SwitchAlias(grpc::ServerContext*, const v1::SwitchAliasRequest*,
+                           v1::SwitchAliasResponse*) override;
+  grpc::Status DropAlias(grpc::ServerContext*, const v1::DropAliasRequest*,
+                         v1::DropAliasResponse*) override;
+  grpc::Status ListAliases(grpc::ServerContext*, const v1::ListAliasesRequest*,
+                           v1::ListAliasesResponse*) override;
   grpc::Status UploadKeys(grpc::ServerContext*, grpc::ServerReader<v1::UploadKeysChunk>*,
                           v1::UploadKeysResponse*) override;
   grpc::Status Insert(grpc::ServerContext*, grpc::ServerReader<v1::InsertRequest>*,

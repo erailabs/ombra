@@ -19,6 +19,8 @@ ignore = ["S101"]  # assert is fine in tests
 "docs/research/**/*.py" = ["B023", "S603", "S607", "E501", "UP031", "B905"]
 "tests/upgrade/*.py" = ["S603", "S607"]  # git, cmake and our own scripts with fixed arguments
 "examples/*.py" = ["S106"]  # the examples use a placeholder passphrase
+"client/tests/test_migrate*.py" = ["S106"]  # synthetic passphrases in tests
+"tests/test_server_aliases.py" = ["S106"]  # synthetic passphrases in tests
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "client", "core", "integrations", "docs"]

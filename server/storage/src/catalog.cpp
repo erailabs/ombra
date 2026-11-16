@@ -3,6 +3,7 @@
 
 #include <sqlite3.h>
 
+#include <ctime>
 #include <map>
 #include <set>
 #include <stdexcept>
@@ -126,7 +127,10 @@ CREATE TABLE blobs(
   collection TEXT NOT NULL REFERENCES collections(name), kind INTEGER NOT NULL,
   id BLOB NOT NULL, file TEXT NOT NULL, size INTEGER NOT NULL,
   PRIMARY KEY(collection, kind, id));
-INSERT INTO meta VALUES('schema_version', 2), ('api_version', 1), ('next_segment', 1);
+CREATE TABLE aliases(
+  name TEXT PRIMARY KEY, target TEXT NOT NULL REFERENCES collections(name),
+  previous TEXT, switched_at INTEGER NOT NULL);
+INSERT INTO meta VALUES('schema_version', 3), ('api_version', 1), ('next_segment', 1);
 )sql";
 
 std::string encode_filters(const std::vector<FilterField>& f) {
@@ -178,16 +182,21 @@ Catalog::Catalog(const std::string& path) {
       tx.commit();
     }
     {
-      // Schema 1 -> 2: add the blob table. A stored version above 2 is refused below.
+      // Schema 1 -> 2 adds the blob table, 2 -> 3 the alias table, all in one transaction. A
+      // stored version above 3 is refused below.
       Stmt v(db_, "SELECT value FROM meta WHERE key='schema_version'");
-      if (v.step() && v.col_num(0) == 1) {
+      if (v.step() && (v.col_num(0) == 1 || v.col_num(0) == 2)) {
         Tx tx(db_);
         exec(db_,
              "CREATE TABLE IF NOT EXISTS blobs("
              "collection TEXT NOT NULL REFERENCES collections(name), kind INTEGER NOT NULL,"
              "id BLOB NOT NULL, file TEXT NOT NULL, size INTEGER NOT NULL,"
              "PRIMARY KEY(collection, kind, id))");
-        exec(db_, "UPDATE meta SET value=2 WHERE key='schema_version'");
+        exec(db_,
+             "CREATE TABLE IF NOT EXISTS aliases("
+             "name TEXT PRIMARY KEY, target TEXT NOT NULL REFERENCES collections(name),"
+             "previous TEXT, switched_at INTEGER NOT NULL)");
+        exec(db_, "UPDATE meta SET value=3 WHERE key='schema_version'");
         tx.commit();
       }
     }
@@ -215,6 +224,11 @@ void Catalog::create_collection(const CollectionSpec& s) {
   if (s.api_version != kCatalogApiVersion)
     throw std::runtime_error("catalog: collection api_version must be 1");
   Tx tx(db_);
+  {
+    Stmt a(db_, "SELECT 1 FROM aliases WHERE name=?");
+    a.text(1, s.name);
+    if (a.step()) throw std::runtime_error("catalog: the name is an alias");
+  }
   Stmt(db_, "INSERT INTO collections VALUES(?,?,?,?,?,?,?,?)")
       .text(1, s.name)
       .num(2, s.api_version)
@@ -266,6 +280,12 @@ bool Catalog::drop_collection(const std::string& name, std::vector<std::string>*
                               std::vector<std::string>* blob_files) {
   Tx tx(db_);
   if (!get_collection(name, nullptr)) return false;
+  {
+    Stmt a(db_, "SELECT 1 FROM aliases WHERE target=?");
+    a.text(1, name);
+    if (a.step()) throw AliasTargetError();
+  }
+  Stmt(db_, "UPDATE aliases SET previous=NULL WHERE previous=?").text(1, name).run();
   if (segment_files) {
     segment_files->clear();
     for (const auto& r : segments(name)) segment_files->push_back(r.file);
@@ -289,6 +309,84 @@ bool Catalog::drop_collection(const std::string& name, std::vector<std::string>*
     Stmt(db_, sql).text(1, name).run();
   tx.commit();
   return true;
+}
+
+bool is_generation_name(const std::string& name) {
+  const auto p = name.rfind(".g");
+  if (p == std::string::npos || p + 2 >= name.size()) return false;
+  for (std::size_t i = p + 2; i < name.size(); ++i)
+    if (name[i] < '0' || name[i] > '9') return false;
+  return true;
+}
+
+namespace {
+AliasRow read_alias(const Stmt& q, const std::string& name) {
+  AliasRow r;
+  r.name = name;
+  r.target = q.col_text(0);
+  r.previous = q.col_text(1);  // NULL reads as empty
+  r.switched_at = q.col_num(2);
+  return r;
+}
+}  // namespace
+
+AliasResult Catalog::create_alias(const std::string& name, const std::string& target) {
+  if (is_generation_name(name)) return AliasResult::BadName;
+  Tx tx(db_);
+  if (get_collection(name, nullptr) || get_alias(name, nullptr)) return AliasResult::NameTaken;
+  if (!get_collection(target, nullptr)) return AliasResult::TargetNotFound;
+  Stmt(db_, "INSERT INTO aliases(name,target,previous,switched_at) VALUES(?,?,NULL,?)")
+      .text(1, name)
+      .text(2, target)
+      .num(3, static_cast<std::int64_t>(std::time(nullptr)))
+      .run();
+  tx.commit();
+  return AliasResult::Ok;
+}
+
+AliasResult Catalog::switch_alias(const std::string& name, const std::string& new_target,
+                                  const std::string& expected_target, AliasRow* current) {
+  Tx tx(db_);
+  AliasRow cur;
+  if (!get_alias(name, &cur)) return AliasResult::NotFound;
+  if (current) *current = cur;
+  // A repeat of a switch that was applied (the answer was lost) is a success and changes nothing.
+  if (cur.target == new_target &&
+      (expected_target == new_target || cur.previous == expected_target))
+    return AliasResult::Ok;
+  if (cur.target != expected_target) return AliasResult::Conflict;
+  if (!get_collection(new_target, nullptr)) return AliasResult::TargetNotFound;
+  Stmt(db_, "UPDATE aliases SET target=?, previous=?, switched_at=? WHERE name=?")
+      .text(1, new_target)
+      .text(2, cur.target)
+      .num(3, static_cast<std::int64_t>(std::time(nullptr)))
+      .text(4, name)
+      .run();
+  tx.commit();
+  return AliasResult::Ok;
+}
+
+AliasResult Catalog::drop_alias(const std::string& name) {
+  Tx tx(db_);
+  if (!get_alias(name, nullptr)) return AliasResult::NotFound;
+  Stmt(db_, "DELETE FROM aliases WHERE name=?").text(1, name).run();
+  tx.commit();
+  return AliasResult::Ok;
+}
+
+bool Catalog::get_alias(const std::string& name, AliasRow* out) const {
+  Stmt q(db_, "SELECT target,previous,switched_at FROM aliases WHERE name=?");
+  q.text(1, name);
+  if (!q.step()) return false;
+  if (out) *out = read_alias(q, name);
+  return true;
+}
+
+std::vector<AliasRow> Catalog::list_aliases() const {
+  Stmt q(db_, "SELECT target,previous,switched_at,name FROM aliases ORDER BY name");
+  std::vector<AliasRow> v;
+  while (q.step()) v.push_back(read_alias(q, q.col_text(3)));
+  return v;
 }
 
 std::uint64_t Catalog::next_segment_id() {
