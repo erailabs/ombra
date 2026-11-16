@@ -76,6 +76,24 @@ ombra-migrate finish    --address ombra.example.com:443
 
 `--filter-fields` names the filter fields of the old collection in their creation order, because the server stores only their sizes. Use `--local DIR` instead of `--address` for local mode. `--insecure` and `--root-certificates` work as in the Python client. The options are listed on the [command line tools](../reference/cli.md#ombra-migrate) page.
 
+### Rotating keys
+
+`ombra-migrate plan --new-keys` replaces the keys of a collection and nothing else: same model, same preset, same dimension. It is a rebuild migration whose target is a fresh key set. The tool makes a new OpenFHE key pair and a new document master key, and writes them to the new key file (and syncs it to disk) before the server receives anything. It then encrypts every vector again from the float32 copy in its record blob, and seals every record, document, stats and info blob again under the new master key. It never converts old ciphertexts to the new key: every ciphertext is a fresh encryption, so the old key does not touch the new data. The steps, the checks, the alias switch and the drain period are the same as in any migration.
+
+```bash
+ombra-migrate plan --address ombra.example.com:443 --source docs \
+    --source-key-file docs.key --target-key-file docs-2026.key \
+    --alias docs-live --filter-fields lang --new-keys
+```
+
+`--new-keys` is refused together with `--embedder`, `--model` and `--target-preset`.
+
+Writes during a rotation use the same dual write as above (`Migration.insert` and `Migration.delete`). The other way is to pause writes between `start` and `switch`, then run `backfill` once more. Searches keep working on the old collection until `switch`.
+
+The old key file is kept. After `finish`, the old collection is gone from the server, but the old key file still opens any copy made before: a server backup, a disk image, a copy of the blobs. Rotation cannot change those copies. When you no longer need them, delete the copies, then destroy the old key file and its backups (overwrite it, delete it, and remove it from backup systems). Until then, treat the old key file as secret as before.
+
+Cost: the same as any migration, plus the encryption of every vector on your machine. Count about 16 GB down and 41 GB up per million vectors at dimension 384, plus the documents.
+
 ### Writes during a migration
 
 Between `start` and `switch` your application keeps writing to the old collection. Send its inserts and deletes through the migration object, which writes to both collections (the Python API):
@@ -130,7 +148,7 @@ The server sees an encrypted blob like any other. In rebuild mode without `--mod
 
 - Storage doubles until `finish`.
 - The tool reads every block of the old collection to learn its ids, and every record and document blob, and it uploads all of them again. The time is dominated by encryption on your machine. Plan for the same work as the first load.
-- Blobs are opened with the old keys and sealed again with the new ones, so the document master key changes too. The old key file does not open the new collection.
+- Blobs are opened with the old keys and sealed again with the new ones, so the document master key changes too. The old key file does not open the new collection, and the target key file must be a different file from the source's.
 - A document stored by reference (above the inline limit) cannot be copied. The tool stops with an error naming the problem.
 - It does not change the preset's security parameters or the number of filter fields.
 - Collections that re-clustering made (`<base>.g<n>`) are separate collections: migrate the one you use.

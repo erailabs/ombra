@@ -18,7 +18,7 @@ Items are in two groups. "Next" is work that has started or is small and agreed.
 
 **Hiding which cluster each record is in.** On insert, the client sends the cluster of each vector in the clear, next to its id. The server therefore holds the full split of ids into clusters. No setting hides this today. We want an option that does.
 
-**Key rotation.** A key cannot be replaced in place. We plan to let the server switch stored vectors to a new key without seeing them, and to re-wrap the document keys. Today: create a new collection with a new key and insert the vectors again from your source data.
+**Key rotation on the server.** `ombra-migrate --new-keys` rotates keys today: the client encrypts every vector again under a new key pair and seals every blob under a new master key, then switches an alias. That moves the whole collection through the client. We plan a server-side switch that keeps stored vectors seeded, so large collections can rotate without that transfer. It needs a new envelope version and an outside review first. Today: use `ombra-migrate --new-keys`, see [Migrating a collection](operations/migration.md).
 
 **An external review of the cryptography.** No outside cryptographer has reviewed Ombra yet. One part needs it most: stored ciphertexts are seeded, and the noise used there depends on the secret key, unlike the textbook form. No attack is known. We plan a review of that step and of the rest of the design. Until then, treat the cryptography as unreviewed.
 
@@ -37,8 +37,6 @@ Items are in two groups. "Next" is work that has started or is small and agreed.
 **A "precise" preset.** A preset with higher precision. The name exists, but the client and the server refuse it. Today: use the presets listed in [Presets](reference/presets.md).
 
 **Plaintext-database mode.** For a corpus that any client may read, the server could keep vectors in the clear and hide only the query and the results. It would be faster. It does not exist: every vector is always encrypted.
-
-**A LlamaIndex adapter.** Only the LangChain adapter exists. Today: use the Python client directly.
 
 **Automatic normalization.** The client would normalize vectors for you. Today: normalize them before you insert.
 

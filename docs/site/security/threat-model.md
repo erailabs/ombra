@@ -50,6 +50,12 @@ We do not assume the server is physically secure, that its operators are trustwo
 
 When several nodes sit behind `ombra_router`, the parties are the router and the nodes instead of one server, and all of them are untrusted in the same way. The router sees what one server sees today and holds no FHE key. Each node sees only its own part of each search round. The router holds an API key for every node, so it must be protected like a server. Which node owns a cluster depends only on the cluster number and the node ids, never on vectors or cluster centers, so the placement tells a node nothing about the data and does not let it tell real clusters from decoys. Nodes and router that collude learn no more than one server. See [Several nodes and a router](../operations/routing.md#what-each-process-learns).
 
+## Key rotation
+
+You can replace the keys of a collection with `ombra-migrate --new-keys` (see [Rotating keys](../operations/migration.md#rotating-keys)). The client makes a new FHE key pair and a new document master key, encrypts every vector again from its stored float32 copy, and seals every blob again. The old and the new keys are unrelated, and the server gets no key that links them.
+
+Rotation protects what you write and query after it, and the stored data once the old collection is dropped. It does not protect copies made before it. A server backup, a disk image or a copy of the stored blocks taken before the rotation stays readable with the old key file. If the old key leaks, assume those copies are open. To end that exposure, destroy the old key file and delete the old copies, as far as you control them.
+
 ## What the server knows about records
 
 Ids are chosen by you and stored in plaintext, so never put sensitive data in an id. Every insert also names the cluster of each vector in the clear, so the server knows which ids share a cluster. Neither says what a vector contains, but together with the access patterns they are the main thing the server learns. See [What the server learns](what-the-server-learns.md).

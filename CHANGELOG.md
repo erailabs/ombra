@@ -46,6 +46,7 @@ is PolyForm Noncommercial 1.0.0 or a commercial licence; the project is source-a
 - Local mode: `Client.local(...)` runs the server's computation on the CPU in your process, with no
   GPU.
 - `langchain-ombra`: a LangChain vector store.
+- `llama-index-vector-stores-ombra`: a LlamaIndex vector store.
 - Wheels for Linux (x86-64, aarch64) and macOS (arm64, x86-64), CPython 3.11 to 3.13, and
   `ombra-openfhe` (openfhe-python 1.6.1.0 with OpenFHE 1.6.1 inside, version 1.6.1.0).
 - Docker images: `ombra-server` (CUDA runtime, `sm_80` and `sm_86`), `ombra-cpu` (client with local
