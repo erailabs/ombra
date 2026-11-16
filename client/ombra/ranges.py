@@ -35,7 +35,7 @@ SCHEMA_ID = RESERVED_PREFIX + b"schema"
 BUCKETS = presets.MAX_FILTER_CARDINALITY  # 64 buckets; a range field always has this many values
 DIGIT = 64
 D_DOMAIN = DIGIT * DIGIT  # 4096
-FETCH_FACTOR = 4  # records fetched per query = FETCH_FACTOR * rerank_factor * k (fixed)
+FETCH_FACTOR = presets.RANGE_FETCH_FACTOR  # kept in presets so the docs build needs no numpy
 _MAGIC = b"OSCH"
 _VERSION = 1
 _HEAD = struct.Struct("<4sHxxI")  # 12 bytes
