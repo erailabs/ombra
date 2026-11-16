@@ -6,7 +6,7 @@
 # protobuf-compiler-grpc); without either, only the policy is built.
 
 # ---- Preset table, generated from the preset JSON (no hand-picked numbers) ----------
-set(OMBRA_PRESET_JSON ${CMAKE_CURRENT_SOURCE_DIR}/../../core/params/ckks_presets.json)
+get_filename_component(OMBRA_PRESET_JSON ${CMAKE_CURRENT_SOURCE_DIR}/../../core/params/ckks_presets.json ABSOLUTE)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${OMBRA_PRESET_JSON})
 file(READ ${OMBRA_PRESET_JSON} _presets_json)
 string(JSON _count LENGTH ${_presets_json} presets)

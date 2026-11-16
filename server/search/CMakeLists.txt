@@ -18,7 +18,7 @@ add_test(NAME search_layout COMMAND search_layout_test)
 # context_preflight.hpp), so the context as the client writes it is embedded too, from
 # context_golden/<preset>.bin, and the structure templates of the key files from
 # context_golden/<preset>.{evalmult,auto}_keys (made by context_golden/generate.py with the real client).
-set(OMBRA_PRESET_JSON ${CMAKE_CURRENT_SOURCE_DIR}/../../core/params/ckks_presets.json)
+get_filename_component(OMBRA_PRESET_JSON ${CMAKE_CURRENT_SOURCE_DIR}/../../core/params/ckks_presets.json ABSOLUTE)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${OMBRA_PRESET_JSON})
 file(READ ${OMBRA_PRESET_JSON} _pj)
 string(JSON _pcount LENGTH ${_pj} presets)
