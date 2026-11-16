@@ -245,6 +245,33 @@ int main() {
       CHECK(sqlite3_exec(db, sql, nullptr, nullptr, nullptr) == SQLITE_OK);
       sqlite3_close(db);
     };
+    {  // aliases: a healthy one is clean; schema 2 is a warning; bad rows are corrupt
+      TempDir d;
+      fill_store(d.path);
+      tamper(d.path, "INSERT INTO aliases VALUES('live', 'docs', NULL, 1)");
+      auto r = run(d.path);
+      CHECK(r.clean() && r.warning_count() == 0);
+      tamper(d.path, "UPDATE aliases SET previous='docs'");
+      CHECK(run(d.path).clean());
+      tamper(d.path, "UPDATE aliases SET previous='gone'");
+      CHECK(!run(d.path).clean());
+      tamper(
+          d.path,
+          "UPDATE aliases SET previous=NULL; INSERT INTO aliases VALUES('docs', 'docs', NULL, 1)");
+      CHECK(!run(d.path).clean());  // an alias with a collection's name
+      tamper(d.path,
+             "DELETE FROM aliases WHERE name='docs'; INSERT INTO aliases VALUES('x.g3', 'docs', "
+             "NULL, 1)");
+      CHECK(!run(d.path).clean());  // a generation name
+    }
+    {  // schema 2 (before aliases): a warning, the server upgrades it at the next start
+      TempDir d;
+      fill_store(d.path);
+      tamper(d.path, "DROP TABLE aliases; UPDATE meta SET value=2 WHERE key='schema_version'");
+      auto r = run(d.path);
+      CHECK(r.clean() && r.warning_count() == 1);
+      CHECK(r.findings.front().kind == "catalog");
+    }
     {  // a block's vector count no longer matches its file
       TempDir d;
       fill_store(d.path);

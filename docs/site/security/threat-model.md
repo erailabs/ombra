@@ -46,6 +46,12 @@ The server holds only what the client sends it: ciphertexts, the crypto context 
 
 We do not assume the server is physically secure, that its operators are trustworthy, or that its disks and memory are private. Everything the server stores is a ciphertext, a sealed blob, or one of the plaintext items listed in [What the server learns](what-the-server-learns.md).
 
+## Key rotation
+
+You can replace the keys of a collection with `ombra-migrate --new-keys` (see [Rotating keys](../operations/migration.md#rotating-keys)). The client makes a new FHE key pair and a new document master key, encrypts every vector again from its stored float32 copy, and seals every blob again. The old and the new keys are unrelated, and the server gets no key that links them.
+
+Rotation protects what you write and query after it, and the stored data once the old collection is dropped. It does not protect copies made before it. A server backup, a disk image or a copy of the stored blocks taken before the rotation stays readable with the old key file. If the old key leaks, assume those copies are open. To end that exposure, destroy the old key file and delete the old copies, as far as you control them.
+
 ## What the server knows about records
 
 Ids are chosen by you and stored in plaintext, so never put sensitive data in an id. Every insert also names the cluster of each vector in the clear, so the server knows which ids share a cluster. Neither says what a vector contains, but together with the access patterns they are the main thing the server learns. See [What the server learns](what-the-server-learns.md).

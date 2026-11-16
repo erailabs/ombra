@@ -12,11 +12,11 @@ coroutines; the work itself is synchronous (it runs in the calling thread).
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from ombra._core import ClientCore, CollectionInfo, SearchHit
+from ombra._core import AliasInfo, ClientCore, CollectionInfo, SearchHit, StoredRecord
 from ombra.retry import RetryPolicy
 
 
@@ -144,7 +144,10 @@ class Client:
         passphrase: str,
         filter_fields: Sequence[str] | None = None,
     ) -> str:
-        """Reopen a collection with its key file; name the filter fields in their creation order."""
+        """Reopen a collection with its key file; name the filter fields in their creation order.
+        `name` may be an alias: the server resolves it once, the collection is pinned under its
+        real name (the return value) and under the name you gave, and a later switch of the alias
+        does not move it. Open the alias again to follow the switch."""
         return self._core.open_collection(
             name, key_file=key_file, passphrase=passphrase, filter_fields=filter_fields
         )
@@ -157,6 +160,39 @@ class Client:
 
     def drop_collection(self, name: str) -> None:
         return self._core.drop_collection(name)
+
+    def iter_records(self, collection: str, *, ids_only: bool = False) -> Iterator[StoredRecord]:
+        """The live vectors of an open collection with their exact float32 vectors, metadata and
+        documents, read from the encrypted blobs and decrypted here. With `ids_only` the blobs are
+        not read. The server has no call that lists ids, so this reads every block of the
+        collection; use it for migration and export, not in a request path."""
+        return self._core.iter_records(collection, ids_only=ids_only)
+
+    def get_collection_info(self, collection: str) -> dict[str, Any] | None:
+        """The encrypted "collection info" of an open collection (for example the embedding model
+        label that `ombra-migrate` wrote), or None."""
+        return self._core.get_collection_info(collection)
+
+    def set_collection_info(self, collection: str, info: dict[str, Any]) -> None:
+        """Store a small JSON object (up to 4 KiB) as the collection's encrypted info."""
+        self._core.set_collection_info(collection, info)
+
+    def create_alias(self, name: str, target: str) -> AliasInfo:
+        """Make `name` an alias of the collection `target` (admin key). The name may not be a
+        collection or end in `.g<number>`."""
+        return self._core.create_alias(name, target)
+
+    def switch_alias(self, name: str, new_target: str, expected_target: str) -> AliasInfo:
+        """Move an alias to `new_target` if it points at `expected_target` now (admin key). Raises
+        `AliasConflictError` if it points elsewhere. Clients see the switch when they open the
+        alias again; collections they have open keep working."""
+        return self._core.switch_alias(name, new_target, expected_target)
+
+    def drop_alias(self, name: str) -> None:
+        return self._core.drop_alias(name)
+
+    def list_aliases(self) -> list[AliasInfo]:
+        return self._core.list_aliases()
 
     def insert(
         self,
@@ -281,7 +317,10 @@ class AsyncClient:
         passphrase: str,
         filter_fields: Sequence[str] | None = None,
     ) -> str:
-        """Reopen a collection with its key file; name the filter fields in their creation order."""
+        """Reopen a collection with its key file; name the filter fields in their creation order.
+        `name` may be an alias: the server resolves it once, the collection is pinned under its
+        real name (the return value) and under the name you gave, and a later switch of the alias
+        does not move it. Open the alias again to follow the switch."""
         return self._core.open_collection(
             name, key_file=key_file, passphrase=passphrase, filter_fields=filter_fields
         )
@@ -294,6 +333,36 @@ class AsyncClient:
 
     async def drop_collection(self, name: str) -> None:
         return self._core.drop_collection(name)
+
+    async def iter_records(
+        self, collection: str, *, ids_only: bool = False
+    ) -> Iterator[StoredRecord]:
+        """The live vectors of an open collection with their exact float32 vectors, metadata and
+        documents (see `Client.iter_records`). The work runs in the calling thread."""
+        return self._core.iter_records(collection, ids_only=ids_only)
+
+    async def get_collection_info(self, collection: str) -> dict[str, Any] | None:
+        return self._core.get_collection_info(collection)
+
+    async def set_collection_info(self, collection: str, info: dict[str, Any]) -> None:
+        self._core.set_collection_info(collection, info)
+
+    async def create_alias(self, name: str, target: str) -> AliasInfo:
+        """Make `name` an alias of the collection `target` (admin key). The name may not be a
+        collection or end in `.g<number>`."""
+        return self._core.create_alias(name, target)
+
+    async def switch_alias(self, name: str, new_target: str, expected_target: str) -> AliasInfo:
+        """Move an alias to `new_target` if it points at `expected_target` now (admin key). Raises
+        `AliasConflictError` if it points elsewhere. Clients see the switch when they open the
+        alias again; collections they have open keep working."""
+        return self._core.switch_alias(name, new_target, expected_target)
+
+    async def drop_alias(self, name: str) -> None:
+        return self._core.drop_alias(name)
+
+    async def list_aliases(self) -> list[AliasInfo]:
+        return self._core.list_aliases()
 
     async def insert(
         self,

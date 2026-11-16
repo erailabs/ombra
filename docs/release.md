@@ -7,24 +7,28 @@ reads the same, builds the wheels, builds and pushes the two images, and publish
 
 | What | Where |
 | --- | --- |
-| `ombra`, `ombra-openfhe`, `langchain-ombra` wheels | PyPI |
+| `ombra`, `ombra-openfhe`, `langchain-ombra`, `llama-index-vector-stores-ombra` wheels | PyPI |
 | `ghcr.io/erailabs/ombra-server` (GPU, `sm_75`, `sm_80`, `sm_86`, `sm_89` and `sm_90`) | GHCR |
 | `ghcr.io/erailabs/ombra-cpu` (Python client with local mode, amd64 and arm64) | GHCR |
 
 The CPU image has no `ombra_server`. The server needs CUDA and a GPU, so only the GPU image
 serves search over gRPC. The CPU image is for local mode and tests.
 
-Versions: `ombra`, `langchain-ombra`, the CMake project and `ombra_server --version` are 0.1.0.
+Versions: `ombra`, `langchain-ombra`, `llama-index-vector-stores-ombra`, the CMake project and `ombra_server --version` are 0.1.0.
 `ombra-openfhe` stays at 1.6.1.0, because it follows openfhe-python and OpenFHE.
 
 ## To release
 
 1. Set the same version in `client/pyproject.toml`, `client/ombra/__init__.py`,
-   `integrations/langchain-ombra/pyproject.toml` and the top-level `CMakeLists.txt`. Add an entry
+   `integrations/langchain-ombra/pyproject.toml`,
+   `integrations/llama-index-vector-stores-ombra/pyproject.toml` and the top-level `CMakeLists.txt`. Add an entry
    to `CHANGELOG.md`.
 2. Run the workflow by hand first: Actions, Release, Run workflow, with `dry_run` on. It publishes
    to TestPyPI and pushes the images as `dryrun-<commit>`.
-3. Tag the release commit on `main` with `v<version>` and push the tag. The workflow refuses a tag
+3. Freeze a data-dir fixture of this version: run `python tests/upgrade/make_fixture.py
+   tests/fixtures/datadir-<version>` at the release commit and commit the result, if it is small
+   enough for git (under 5 MB). The upgrade tests then check that every later version opens it.
+4. Tag the release commit on `main` with `v<version>` and push the tag. The workflow refuses a tag
    that does not match the version in `client/pyproject.toml`, a tag whose commit is not on `main`,
    and any real release (`dry_run` off) that is not started from a `v*` tag. Both the image push
    and the PyPI upload then wait for your approval, in that order.
@@ -41,8 +45,8 @@ or pushes the release image tags. Also add a tag ruleset that protects `v*`.
 
 **Trusted publishers.** A project that does not exist yet is registered as a "pending publisher".
 Do this on both https://pypi.org/manage/account/publishing/ and
-https://test.pypi.org/manage/account/publishing/, once for each of `ombra`, `ombra-openfhe` and
-`langchain-ombra`:
+https://test.pypi.org/manage/account/publishing/, once for each of `ombra`, `ombra-openfhe`,
+`langchain-ombra` and `llama-index-vector-stores-ombra`:
 
 - Owner: `erailabs`
 - Repository: `ombra`

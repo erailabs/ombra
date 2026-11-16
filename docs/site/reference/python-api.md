@@ -2,7 +2,7 @@
 
 Every public name of the `ombra` package, generated from the docstrings in `client/ombra/`. Install with `pip install ombra`. The package imports numpy, so the build of this page reads the source without importing it.
 
-The package exports these names: `Client`, `AsyncClient`, `CollectionInfo`, `SearchHit`, `OmbraError`, `RetryPolicy`, `API_VERSION` and `__version__`. `API_VERSION` is the gRPC package the client speaks, `ombra.v1`. The sections after them cover the modules you may touch directly: `ombra.errors`, `ombra.retry`, `ombra.collection`, `ombra.presets` and `ombra.testing`. Everything else under `ombra.` (names starting with an underscore, `search`, `topk`, `clustering` and so on) is internal and can change between versions.
+The package exports these names: `Client`, `AsyncClient`, `CollectionInfo`, `AliasInfo`, `StoredRecord`, `SearchHit`, `OmbraError`, `RetryPolicy`, `API_VERSION` and `__version__`. `API_VERSION` is the gRPC package the client speaks, `ombra.v1`. The sections after them cover the modules you may touch directly: `ombra.errors`, `ombra.retry`, `ombra.collection`, `ombra.presets` and `ombra.testing`. Everything else under `ombra.` (names starting with an underscore, `search`, `topk`, `clustering` and so on) is internal and can change between versions.
 
 `AsyncClient` has the same methods as `Client`, as coroutines. The work still runs in the calling thread, so awaiting a call blocks the event loop until it returns.
 
@@ -21,6 +21,14 @@ For how to choose between `Client("host:port")` and `Client.local(path)`, see [L
 ## Results
 
 ::: ombra.CollectionInfo
+    options:
+      show_if_no_docstring: true
+
+::: ombra.AliasInfo
+    options:
+      show_if_no_docstring: true
+
+::: ombra.StoredRecord
     options:
       show_if_no_docstring: true
 
@@ -80,6 +88,16 @@ The defaults are 4 attempts, a 0.25 s base delay, an 8 s cap and a 120 s total b
       show_if_no_docstring: true
 
 ::: ombra.ranges.equal_width_edges
+
+## Migration
+
+`ombra.migrate` is the Python side of [`ombra-migrate`](../operations/migration.md). `ombra.collection_info` holds the format of the collection info record.
+
+::: ombra.migrate.Migration
+    options:
+      show_if_no_docstring: true
+
+::: ombra.collection_info
     options:
       show_if_no_docstring: true
 

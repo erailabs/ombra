@@ -31,6 +31,10 @@ flowchart LR
 
 The secret key is generated on the client and stays there. No message in the server's API has a field that could carry it. On disk the client keeps it in a key file protected by a passphrase. If you lose the key file or the passphrase, nobody can recover your data, Ombra included.
 
+## Replacing the keys
+
+The server cannot switch stored vectors to a new key: that needs the old and the new secret key together, and only the client has them. To rotate, the client builds a new collection with a fresh key pair and a fresh document master key and encrypts every vector again from its stored copy. This is the `ombra-migrate --new-keys` mode, described in [Rotating keys](../operations/migration.md#rotating-keys). Copies of the old data made before the rotation stay readable with the old key file.
+
 ## What the evaluation keys are for
 
 Two operations need help from a key, and both come up in search.
