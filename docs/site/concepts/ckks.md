@@ -48,12 +48,6 @@ In Ombra, $\Delta$ is about $2^{ {{ preset("balanced", "scaling_mod_size") }} }$
 
 Each rescale uses up one **level**. The ciphertext modulus is built from a fixed chain of numbers, and a rescale removes the last one for good. When only the first is left, no more multiplication is possible. The number of multiplications you can chain is the **multiplicative depth**. Both Ombra presets have depth {{ preset("balanced", "multiplicative_depth") }}.
 
-```mermaid
-flowchart LR
-    A["Fresh: 3 numbers in the chain"] -- "multiply, rescale" --> B["Level 1: 2 numbers"]
-    B -- "multiply, rescale" --> C["Level 2: 1 number, no more multiplications"]
-```
-
 The chain for `balanced` is one number of {{ preset("balanced", "first_mod_size") }} bits and {{ preset("balanced", "multiplicative_depth") }} numbers of {{ preset("balanced", "scaling_mod_size") }} bits. `fast` uses {{ preset("fast", "first_mod_size") }} and {{ preset("fast", "scaling_mod_size") }} bits. A rescale divides by one of the scaling numbers, so they are chosen close to $\Delta$. The first number is bigger because it must hold the final result after the last rescale.
 
 Additions do not use a level. Multiplying by a plain constant does, like any multiplication. A computation that needs more multiplications than the depth cannot run. Ombra has no bootstrapping to refresh levels, so each search is designed to fit in {{ preset("balanced", "multiplicative_depth") }}.

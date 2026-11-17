@@ -11,24 +11,6 @@ Ombra uses four kinds of key material. Two never leave the client; the server ge
 
 The last two are evaluation keys. They are public: they do not help anyone decrypt. With them the client uploads the crypto context, which is the parameter set (ring dimension, moduli) and contains no key.
 
-```mermaid
-flowchart LR
-    subgraph Client
-        SK["Secret key (passphrase-protected key file)"]
-        PK[Public key]
-        EK["Evaluation keys: EvalMult and automorphism"]
-        SK --> PK
-        SK --> EK
-    end
-    subgraph Server
-        EKS["Evaluation keys"]
-        CT["Encrypted vectors"]
-    end
-    EK -- uploaded once --> EKS
-    PK -- encrypts --> CT
-    CT -- encrypted scores --> SK
-```
-
 The secret key is generated on the client and stays there. No message in the server's API has a field that could carry it. On disk it lives in a passphrase-protected key file. If you lose the file or the passphrase, nobody can recover your data, Ombra included.
 
 ## Replacing the keys

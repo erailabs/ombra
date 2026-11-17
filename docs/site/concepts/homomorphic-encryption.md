@@ -4,16 +4,7 @@ Normal encryption protects data at rest and in transit. To compute on it, the se
 
 Example: the client wants the server to double the number 3. It encrypts 3 into a ciphertext, which looks like random bytes. The server adds the ciphertext to itself without learning what is inside. The client decrypts the result and gets 6.
 
-```mermaid
-sequenceDiagram
-    participant C as Client (secret key)
-    participant S as Server (no secret key)
-    C->>C: encrypt 3, get ciphertext c
-    C->>S: send c
-    S->>S: compute c + c on the ciphertext
-    S->>C: send the result
-    C->>C: decrypt, get 6
-```
+![The client encrypts 3 and sends the ciphertext c; the server computes c + c without the secret key and sends the result back; the client decrypts it and gets 6](../assets/fhe-basics.svg)
 
 ## Terms used on the other pages
 

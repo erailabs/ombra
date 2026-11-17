@@ -6,31 +6,7 @@ It does not defend against a server that lies. A malicious server can return wro
 
 ## The parties
 
-```mermaid
-flowchart LR
-    subgraph Client["Client (you)"]
-        SK["Secret key and document master key<br/>(key file, passphrase protected)"]
-        PT["Plaintext vectors, queries, documents,<br/>filter values, scores"]
-        ST["Cluster statistics<br/>(stored sealed)"]
-    end
-    subgraph Server["Server (untrusted)"]
-        EK["Public key and evaluation keys"]
-        CT["Encrypted vector blocks<br/>and cluster centers"]
-        ENG["Encrypted search engine (GPU or CPU)"]
-        ID["Vector ids, the cluster of each vector,<br/>tombstones, collection layout (plaintext)"]
-    end
-    subgraph Storage["Server storage (untrusted)"]
-        BL["Sealed record and document blobs<br/>(AES-256-GCM, fixed size buckets)"]
-        CAT["Catalog and segment files"]
-    end
-    Client -- "ciphertexts, evaluation keys, ids" --> Server
-    Server -- "encrypted scores" --> Client
-    Client -- "sealed blobs" --> BL
-    BL -- "sealed blobs" --> Client
-    ENG --- CT
-    CT --- CAT
-    ID --- CAT
-```
+![The client holds the secret keys and sees plaintext; the server holds evaluation keys, encrypted blocks and a plaintext layout of ids and clusters; server storage holds sealed blobs and the catalog](../assets/parties.svg)
 
 The client holds the secret key and every plaintext. It encrypts vectors and queries with the public key, decrypts the scores the server sends back, picks the top k, and re-ranks the best candidates with the exact vectors it gets from the blob store. Clustering also runs on the client, because the server cannot see the vectors. See [Keys](../concepts/keys.md) for what each key does.
 
