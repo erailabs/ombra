@@ -4,7 +4,7 @@ Normal encryption protects data at rest and in transit. To compute on it, the se
 
 Example: the client wants the server to double the number 3. It encrypts 3 into a ciphertext, which looks like random bytes. The server adds the ciphertext to itself without learning what is inside. The client decrypts the result and gets 6.
 
-![The client encrypts 3 and sends the ciphertext c; the server computes c + c without the secret key and sends the result back; the client decrypts it and gets 6](../assets/fhe-basics.svg)
+![The client encrypts 3 and sends the ciphertext c; the server computes c + c without the secret key and sends the result back; the client decrypts it and gets 6](../assets/he-basics.svg)
 
 ## Terms used on the other pages
 
@@ -26,6 +26,6 @@ Limits that no setting removes:
 - Each multiplication uses part of a fixed budget, so a computation can only go a few multiplications deep. The [CKKS page](ckks.md#levels-and-rescaling) shows why.
 - Results are approximate. CKKS works on real numbers and returns them with a small error.
 
-## Fully homomorphic, and what Ombra uses
+## Why HE and not FHE
 
-A scheme is fully homomorphic when it can compute anything, for as long as needed. That needs an expensive refresh step called bootstrapping. Ombra does not bootstrap. It uses CKKS with a fixed depth of {{ preset("balanced", "multiplicative_depth") }} multiplications, enough for a dot product and a filter, and much faster.
+A scheme is fully homomorphic when it can compute anything, for as long as needed. That needs an expensive refresh step called bootstrapping. Ombra does not bootstrap. It uses CKKS with a fixed depth of {{ preset("balanced", "multiplicative_depth") }} multiplications, enough for a dot product and a filter, and much faster. A scheme with a fixed depth is called leveled, so Ombra uses homomorphic encryption (HE), not fully homomorphic encryption (FHE).

@@ -1,6 +1,6 @@
 # Ombra
 
-Ombra is a vector database where the vectors, the queries and the scores stay encrypted. The server stores and searches ciphertexts only, so it never sees your data or what you ask for. It uses fully homomorphic encryption (FHE), and the search runs on GPUs.
+Ombra is a vector database where the vectors, the queries and the scores stay encrypted. The server stores and searches ciphertexts only, so it never sees your data or what you ask for. It uses homomorphic encryption (HE), and the search runs on GPUs.
 
 ## Who it is for
 

@@ -17,7 +17,7 @@ ombra-migrate STEP [--state FILE] [--address HOST:PORT | --local DIR] [options]
 | `--source NAME`, `--source-key-file F`, `--target-key-file F` | `plan` | none | The collection (or alias) to migrate, its key file, and the new key file to write. The new file must not exist. |
 | `--alias NAME` | `plan` | none, or the alias you named as the source | The alias that `switch` moves. |
 | `--target-preset NAME` | `plan` | the source's | The preset of the new collection. |
-| `--new-keys` | `plan` | off | Key rotation: same model and preset, new FHE key pair and new master key. See [Rotating keys](../../operations/migration.md#rotating-keys). Refused with `--embedder`, `--model` or `--target-preset`. |
+| `--new-keys` | `plan` | off | Key rotation: same model and preset, new HE key pair and new master key. See [Rotating keys](../../operations/migration.md#rotating-keys). Refused with `--embedder`, `--model` or `--target-preset`. |
 | `--model LABEL` | `plan` | none | The model label for the [collection info](../file-formats/collection-info.md). Required with `--embedder`. |
 | `--filter-fields a,b` | `plan` | none | The names of the filter fields, in creation order. |
 | `--drain-hours H` | `plan` | 24 | How long the old collection stays after `switch`. |

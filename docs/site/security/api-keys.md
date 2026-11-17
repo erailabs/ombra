@@ -1,6 +1,6 @@
 # API keys
 
-An API key is an access token for the server. It is not an FHE key, and your secret key never leaves the client. The server stores only a salted hash of each key. You see the token once, when you create it.
+An API key is an access token for the server. It is not an HE key, and your secret key never leaves the client. The server stores only a salted hash of each key. You see the token once, when you create it.
 
 ## Scopes
 

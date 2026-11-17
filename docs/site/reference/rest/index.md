@@ -1,6 +1,6 @@
 # REST API
 
-The HTTP port has a small API to manage collections. It is for operators and scripts. It does not carry vectors, queries, documents, ids or keys: those go over [gRPC](../grpc/index.md), and so do the FHE keys of a collection (`UploadKeys`) and every insert and search.
+The HTTP port has a small API to manage collections. It is for operators and scripts. It does not carry vectors, queries, documents, ids or keys: those go over [gRPC](../grpc/index.md), and so do the HE keys of a collection (`UploadKeys`) and every insert and search.
 
 ## Base URL and port
 

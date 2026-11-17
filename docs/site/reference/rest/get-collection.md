@@ -19,7 +19,7 @@ A key limited to one collection gets `403` for any other name, whether the colle
 | Field | Type | Description |
 | --- | --- | --- |
 | `name` | string | Collection name. |
-| `preset` | string | FHE preset. |
+| `preset` | string | HE preset. |
 | `dimension` | number | Vector dimension. |
 | `security_level` | string | `fast`, `decoy` or `strict`. |
 | `key_tag` | string | Public tag of the client's key. It is not a key. |

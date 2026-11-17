@@ -1,6 +1,6 @@
 # Migrating a collection
 
-Some changes cannot be made in place. A new embedding model changes the meaning of every vector, a new dimension changes the layout, and a new preset or OpenFHE version changes the ciphertexts. The server cannot transform encrypted data, so these changes build a new collection beside the old one, move your application to it, and drop the old one later. `ombra-migrate` does this with no downtime. It also re-keys a collection: the new collection always gets a new FHE key pair and a new document master key.
+Some changes cannot be made in place. A new embedding model changes the meaning of every vector, a new dimension changes the layout, and a new preset or OpenFHE version changes the ciphertexts. The server cannot transform encrypted data, so these changes build a new collection beside the old one, move your application to it, and drop the old one later. `ombra-migrate` does this with no downtime. It also re-keys a collection: the new collection always gets a new HE key pair and a new document master key.
 
 The pieces are:
 

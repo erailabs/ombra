@@ -66,7 +66,7 @@ Every call has a request id, also over HTTP. The server uses the `x-request-id` 
 
 ## API keys
 
-An API key is an access token for the gRPC and HTTP ports. It is not an FHE key, and the server never sees the client's secret key. `--create-api-key` prints the token once. The file keeps only a salted SHA-256 hash, so a lost token cannot be recovered and you create a new one. The three scopes are described on the [gRPC API](../grpc/index.md) page. The HTTP collection API uses the same keys and the same rules. A key has a scope and, if you create it with `--collection`, one collection. Without `--collection` the key works on every collection. Send SIGHUP to the server to load new or revoked keys without a restart.
+An API key is an access token for the gRPC and HTTP ports. It is not an HE key, and the server never sees the client's secret key. `--create-api-key` prints the token once. The file keeps only a salted SHA-256 hash, so a lost token cannot be recovered and you create a new one. The three scopes are described on the [gRPC API](../grpc/index.md) page. The HTTP collection API uses the same keys and the same rules. A key has a scope and, if you create it with `--collection`, one collection. Without `--collection` the key works on every collection. Send SIGHUP to the server to load new or revoked keys without a restart.
 
 ```bash
 ombra_server --create-api-key --scope read --data-dir /data

@@ -26,7 +26,7 @@ Stored in the catalog.
 | --- | --- | --- |
 | `api_version` | uint32 | Must be 1. |
 | `name` | string | Collection name, at most 128 bytes. |
-| `preset` | string | Name of the FHE preset, see [Presets](../presets.md). |
+| `preset` | string | Name of the HE preset, see [Presets](../presets.md). |
 | `dimension` | uint32 | Vector dimension. |
 | `security_level` | `SecurityLevel` | See below. |
 | `filter_fields` | repeated `FilterField` | The filter layout. |

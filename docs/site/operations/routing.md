@@ -2,7 +2,7 @@
 
 One `ombra_server` serves one data directory. To hold more clusters than one machine can, run several nodes and put `ombra_router` in front of them. Clients talk to the router with the same API, so no client code changes, and the nodes are plain `ombra_server` processes.
 
-The router never decrypts anything and holds no FHE key. It reads the placement file, splits each call by cluster, and passes the encrypted answers on as bytes.
+The router never decrypts anything and holds no HE key. It reads the placement file, splits each call by cluster, and passes the encrypted answers on as bytes.
 
 ## How it works
 
@@ -81,7 +81,7 @@ A call that cannot reach a node fails with the gRPC status `UNAVAILABLE` (a sear
 
 ## What each process learns
 
-- The **router** sees what one server sees today: every cluster number of every round, the ciphertexts in transit and the ids of the blobs a client reads. It does not hold the stored segments, and it holds no FHE key. It does hold an `admin` API key for every node, so a break-in at the router is as bad as a break-in at a server.
+- The **router** sees what one server sees today: every cluster number of every round, the ciphertexts in transit and the ids of the blobs a client reads. It does not hold the stored segments, and it holds no HE key. It does hold an `admin` API key for every node, so a break-in at the router is as bad as a break-in at a server.
 - A **node** sees only the part of each round it owns, the ids and ciphertexts of its own clusters, and its own part of the blob store.
 - **Placement never depends on the data.** The owner of a cluster is a function of the cluster number and the node ids. If neighbouring clusters were put on one node, that node could tell real clusters from decoys, because real clusters would gather on it while decoys spread evenly. Putting them by hash prevents that.
 - A router and all nodes that collude learn no more than one server learns today.

@@ -4,7 +4,7 @@
 
 Creates an empty collection. Scope: `write`. Same as gRPC `CreateCollection`.
 
-This call makes an empty collection with metadata only. It has no keys, so it cannot take inserts or searches yet. The client makes the FHE keys and the `key_tag`, and sends the context and the evaluation keys with `UploadKeys` over gRPC. For that reason the Python client's `create_collection` is the usual way to start; use this route to prepare or check collections from a script.
+This call makes an empty collection with metadata only. It has no keys, so it cannot take inserts or searches yet. The client makes the HE keys and the `key_tag`, and sends the context and the evaluation keys with `UploadKeys` over gRPC. For that reason the Python client's `create_collection` is the usual way to start; use this route to prepare or check collections from a script.
 
 A key limited to one collection can create only a collection with its own name.
 
@@ -15,7 +15,7 @@ JSON body of at most 64 KiB. An unknown field is refused.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `name` | string | yes | Collection name. |
-| `preset` | string | yes | FHE preset. |
+| `preset` | string | yes | HE preset. |
 | `dimension` | number | yes | Vector dimension. |
 | `security_level` | string | yes | `fast`, `decoy` or `strict`. |
 | `key_tag` | string | yes | Public tag of the client's key. |

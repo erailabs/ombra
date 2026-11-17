@@ -36,7 +36,7 @@ Steps, each resumable from the state file (`ombra-migrate.json`, no secrets):
 Blobs are not copied byte for byte: their associated data binds the collection name, and the
 target has its own name and its own document master key. Every record and document is opened with
 the source's keys and sealed again with the target's, which is also what a key change needs
-(decision 0031). The target therefore always gets a new FHE key pair and a new master key.
+(decision 0031). The target therefore always gets a new HE key pair and a new master key.
 Nothing here prints or stores a vector, a document or a key.
 """
 
@@ -794,7 +794,7 @@ def build_parser() -> argparse.ArgumentParser:
     plan.add_argument(
         "--new-keys",
         action="store_true",
-        help="key rotation: same model and preset, new FHE key pair and new master key",
+        help="key rotation: same model and preset, new HE key pair and new master key",
     )
     plan.add_argument("--target-preset", help="preset of the target (default: the source's)")
     plan.add_argument("--model", help="label of the embedding model (required with --embedder)")

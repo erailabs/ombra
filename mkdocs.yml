@@ -2,7 +2,7 @@
 # Build: mkdocs build --strict (CI, .github/workflows/docs.yml). Values from the code come from
 # docs/macros.py; see docs/site/contributing-docs.md.
 site_name: Ombra
-site_description: An encrypted vector database. Vectors, queries and scores stay encrypted with FHE.
+site_description: An encrypted vector database. Vectors, queries and scores stay encrypted with homomorphic encryption.
 repo_url: https://github.com/erailabs/ombra
 docs_dir: docs/site
 strict: true
