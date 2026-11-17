@@ -31,6 +31,7 @@ import numpy as np
 from ombra.blobstore import KIND_RECORD
 from ombra.errors import (
     CollectionError,
+    NodeUnavailableError,
     OmbraError,
     collection_error,
     from_rpc_error,
@@ -45,6 +46,7 @@ from ombra.topk import ParallelTopk
 
 API_VERSION = 1
 MAX_CLUSTERS_PER_ROUND = 4096  # LIMIT_MAX_CLUSTERS_PER_ROUND
+ERROR_UNAVAILABLE = 19  # ErrorCode: a router could not reach a node; retryable
 LEVELS = ("fast", "decoy", "strict")
 
 
@@ -115,7 +117,17 @@ class _Stream:
 
     def _read(self) -> Any:
         try:
-            return next(self._call)
+            resp = next(self._call)
+            if resp.WhichOneof("step") == "error" and resp.error.code == ERROR_UNAVAILABLE:
+                # A router could not reach a node. The stream is over; open a new one and send the
+                # same requests again, decoys included (nothing is drawn a second time).
+                raise NodeUnavailableError(
+                    "a node of the cluster is unavailable",
+                    grpc_status="UNAVAILABLE",
+                    error_code=ERROR_UNAVAILABLE,
+                    request_id=getattr(self, "_rid", None),
+                )
+            return resp
         except StopIteration:
             raise CollectionError(0, "search stream ended early") from None
         except OmbraError:

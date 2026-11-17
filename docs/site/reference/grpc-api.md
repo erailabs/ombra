@@ -188,3 +188,4 @@ Blobs are opaque client ciphertexts. The server never parses them. A blob become
 | `ERROR_ALIAS_NOT_FOUND` | No alias has this name. |
 | `ERROR_ALIAS_EXISTS` | The alias name is already a collection or an alias. |
 | `ERROR_ALIAS_CONFLICT` | `SwitchAlias`: the alias does not point at `expected_target`. `DropCollection`: an alias points at the collection. |
+| `ERROR_UNAVAILABLE` | Sent only by a router, and only on a `Search` stream: a node that holds a needed cluster did not answer. The answers of the round that were already sent are not used. The client opens a new stream and sends the same requests again, with the same decoys. Other calls that cannot reach a node fail with the gRPC status `UNAVAILABLE`. |
