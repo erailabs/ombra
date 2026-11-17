@@ -31,11 +31,13 @@
 
 When you put embeddings in a vector database, you hand them to whoever runs it. That might be a cloud provider, a vendor, or a team down the hall. They can read your vectors, and vectors give away more than people expect: you can often rebuild a good part of the original text from them. They can also read every query, which tells them what you are looking for.
 
-We built Ombra because we did not want to make that trade. Your data is encrypted on your machine before it goes anywhere, and the secret key never leaves the Python client. The server still does the hard work. It stores the ciphertexts and runs the search on a GPU, using fully homomorphic encryption (FHE), a kind of encryption that lets it compute on data it cannot read. What comes back are encrypted scores, and only you can open them.
+Encryption that lets a server compute on data it cannot read, called fully homomorphic encryption (FHE), has existed for years. Until now, FHE vector databases gave you privacy but were so slow that the trade was rarely worth it. With Ombra we set out to remove that trade. We run the encrypted search on GPUs, pack many vectors into each ciphertext, and keep the work per query small, so you get both privacy and speed.
 
-You do not give up accuracy for this. Your client decrypts the scores and re-ranks the best candidates itself, so the top results are the real top results. The cryptography is CKKS through [OpenFHE](https://github.com/openfheorg/openfhe-development) 1.6.1, every preset is at least 128-bit secure, and every GPU kernel is checked against OpenFHE's own output.
+Your data is encrypted on your machine before it goes anywhere, and the secret key never leaves the Python client. The server stores the ciphertexts, runs the search on them, and sends back encrypted scores that only you can open.
 
-Encryption does not hide everything, though, and we would rather tell you up front. The section [below](#what-the-server-can-still-see) lists what the server can still see.
+Note that accuracy is not affected. Your client decrypts the scores and re-ranks the best candidates itself, so the top results are the real top results. The cryptography is CKKS through [OpenFHE](https://github.com/openfheorg/openfhe-development) 1.6.1, every preset is at least 128-bit secure, and every GPU kernel is checked against OpenFHE's own output.
+
+Your data is now almost completely private, but not entirely. A curious server operator, or someone listening on the network, can still learn a few things about it, such as how many vectors you store and when you search. The section [below](#what-the-server-can-still-see) lists all of them.
 
 ## Try it in two minutes
 
