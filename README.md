@@ -41,38 +41,19 @@ Your data is now almost completely private, but not entirely. A curious server o
 
 ## How it works
 
-```mermaid
-sequenceDiagram
-    autonumber
-    box Your machine
-        participant C as Python client<br/>(holds the secret key)
-    end
-    box Server, on a GPU
-        participant S as Ombra server<br/>(sees only ciphertexts)
-    end
+<p align="center">
+  <img src="docs/site/assets/architecture.svg" alt="Ombra architecture: the Python client on your machine holds the keys and encrypts, decrypts and re-ranks; the router and the GPU nodes see only ciphertexts" width="100%">
+</p>
 
-    Note over C: Setup, once per collection
-    C->>C: group your vectors into clusters
-    C->>S: encrypted vectors, encrypted cluster centers,<br/>encrypted records, public evaluation keys
+At setup, your client groups similar vectors into clusters, so a search can skip most of the data. It encrypts the vectors, the cluster centers and a copy of each record, and uploads them with public evaluation keys, which let the server compute but not decrypt. Then every search goes like this:
 
-    Note over C,S: Every search
-    C->>S: the query, encrypted
-    S->>S: score the query against the cluster centers
-    S-->>C: encrypted scores
-    C->>C: decrypt, choose the closest clusters
-    C->>S: ask for those clusters (plus decoys, if you want them)
-    S->>S: score every vector in them
-    S-->>C: encrypted scores
-    C->>C: decrypt, keep the best candidates
-    C->>S: fetch the candidates' encrypted records
-    S-->>C: encrypted records
-    C->>C: decrypt and re-rank exactly, return the top results
-```
-
-1. **Setup.** Your client groups similar vectors into clusters, so a search can skip most of the data. It encrypts the vectors, the cluster centers and a copy of each record, and uploads them with public evaluation keys, which let the server compute but not decrypt. The secret key stays in a passphrase-protected key file on your machine.
-2. **Find the right clusters.** The client encrypts the query and sends it. The server scores it against the encrypted centers and returns encrypted scores. Only the client can read them, so only the client knows which clusters are closest.
-3. **Score the clusters.** The client asks for the closest clusters. With the Decoy and Strict levels it mixes in random clusters, so the server cannot tell which ones it really wanted. The server scores every vector in them on the GPU, thousands per ciphertext at once, and the scores stay encrypted.
-4. **Re-rank.** The client decrypts the scores, fetches the encrypted records of the best candidates, and re-ranks them exactly on your machine. Encryption therefore changes no result. Like any clustered index, the clusters can miss a few neighbours; the [accuracy page](docs/site/how-it-works/accuracy.md) has the numbers.
+1. **Encrypt the query.** The client encrypts it as one ciphertext and sends it.
+2. **Expand it on the GPU.** The server turns that one ciphertext into the form the search needs, without decrypting anything.
+3. **Score the cluster centers.** The server scores the query against every encrypted center and returns encrypted scores.
+4. **Pick clusters.** Only the client can read those scores, so only it knows which clusters are closest. With the Decoy and Strict levels it mixes in random clusters, so the server cannot tell which ones it really wanted.
+5. **Score the clusters.** The server scores every vector in them, thousands per ciphertext at once. With several nodes, the router sends each cluster to the node that holds it.
+6. **Fetch records.** The client decrypts the scores and fetches the encrypted records of the best candidates.
+7. **Re-rank.** The client decrypts those records and re-ranks them exactly on your machine. Encryption therefore changes no result. Like any clustered index, the clusters can miss a few neighbours; the [accuracy page](docs/site/how-it-works/accuracy.md) has the numbers.
 
 The server never holds a key that can decrypt, and nothing it sends back can be read without your secret key. [How it works](docs/site/how-it-works/encoding.md) in the docs goes through each step, with the math.
 
