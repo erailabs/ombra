@@ -1,8 +1,8 @@
 # Reproducing the numbers
 
-Every figure on these pages comes from a script in the repository, run on a known machine. Figures marked TBD are waiting for a new run of these scripts on the current code. This page lists the scripts and the commands. You need a Modal account for the GPU runs, because there is no local GPU in the project's setup. Set `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` in your environment, and never write them to a file.
+Every figure on these pages comes from a script in the repository, run on a known machine. Figures marked TBD wait for a new run on the current code. The GPU runs need a Modal account, because the project has no local GPU. Set `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` in your environment, and never write them to a file.
 
-Expect small differences. The same kernel took up to 26% longer in one run than another on the same card, and the host CPU of a Modal container is hidden, so CPU-bound steps (the client's decrypt and ranking) move between runs. Compare ratios and orders of magnitude before you compare single milliseconds.
+Expect small differences. The same kernel took up to 26% longer in one run than another on the same card, and the host CPU of a Modal container is hidden, so CPU-bound steps (the client's decrypt and ranking) move between runs. Compare ratios before single milliseconds.
 
 ## The make targets
 
@@ -42,7 +42,7 @@ pip install -r docs/charts/requirements.txt
 python docs/charts/make_charts.py
 ```
 
-This writes the SVG files in `docs/site/performance/img/` and removes the SVG of a chart whose numbers are TBD. The script produces the same bytes every time, so a `git diff` after running it tells you whether a chart is current. If you rerun a benchmark, copy the new numbers into the CSV file, run the script, and commit both.
+This writes the SVG files in `docs/site/performance/img/` and removes the SVG of a chart whose numbers are TBD. The script is deterministic, so a `git diff` after running it shows whether a chart is current. If you rerun a benchmark, copy the new numbers into the CSV file, run the script, and commit both.
 
 ## Checking the sizes yourself
 

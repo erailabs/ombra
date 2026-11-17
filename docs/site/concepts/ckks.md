@@ -1,6 +1,6 @@
 # CKKS in simple terms
 
-CKKS is the homomorphic scheme Ombra uses. It works on real numbers, not integers, and it gives approximate answers. This page defines the six ideas the rest of the docs rely on: slots, scale, levels, rescaling, RNS towers and noise. Each one has a toy example with a ring dimension of $N = 16$. Real presets are much bigger, and the page says where.
+CKKS is the homomorphic scheme Ombra uses. It works on real numbers and gives approximate answers. Six ideas matter for the rest of the docs: slots, scale, levels, rescaling, RNS towers and noise. Each has a toy example with ring dimension $N = 16$; real presets are much bigger.
 
 ## Slots and the ring
 
@@ -14,9 +14,9 @@ $$
 (1, 2, 3, 4, 5, 6, 7, 8) \cdot (2, 2, 2, 2, 0, 0, 0, 0) = (2, 4, 6, 8, 0, 0, 0, 0)
 $$
 
-The server does this with one ciphertext multiplication, not eight. Unused slots hold zero.
+One ciphertext multiplication does the work of eight. Unused slots hold zero.
 
-Ombra's presets use a much larger ring. `fast` has $N = {{ preset("fast", "ring_dim") }}$ and {{ preset("fast", "batch_size") }} slots. `balanced` has $N = {{ preset("balanced", "ring_dim") }}$ and {{ preset("balanced", "batch_size") }} slots. Each slot holds the value of one stored vector, which is why Ombra scores thousands of vectors with a handful of ciphertext operations.
+Ombra's presets use a much larger ring. `fast` has $N = {{ preset("fast", "ring_dim") }}$ and {{ preset("fast", "batch_size") }} slots. `balanced` has $N = {{ preset("balanced", "ring_dim") }}$ and {{ preset("balanced", "batch_size") }} slots. Each slot holds a value of a stored vector, so a handful of ciphertext operations score thousands of vectors.
 
 ### Rotations and automorphisms
 
@@ -38,7 +38,7 @@ $$
 
 Adding gives $314 + 200 = 514$, which reads back as $5.14$. Both numbers must carry the same scale to be added. Adding $314$ (scale 100) to a number stored at scale $10^4$ would give nonsense.
 
-Multiplying is where the scale grows. $314 \cdot 200 = 62800$, and the result carries scale $\Delta^2 = 10^4$, so it reads back as $62800 / 10^4 = 6.28$. That is correct, but the number is now twice as wide in bits. Left alone, the scale squares with every multiplication and soon overflows the modulus. Rescaling fixes it.
+Multiplying is where the scale grows. $314 \cdot 200 = 62800$, and the result carries scale $\Delta^2 = 10^4$, so it reads back as $62800 / 10^4 = 6.28$. That is correct, but the number is now twice as wide in bits. Left alone, the scale squares with every multiplication and soon overflows the modulus.
 
 In Ombra, $\Delta$ is about $2^{ {{ preset("balanced", "scaling_mod_size") }} }$ for `balanced` and $2^{ {{ preset("fast", "scaling_mod_size") }} }$ for `fast`. A value like 0.123 is stored as roughly $0.123 \cdot 2^{ {{ preset("balanced", "scaling_mod_size") }} }$, an integer of about {{ preset("balanced", "scaling_mod_size") }} bits.
 
@@ -54,7 +54,7 @@ flowchart LR
     B -- "multiply, rescale" --> C["Level 2: 1 number, no more multiplications"]
 ```
 
-The chain for `balanced` is one number of {{ preset("balanced", "first_mod_size") }} bits and {{ preset("balanced", "multiplicative_depth") }} numbers of {{ preset("balanced", "scaling_mod_size") }} bits. `fast` uses {{ preset("fast", "first_mod_size") }} and {{ preset("fast", "scaling_mod_size") }} bits. The 50-bit numbers are what a rescale divides by, so they are chosen close to $\Delta$. The first number is bigger, because it has to hold the final result after the last rescale.
+The chain for `balanced` is one number of {{ preset("balanced", "first_mod_size") }} bits and {{ preset("balanced", "multiplicative_depth") }} numbers of {{ preset("balanced", "scaling_mod_size") }} bits. `fast` uses {{ preset("fast", "first_mod_size") }} and {{ preset("fast", "scaling_mod_size") }} bits. A rescale divides by one of the scaling numbers, so they are chosen close to $\Delta$. The first number is bigger because it must hold the final result after the last rescale.
 
 Additions do not use a level. Multiplying by a plain constant does, like any multiplication. A computation that needs more multiplications than the depth cannot run. Ombra has no bootstrapping to refresh levels, so each search is designed to fit in {{ preset("balanced", "multiplicative_depth") }}.
 
@@ -83,7 +83,7 @@ Dropping a level means dropping a tower. In the real presets each polynomial has
 
 ## Noise
 
-Encryption hides a message by adding a small random error to it. That error is **noise**. It is what makes the ciphertext safe, since without it the secret key could be solved for, and it is also why the answer is approximate. Decrypting gives the message plus the noise.
+Encryption hides a message by adding a small random error, the **noise**. Without it the secret key could be solved for, and it is also why answers are approximate. Decrypting gives the message plus the noise.
 
 Toy example, $\Delta = 100$. Encrypting $3.14$ stores $314$ plus a noise of, say, $+1$, so the ciphertext holds $315$. Decrypted, it reads $3.15$. The error is $0.01$, one unit in the last place of the scale.
 
@@ -95,10 +95,10 @@ $$
 
 The exact answer is $6.28$. The error is now $0.02$: it doubled, because the noise of $+1$ was multiplied by $2.00$. Rescaling also rounds, which adds up to half a unit, $0.005$.
 
-Real noise is small against the scale. With $\Delta = 2^{50}$, an error of 8 units is $8 / 2^{50} \approx 7 \cdot 10^{-15}$. The figure is illustrative, but it shows why a scale of $2^{50}$ leaves plenty of room for scores. Noise matters when it gets close to the scale. At that point the low digits of the answer are garbage, and more levels or a bigger scale are the only fix.
+Real noise is small against the scale. With $\Delta = 2^{50}$, an error of 8 units is $8 / 2^{50} \approx 7 \cdot 10^{-15}$. The figure is illustrative. Noise matters only when it nears the scale; then the low-order places of the answer are garbage, and more levels or a bigger scale are the only fix.
 
 !!! deep-dive "Why noise can only be set up in advance"
-    The server cannot measure noise, because it sees only ciphertexts. So the parameters are chosen so that the whole computation, at its deepest, stays under the noise limit, and the client then checks accuracy on real data. If noise exceeded the limit, the client would still decrypt something and nothing would warn it.
+    The server cannot measure noise, since it sees only ciphertexts. So the parameters are chosen so the whole computation, at its deepest, stays under the noise limit, and accuracy is checked on real data. If noise exceeded the limit, the client would still decrypt something and nothing would warn it.
 
 ## What CKKS cannot do
 

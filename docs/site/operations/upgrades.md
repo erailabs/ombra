@@ -1,6 +1,6 @@
 # Upgrades
 
-This page says what the code does today, for version 0.1.0 and the versions after it. Every stored file and every message carries a version, and a reader refuses a version it does not know. So the failure you can expect from a mismatch is a clear error at start or on the first call, not silent misreading.
+Every stored file and every message carries a version, and a reader refuses a version it does not know. A mismatch gives a clear error at start or on the first call, not silent misreading.
 
 ## Before you upgrade
 
@@ -15,7 +15,7 @@ OMBRA_VERSION=0.2.0 docker compose pull
 OMBRA_VERSION=0.2.0 docker compose up -d
 ```
 
-The version number here is an example. Without `OMBRA_VERSION` the compose file uses the version it shipped with.
+The version number is an example. Without `OMBRA_VERSION` the compose file uses the version it shipped with.
 
 On start the server opens the catalog. If the catalog has an older schema version, the server upgrades it in place, in one transaction: schema 1 and 2 become schema 3, which adds the table of [aliases](migration.md#aliases). A catalog at schema 3 cannot be opened by an older server, so take the backup first. If it has a newer one, the server refuses to start with `unsupported schema_version`. Segments, blobs, the write-ahead log and the API key file are read as they are, and a file with a version the server does not know is refused. The certificate and the API keys in the volume are reused.
 
@@ -40,7 +40,7 @@ For a release with a tag, any failure in these tests is a failure of the build. 
 
 ## What is promised
 
-Only what the tests above check: a client and a server that are one release apart work together for the calls listed, and a data directory written by a release can be opened by the next one. Two releases apart is not tested. The OpenFHE version rule below still applies. This page does not promise anything about GPU search across versions, because the upgrade tests have no GPU.
+Only what the tests above check: a client and a server that are one release apart work together for the calls listed, and a data directory written by a release can be opened by the next one. Two releases apart is not tested. The OpenFHE version rule above still applies. GPU search across versions is not covered, because the upgrade tests have no GPU.
 
 ## Existing collections
 

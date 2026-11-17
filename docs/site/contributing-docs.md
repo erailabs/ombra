@@ -19,7 +19,7 @@ Two opening braces in a row start a macro, so LaTeX like {% raw %}`\frac{{a}}{b}
 
 ## Deep-dive sections
 
-Mark a page or a section that a reader can skip with the deep-dive admonition:
+Mark skippable sections with the deep-dive admonition:
 
 ```markdown
 !!! deep-dive "Why the expansion uses no level"
@@ -31,4 +31,4 @@ Mark a page or a section that a reader can skip with the deep-dive admonition:
 
 ## Style
 
-The style test flags em and en dashes, a hyphen between spaces used as a dash, emoji, and these words and phrases: `seamlessly`, `robust`, `leverage`, `cutting-edge`, `delve`, `unlock`, `empower`, `it's worth noting`, `in today's world`, `not just ... but`, and `open source` (Ombra is source-available). It skips code blocks and inline code. Beyond what the test checks: plain words, short sentences, active voice, and numbers instead of adjectives. Say plainly what is not supported or slow. Each formula comes after a sentence that says what it does, and is followed by a small worked example.
+The style test flags em and en dashes, a hyphen between spaces used as a dash, emoji, and these words and phrases: `seamlessly`, `robust`, `leverage`, `cutting-edge`, `delve`, `unlock`, `empower`, `it's worth noting`, `in today's world`, `not just ... but`, and `open source` (Ombra is source-available). It skips code blocks and inline code. Beyond the test: plain words, short sentences, active voice, numbers instead of adjectives. Say plainly what is not supported or slow. Each formula comes after a sentence that says what it does, and is followed by a small worked example.

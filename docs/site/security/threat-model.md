@@ -2,7 +2,7 @@
 
 Ombra defends against an honest-but-curious server. That server runs the Ombra software correctly and answers every request, but it tries to learn what it can from everything it stores and sees. This covers a hosting provider, an insider with access to the machine, and an attacker who has broken into it and reads disk, memory and network traffic.
 
-It does not defend against a server that lies. A malicious server can return wrong scores, drop results or serve old data, and the client cannot tell: results have no integrity protection, and the client decrypts whatever it receives after checking the envelope header. That is out of scope, see [Out of scope](out-of-scope.md).
+It does not defend against a server that lies. A malicious server can return wrong scores, drop results or serve old data, and the client cannot tell: results have no integrity protection, and the client decrypts whatever it receives after checking the envelope header. See [Out of scope](out-of-scope.md).
 
 ## The parties
 
@@ -64,7 +64,7 @@ Ids are chosen by you and stored in plaintext, so never put sensitive data in an
 
 Each collection has a search level, Fast, Decoy or Strict, and a query can override it. The level controls which clusters the server is asked to score, and so how much the cluster choice reveals about a query. The data and the query are encrypted in all three. Decoy and Strict hide only which clusters a query requested. After every search, at every level, the client fetches the record blobs of its best candidates by id. The server knows each id's cluster, so that fetch shows which records were candidates and how large k is. See [Clusters and search levels](../how-it-works/clusters.md) for how each level picks clusters.
 
-There is no plaintext-database mode. Every vector is stored encrypted in every collection, and the client has no setting to store vectors in the clear. Earlier plans described one for public corpora. It is not built, so this documentation describes three modes.
+There is no plaintext-database mode. Every vector is stored encrypted in every collection.
 
 !!! deep-dive "Why there is no formal guarantee for the cluster choices"
     In Fast and Decoy the client decrypts scores and then chooses which clusters to ask for next, so the server sees a function of decrypted values. CKKS decryption is approximate, and decrypted results can leak information about the secret key if they are shown to someone who also holds the ciphertext (the IND-CPA-D setting). Ombra never sends decrypted values to the server, only the cluster ids derived from them. We make no IND-CPA-D claim, and we have not analysed what the ranking of clusters reveals beyond the ids themselves.

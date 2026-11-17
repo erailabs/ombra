@@ -6,15 +6,15 @@
 
 # Documents and blobs
 
-Every vector you add also produces encrypted blobs: one record blob that holds the exact vector and its metadata, and, if you pass a document, one document blob. The server stores them without being able to read them. This page covers how a blob is encrypted, why every blob has one of a few fixed sizes, and what happens to files too big to store inline.
+Every vector you add also produces encrypted blobs: one record blob that holds the exact vector and its metadata, and, if you pass a document, one document blob. The server stores them without being able to read them.
 
 The record blob is what makes [exact re-ranking](accuracy.md) possible. The search itself runs on the encrypted columns described under [encoding](encoding.md).
 
 ## Envelope encryption
 
-Blobs use AES-256-GCM, an authenticated cipher: decryption fails if a single byte changed. Each blob gets its own fresh random 256-bit key, and that key is encrypted ("wrapped") under one long-lived key, the document master key. This is envelope encryption. The master key never encrypts bulk data directly, and compromising one blob key exposes one blob.
+Blobs use AES-256-GCM, an authenticated cipher: decryption fails if a single byte changed. Each blob gets its own fresh random 256-bit key, and that key is encrypted ("wrapped") under one long-lived key, the document master key. This is envelope encryption: the master key never encrypts bulk data directly, and compromising one blob key exposes one blob.
 
-The blob keys are not derived from anything. Each one comes from the system random number generator when the blob is sealed. The master key is also random, 32 bytes, made when the client keys are created. It is stored together with the OpenFHE secret key in the key file, which is protected by a passphrase: the passphrase goes through scrypt (cost N = {{ SC[0] }}, r = {{ SC[1] }}, p = {{ SC[2] }}, which needs 128 \* N \* r bytes = {{ 128 * SC[0] * SC[1] // 1048576 }} MiB of memory, and a random {{ const("ombra.keyfile.SALT_LEN") }} byte salt) to give a key, and that key encrypts the master key and secret key with AES-256-GCM. The whole header, including the scrypt parameters and salt, is authenticated, so changing any of them makes opening fail. The server never sees the master key, the blob keys or the passphrase.
+Each blob key comes from the system random number generator when the blob is sealed. The master key is also random, 32 bytes, made when the client keys are created. It is stored together with the OpenFHE secret key in the key file, which is protected by a passphrase: the passphrase goes through scrypt (cost N = {{ SC[0] }}, r = {{ SC[1] }}, p = {{ SC[2] }}, which needs 128 \* N \* r bytes = {{ 128 * SC[0] * SC[1] // 1048576 }} MiB of memory, and a random {{ const("ombra.keyfile.SALT_LEN") }} byte salt) to give a key, and that key encrypts the master key and secret key with AES-256-GCM. The whole header, including the scrypt parameters and salt, is authenticated, so changing any of them makes opening fail. The server never sees the master key, the blob keys or the passphrase.
 
 A blob is laid out like this (version 1, integers little-endian):
 
@@ -33,7 +33,7 @@ Both encryptions also authenticate the blob's own identity: its kind (record or 
 
 ## Size buckets
 
-Blob length would leak how long a document is. To hide that, every stored blob has exactly one of a few sizes. The client pads the plaintext with zeros up to the smallest bucket that fits, and the server refuses a blob whose size is not a bucket size. The true length sits inside the ciphertext, so the server sees only the bucket.
+Blob length would leak how long a document is, so every stored blob has exactly one of a few sizes. The client pads the plaintext with zeros up to the smallest bucket that fits, and the server refuses a blob whose size is not a bucket size. The true length sits inside the ciphertext, so the server sees only the bucket.
 
 The buckets are {{ const("ombra.blobstore.BUCKET_SIZES")[0] }}, {{ const("ombra.blobstore.BUCKET_SIZES")[1] }}, {{ const("ombra.blobstore.BUCKET_SIZES")[2] }} and {{ const("ombra.blobstore.BUCKET_SIZES")[3] }} bytes, which are {{ B[0] // 1024 }} KiB, {{ B[1] // 1024 }} KiB, {{ B[2] // 1048576 }} MiB and {{ B[3] // 1048576 }} MiB. A blob of $n$ plaintext bytes (payload plus the 9 byte inner header) goes into the smallest bucket $B$ with
 
@@ -50,14 +50,14 @@ The cost is storage. Most records are well under one bucket, so each costs {{ B[
 
 A large file does not belong in a blob. When a document body is bigger than the inline threshold ({{ TH // 1048576 }} MiB by default) the blob stores a reference instead: a small encrypted JSON with the file's `uri`, its `sha256` and its `size`. The file itself stays in your own storage. A reference is a few hundred bytes, so it lands in the {{ B[0] // 1024 }} KiB bucket.
 
-When you read the document back, the client decrypts the reference, calls a fetch function you supply with the `uri`, and checks the result against the stored size and SHA-256. If either differs, it raises an error. So a file swapped in your storage is detected.
+When you read the document back, the client decrypts the reference, calls a fetch function you supply with the `uri`, and checks the result against the stored size and SHA-256. If either differs, it raises an error. A file swapped in your storage is detected.
 
 For example, a 5 MB PDF is above the {{ TH // 1048576 }} MiB threshold. The client stores `{"sha256": "...", "size": 5000000, "uri": "s3://bucket/report.pdf"}` as the document, and only that. A 600,000 byte text stays inline and lands in the {{ B[2] // 1048576 }} MiB bucket, since it does not fit in {{ B[1] // 1024 }} KiB.
 
-References are not wired into `Collection.add` yet. That call only seals inline documents, and it raises an error for a body over the inline threshold. To store a reference today, use `DocumentCodec.seal_reference` and `fetch_document` from the code below directly.
+References are not wired into `Collection.add` yet. That call only seals inline documents, and it raises an error for a body over the inline threshold. To store a reference today, use `DocumentCodec.seal_reference` and `fetch_document` directly.
 
 ## What is not protected
 
-The `uri` is encrypted inside the blob, but the fetch is yours: the request to your storage is not hidden by Ombra. Files in your storage are as protected as you make them. The document master key lives in the key file; lose the file and the passphrase and every record and document is unreadable. That is true of the secret key too, and there is no recovery.
+The `uri` is encrypted inside the blob, but the fetch is yours: the request to your storage is not hidden by Ombra. Files in your storage are as protected as you make them. The document master key lives in the key file; lose the file and the passphrase and every record and document is unreadable. The same holds for the secret key, and there is no recovery.
 
 The code is in [`client/ombra/documents.py`](https://github.com/erailabs/ombra/blob/main/client/ombra/documents.py) (seal and open), [`client/ombra/blobstore.py`](https://github.com/erailabs/ombra/blob/main/client/ombra/blobstore.py) (the bucket sizes and the store protocol) and [`client/ombra/keyfile.py`](https://github.com/erailabs/ombra/blob/main/client/ombra/keyfile.py) (the key file). The byte layout is also on the [file formats](../reference/file-formats.md) page.

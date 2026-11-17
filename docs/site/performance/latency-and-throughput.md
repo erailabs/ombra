@@ -3,9 +3,9 @@
 !!! note "Some numbers are pending a new benchmark run on the current code."
     Figures from before the one-tower decrypt, in-place query expansion and seeded storage were removed. The tables marked TBD wait for the next run: the cold cache at 1,000,000 vectors, throughput, and the A10.
 
-Synthetic vectors are used for the speed runs. The server and the client run on the same machine, so the network is not in the times unless a line says otherwise. Latency means the whole query as a user sees it: the client encrypts the query, the server searches, the client decrypts and ranks.
+The speed runs use synthetic vectors. Client and server run on the same machine, so the network is not in the times unless a line says otherwise. Latency is the whole query as a user sees it: the client encrypts the query, the server searches, the client decrypts and ranks.
 
-Two names first. Balanced is the default preset (ring dimension {{ preset("balanced", "ring_dim") }}, {{ preset("balanced", "batch_size") }} vectors per ciphertext). Fast is the smaller preset (ring dimension {{ preset("fast", "ring_dim") }}, {{ preset("fast", "batch_size") }} vectors per ciphertext). "Searched" below is the share of the collection the second search stage reads.
+Balanced is the default preset (ring dimension {{ preset("balanced", "ring_dim") }}, {{ preset("balanced", "batch_size") }} vectors per ciphertext). Fast is the smaller preset (ring dimension {{ preset("fast", "ring_dim") }}, {{ preset("fast", "batch_size") }} vectors per ciphertext). "Searched" below is the share of the collection the second search stage reads.
 
 ## One query on an A100
 
@@ -26,11 +26,11 @@ The client's decrypt and ranking step grows with the number of blocks searched, 
 
 At 1,000,000 vectors, searching 20% instead of 5% costs more time than going from 384 to 1536 dimensions.
 
-Timing varies between runs. The same search kernel took up to 26% longer in one run than in another on the same card. Read each figure here as one sample, not a guarantee.
+Timing varies between runs. The same search kernel took up to 26% longer in one run than in another on the same card. Read each figure as one sample.
 
 ## The server's share
 
-Time the server spends on one query on an A100, from the same run (medians of 20 queries). This covers reading the query, expansion, both GPU search stages and their downloads.
+Time the server spends on one query on an A100, from the same run (medians of 20 queries). It covers reading the query, expansion, both GPU search stages and their downloads.
 
 | Dimension | Collection | Searched | Balanced | Fast |
 | --- | --- | --- | --- | --- |
@@ -58,13 +58,13 @@ The same query through the gRPC API, with the client encrypting in 16 processes,
 | 100,000 | none | 143 ms (170 ms) | 60 ms (62 ms) |
 | 100,000 | 2 fields | 143 ms (163 ms) | 59 ms (61 ms) |
 
-A filter is part of the same encrypted search, so it adds no extra round. A query sends 0.79 MB (Balanced) or 0.39 MB (Fast) up and, in this run, gets 3.7 MB (Balanced) or 2.0 MB (Fast) back over both stages. The answer size depends on how many blocks are searched.
+A filter is part of the same encrypted search and adds no round. A query sends 0.79 MB (Balanced) or 0.39 MB (Fast) up and, in this run, gets 3.7 MB (Balanced) or 2.0 MB (Fast) back over both stages. The answer size depends on how many blocks are searched.
 
 These are warm-cache times: the benchmark loads every cluster once before it times queries. The first query that reaches a cluster not yet in memory waits while the server reads that cluster's blocks from disk. On Fast at 100,000 vectors that took 4.4 to 9.1 s per cluster, for about 0.3 GB of columns each.
 
 ## What is slow
 
-**A collection larger than the GPU cache.** When the collection does not fit in the GPU and host cache, every probe is read from disk, and the query takes seconds instead of milliseconds. The earlier test, at 1,000,000 vectors with a 24 GB GPU budget and an 8 GB host budget, showed a gap of two orders of magnitude to the cached case. That test ran before seeded storage, which halves the bytes read from disk, so its numbers are removed.
+**A collection larger than the GPU cache.** When the collection does not fit in the GPU and host cache, every probe is read from disk, and the query takes seconds instead of milliseconds. The earlier test, at 1,000,000 vectors with a 24 GB GPU budget and an 8 GB host budget, showed a gap of two orders of magnitude to the cached case. That test predates seeded storage, which halves the bytes read from disk, so its numbers are removed.
 
 | Collection | Cache | Balanced median | Fast median |
 | --- | --- | --- | --- |
@@ -75,7 +75,7 @@ A cold cache with small budgets is the worst case, not what a tuned A100 box wou
 
 The path from host memory to the GPU runs at 22 to 26 GB/s on the A100's PCIe link, and a search over a collection three times the GPU budget spent about 95% of its time moving data and 5% computing (a synthetic test of the cache). Past the GPU's memory, the link sets the speed.
 
-**Local mode on a CPU.** Local mode runs the server on your CPU in a child process. With 10,000 vectors, 2 clusters and the Fast preset, on a Modal container with 8 CPUs: at d = 384, creating the collection took 19.3 s and a search took 0.75 s at the median; at d = 768, 36.1 s and 1.28 s (`tests/bench_local_mode.py`). A laptop is slower: a Ryzen 5 5600H took 28.3 s and 1.35 s at d = 384. Use local mode for development and small collections, not for serving traffic.
+**Local mode on a CPU.** Local mode runs the server on your CPU in a child process. With 10,000 vectors, 2 clusters and the Fast preset, on a Modal container with 8 CPUs: at d = 384, creating the collection took 19.3 s and a search took 0.75 s at the median; at d = 768, 36.1 s and 1.28 s (`tests/bench_local_mode.py`). A laptop is slower: a Ryzen 5 5600H took 28.3 s and 1.35 s at d = 384. Use local mode for development and small collections.
 
 **Strict scans.** Strict reads every cluster. We have not timed a Strict query on its own, so there is no figure for it yet.
 
@@ -91,4 +91,4 @@ Sending several queries together helps the search kernel: four queries at once r
 
 ## On an A10
 
-The A10 numbers on filtered queries over real text embeddings (Fast, d = 384, 10,003 vectors in 6 clusters) were measured before the changes above and are TBD until they are rerun. Recall under encryption matched plaintext recall in those runs. The accuracy pages have the numbers.
+The A10 numbers on filtered queries over real text embeddings (Fast, d = 384, 10,003 vectors in 6 clusters) were measured before the changes above and are TBD until they are rerun. Recall under encryption matched plaintext recall in those runs. See [accuracy](../how-it-works/accuracy.md).

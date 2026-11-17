@@ -1,6 +1,6 @@
 # Durability
 
-This page says what the server guarantees when it stops without warning: a crash, `kill -9`, an out-of-memory kill or a container that is removed. It is about the process dying. It does not cover a disk that loses data after the server was told the write was safe, and it is not a replacement for [backups](backups.md).
+What the server guarantees when it stops without warning: a crash, `kill -9`, an out-of-memory kill or a removed container. This covers the process dying. It does not cover a disk that loses data after the server was told the write was safe, and it does not replace [backups](backups.md).
 
 ## What is guaranteed
 

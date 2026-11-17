@@ -1,6 +1,6 @@
 # Presets
 
-A preset fixes the encryption parameters. You pick a name and a vector dimension. You never pick ring sizes or moduli, and every preset is at least 128-bit secure: the client refuses to build one that is not. The values below are read from the code when the site is built.
+A preset fixes the encryption parameters. You pick a name and a vector dimension, never ring sizes or moduli. Every preset is at least 128-bit secure: the client refuses to build one that is not. The values below are read from the code at build time.
 
 | Preset | Ring dimension $N$ | Slots | Multiplicative depth | Filter fields $F_{max}$ |
 | --- | --- | --- | --- | --- |

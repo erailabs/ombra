@@ -1,6 +1,6 @@
 # gRPC API
 
-The server speaks gRPC, package `ombra.v1`. The definition is `client/ombra/resources/ombra.proto`, and the server builds from the same file (`proto/ombra/v1/ombra.proto` is an identical copy). The Python client wraps all of this, so you only need this page to write your own client or to debug one.
+The server speaks gRPC, package `ombra.v1`. The definition is `client/ombra/resources/ombra.proto`, and the server builds from the same file (`proto/ombra/v1/ombra.proto` is an identical copy). The Python client wraps all of this; you need it only to write your own client or to debug one.
 
 What the API never carries: the secret key, plaintext vectors, queries, documents or metadata values. Ids are opaque bytes chosen by the client. The server receives ciphertexts inside the [versioned envelope](file-formats.md) and public evaluation keys only.
 
