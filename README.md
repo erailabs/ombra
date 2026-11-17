@@ -35,34 +35,46 @@ Encryption that lets a server compute on data it cannot read, called fully homom
 
 Your data is encrypted on your machine before it goes anywhere, and the secret key never leaves the Python client. The server stores the ciphertexts, runs the search on them, and sends back encrypted scores that only you can open.
 
-Note that accuracy is not affected. Your client decrypts the scores and re-ranks the best candidates itself, so the top results are the real top results. The cryptography is CKKS through [OpenFHE](https://github.com/openfheorg/openfhe-development) 1.6.1, every preset is at least 128-bit secure, and every GPU kernel is checked against OpenFHE's own output.
+Note that encryption does not cost you accuracy. Your client decrypts the scores and re-ranks the best candidates itself, so the top results are the real top results. The cryptography is CKKS through [OpenFHE](https://github.com/openfheorg/openfhe-development) 1.6.1, every preset is at least 128-bit secure, and every GPU kernel is checked against OpenFHE's own output.
 
-Your data is now almost completely private, but not entirely. A curious server operator, or someone listening on the network, can still learn a few things about it, such as how many vectors you store and when you search. The section [below](#what-the-server-can-still-see) lists all of them.
+Your data is now almost completely private, but not entirely. A curious server operator, or someone listening on the network, can still learn a few things about it, such as how many vectors you store and when you search. [What the server learns](docs/site/security/what-the-server-learns.md) lists all of them.
 
-## Try it in two minutes
+## How it works
 
-You do not need a GPU to try it. Local mode runs a CPU server inside your Python process:
+```mermaid
+sequenceDiagram
+    autonumber
+    box Your machine
+        participant C as Python client<br/>(holds the secret key)
+    end
+    box Server, on a GPU
+        participant S as Ombra server<br/>(sees only ciphertexts)
+    end
 
-```bash
-pip install "ombra-db[local]" sentence-transformers
-python examples/local_search.py
+    Note over C: Setup, once per collection
+    C->>C: group your vectors into clusters
+    C->>S: encrypted vectors, encrypted cluster centers,<br/>encrypted records, public evaluation keys
+
+    Note over C,S: Every search
+    C->>S: the query, encrypted
+    S->>S: score the query against the cluster centers
+    S-->>C: encrypted scores
+    C->>C: decrypt, choose the closest clusters
+    C->>S: ask for those clusters (plus decoys, if you want them)
+    S->>S: score every vector in them
+    S-->>C: encrypted scores
+    C->>C: decrypt, keep the best candidates
+    C->>S: fetch the candidates' encrypted records
+    S-->>C: encrypted records
+    C->>C: decrypt and re-rank exactly, return the top results
 ```
 
-Local mode is slow (a few seconds per search) and meant for trying Ombra and for small collections. Wheels exist for Python 3.11 to 3.13 on Linux (x86_64, aarch64) and macOS 15 or newer (arm64, x86_64). There is no Windows build yet.
+1. **Setup.** Your client groups similar vectors into clusters, so a search can skip most of the data. It encrypts the vectors, the cluster centers and a copy of each record, and uploads them with public evaluation keys, which let the server compute but not decrypt. The secret key stays in a passphrase-protected key file on your machine.
+2. **Find the right clusters.** The client encrypts the query and sends it. The server scores it against the encrypted centers and returns encrypted scores. Only the client can read them, so only the client knows which clusters are closest.
+3. **Score the clusters.** The client asks for the closest clusters. With the Decoy and Strict levels it mixes in random clusters, so the server cannot tell which ones it really wanted. The server scores every vector in them on the GPU, thousands per ciphertext at once, and the scores stay encrypted.
+4. **Re-rank.** The client decrypts the scores, fetches the encrypted records of the best candidates, and re-ranks them exactly on your machine. Encryption therefore changes no result. Like any clustered index, the clusters can miss a few neighbours; the [accuracy page](docs/site/how-it-works/accuracy.md) has the numbers.
 
-When you want GPU speed, start the server with `docker compose up -d` on a host with a [supported NVIDIA GPU](docs/site/operations/gpus.md), and point the client at it with `Client("host:port", ...)`.
-
-## What you get
-
-- Encrypted vectors, queries, filters and scores, end to end
-- Equality and integer range filters, evaluated on ciphertexts
-- Collections with aliases, and `ombra-migrate` to rebuild a collection or rotate its keys
-- Several server nodes behind a router that never decrypts anything (first phase)
-- API keys with read, write and admin scopes, optionally limited to one collection
-- A REST admin API, structured logs with request ids, online backups and a storage checker
-- LangChain and LlamaIndex adapters
-
-Ombra has no published release yet. The [roadmap](docs/site/roadmap.md) lists what is still missing.
+The server never holds a key that can decrypt, and nothing it sends back can be read without your secret key. [How it works](docs/site/how-it-works/encoding.md) in the docs goes through each step, with the math.
 
 ## What the server can still see
 
@@ -90,29 +102,6 @@ We say this so you can weigh it. AI-written code can be wrong in ways that look 
 - [Performance](docs/site/performance/latency-and-throughput.md): latency, throughput and storage
 
 The `examples/` folder has runnable scripts. The adapters live in `integrations/langchain-ombra/` and `integrations/llama-index-vector-stores-ombra/`.
-
-## Repository layout
-
-| Folder | What lives there |
-| --- | --- |
-| `core/` | CUDA kernels and OpenFHE ciphertext format handling (C++/CUDA) |
-| `server/` | gRPC and REST API, storage, router, GPU scheduling (C++) |
-| `client/` | Python client: keys, encryption, top-k, re-ranking |
-| `integrations/` | LangChain and LlamaIndex adapters |
-| `examples/` | Runnable scripts |
-| `tests/` | Cross-component and end-to-end tests |
-| `docs/site/` | The documentation site |
-
-## Development
-
-GPU work runs on [Modal](https://modal.com). Our reference cards are NVIDIA Ampere: an A10 for development and an A100 for benchmarks. Turing, Ada and Hopper cards are built and tested too. See [CONTRIBUTING.md](CONTRIBUTING.md) before you open a pull request.
-
-```bash
-make help        # list all commands
-make test        # CPU tests
-make test-gpu    # GPU tests on Modal
-make bench       # benchmarks on Modal (A100)
-```
 
 ## License
 
