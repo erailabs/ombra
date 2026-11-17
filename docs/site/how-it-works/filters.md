@@ -2,8 +2,6 @@
 
 The server cannot read your metadata, so it cannot filter on it. Ombra moves the filter into the score. Each vector carries its filter values as extra encrypted columns, the query asks for them with a weight, and a vector that fails the filter ends up in a different range of score values. The client decrypts the scores, reads the range and drops the vectors that failed. The server never learns which fields were filtered.
 
-The code is in [`client/ombra/search.py`](https://github.com/erailabs/ombra/blob/main/client/ombra/search.py) (`filter_query`, `decode_band`), [`client/ombra/presets.py`](https://github.com/erailabs/ombra/blob/main/client/ombra/presets.py) (`filter_field_limit`) and [`client/ombra/probe.py`](https://github.com/erailabs/ombra/blob/main/client/ombra/probe.py) (cluster statistics and the planner).
-
 ## The additive penalty
 
 A collection can have $F$ filter fields. Field $f$ takes one of $m_f$ values, numbered $0$ to $m_f-1$ (a language field with 5 languages has $m_f = 5$). Each field becomes $m_f$ extra columns next to the $d$ vector columns, a one-hot encoding: the column for value $v$ holds 1 for the vectors whose field equals $v$ and 0 for the rest (see [encoding](encoding.md)). The query vector grows the same way, to $d + \sum_f m_f$ entries.

@@ -65,8 +65,16 @@ class StoredRecord:
 
 @dataclass(frozen=True)
 class SearchHit:
+    """One search result. Score and metadata are left out of `repr`.
+
+    Attributes:
+        id: The vector id.
+        score: Exact cosine score, computed from the re-ranking record.
+        metadata: The metadata dict stored with the vector.
+    """
+
     id: str
-    score: float = field(repr=False)  # exact cosine score (from the re-ranking record)
+    score: float = field(repr=False)
     metadata: dict[str, Any] = field(repr=False, default_factory=dict)
 
 

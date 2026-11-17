@@ -58,6 +58,7 @@ class FakeClient:
 
     @classmethod
     def local(cls, path: str | Path) -> FakeClient:
+        """Return a `FakeClient`; `path` is ignored."""
         return cls("memory")
 
     def create_collection(
@@ -77,6 +78,17 @@ class FakeClient:
         n_clusters: int | None = None,
         scrypt_params: tuple[int, int, int] | None = None,
     ) -> str:
+        """Create an in-memory collection and insert the vectors.
+
+        Vectors are normalized to unit length. `key_file`, `passphrase`, `n_clusters`,
+        `range_fields` and `scrypt_params` are accepted and ignored; no key file is written.
+
+        Returns:
+            The collection name.
+
+        Raises:
+            ValueError: The collection exists, or ids are missing or not unique.
+        """
         if name in self._colls:
             raise ValueError(f"collection {name!r} exists")
         self._colls[name] = _Coll(
@@ -96,11 +108,20 @@ class FakeClient:
         passphrase: str,
         filter_fields: Sequence[str] | None = None,
     ) -> str:
+        """Resolve an alias and check the collection exists; the key file is not read.
+
+        Returns:
+            The real collection name.
+
+        Raises:
+            KeyError: There is no such collection.
+        """
         real = self._aliases[name].target if name in self._aliases else name
         self._get(real)
         return real
 
     def get_collection(self, name: str) -> CollectionInfo:
+        """Return a `CollectionInfo`; `cluster_count` is always 1."""
         name = self._aliases[name].target if name in self._aliases else name
         c = self._get(name)
         dim = len(c.vectors[0]) if c.vectors else 0
@@ -116,9 +137,16 @@ class FakeClient:
         )
 
     def list_collections(self) -> list[str]:
+        """Return the collection names, sorted."""
         return sorted(self._colls)
 
     def drop_collection(self, name: str) -> None:
+        """Delete a collection.
+
+        Raises:
+            KeyError: There is no such collection.
+            OmbraError: An alias points at it.
+        """
         self._get(name)
         if any(a.target == name for a in self._aliases.values()):
             raise OmbraError("an alias points at this collection")
@@ -126,6 +154,12 @@ class FakeClient:
         self._info.pop(name, None)
 
     def create_alias(self, name: str, target: str) -> AliasInfo:
+        """Make `name` an alias of `target`.
+
+        Raises:
+            OmbraError: The name is a collection or an alias, or ends in `.g<number>`.
+            KeyError: `target` does not exist.
+        """
         if name in self._colls or name in self._aliases or re.search(r"\.g\d+$", name):
             raise OmbraError("the alias name is taken or not allowed")
         self._get(target)
@@ -133,6 +167,12 @@ class FakeClient:
         return self._aliases[name]
 
     def switch_alias(self, name: str, new_target: str, expected_target: str) -> AliasInfo:
+        """Move an alias to `new_target` if it points at `expected_target`.
+
+        Raises:
+            AliasConflictError: The alias points elsewhere.
+            OmbraError: There is no such alias.
+        """
         a = self._aliases.get(name)
         if a is None:
             raise OmbraError("alias not found")
@@ -145,13 +185,20 @@ class FakeClient:
         return self._aliases[name]
 
     def drop_alias(self, name: str) -> None:
+        """Delete an alias.
+
+        Raises:
+            OmbraError: There is no such alias.
+        """
         if self._aliases.pop(name, None) is None:
             raise OmbraError("alias not found")
 
     def list_aliases(self) -> list[AliasInfo]:
+        """Return the aliases, sorted by name."""
         return [self._aliases[n] for n in sorted(self._aliases)]
 
     def iter_records(self, collection: str, *, ids_only: bool = False) -> Iterator[StoredRecord]:
+        """Yield a `StoredRecord` per vector, with the vector as float32."""
         c = self._get(collection)
         for i, ident in enumerate(list(c.ids)):
             if ids_only:
@@ -162,10 +209,12 @@ class FakeClient:
                 )
 
     def get_collection_info(self, collection: str) -> dict[str, Any] | None:
+        """Return the stored info dict, or None."""
         self._get(collection)
         return self._info.get(collection)
 
     def set_collection_info(self, collection: str, info: dict[str, Any]) -> None:
+        """Store an info dict for the collection; no size limit applies."""
         self._get(collection)
         self._info[collection] = dict(info)
 
@@ -177,6 +226,16 @@ class FakeClient:
         metadata: Sequence[dict[str, Any]] | None = None,
         documents: Sequence[str | bytes | None] | None = None,
     ) -> list[str]:
+        """Add vectors, normalized to unit length.
+
+        Returns:
+            The new ids. Without `ids` they are `fake-<n>`.
+
+        Raises:
+            KeyError: There is no such collection.
+            ValueError: Ids are missing, not unique or already used, or metadata or documents
+                do not have one entry per vector.
+        """
         c = self._get(collection)
         x = np.asarray(vectors, dtype=np.float64)
         n = len(x)
@@ -194,6 +253,7 @@ class FakeClient:
         return new
 
     def delete(self, collection: str, ids: Sequence[str]) -> None:
+        """Delete vectors by id; unknown ids are ignored."""
         c = self._get(collection)
         for ident in ids:
             if ident in c.ids:
@@ -212,6 +272,11 @@ class FakeClient:
         level: str | None = None,
         n_probe: int | None = None,
     ) -> list[SearchHit]:
+        """Exact cosine search over the vectors, best first.
+
+        `filter` takes a value, a list of values or a range dict such as `{"gte": 1}` per
+        metadata field. `level` and `n_probe` are ignored.
+        """
         c = self._get(collection)
         q = np.asarray(query, dtype=np.float64)
         q = q / np.linalg.norm(q)
@@ -223,6 +288,7 @@ class FakeClient:
         return [SearchHit(c.ids[i], s, c.metadata[i]) for s, i in rows[:k]]
 
     def close(self) -> None:
+        """Forget every collection."""
         self._colls.clear()
 
     def _get(self, name: str) -> _Coll:

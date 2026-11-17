@@ -5,7 +5,7 @@ What the server guarantees when it stops without warning: a crash, `kill -9`, an
 ## What is guaranteed
 
 - **A write the client got an answer for is kept.** If `insert`, `delete`, a key upload, a blob write or a block replacement returned without an error, the data is on disk when the server starts again, exactly once.
-- **A write without an answer is all or nothing.** If the server died before it answered, the write is either fully there or not there at all. The client cannot tell which, so it checks. It can repeat a call safely only where the [Python API](../reference/python-api.md) says so.
+- **A write without an answer is all or nothing.** If the server died before it answered, the write is either fully there or not there at all. The client cannot tell which, so it checks. It can repeat a call safely only where the [Python API](../reference/python/errors-and-retries.md#retries) says so.
 - **A block is never partial.** A block is stored and visible as a whole. An id is never in two blocks.
 - **A delete request applies to all of its ids or to none.**
 - **Keys are the old set or the new set.** An upload of evaluation keys replaces all three files together or none of them.

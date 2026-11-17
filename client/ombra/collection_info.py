@@ -33,6 +33,11 @@ class InfoError(ValueError):
 
 
 def pack_info(info: dict[str, Any]) -> bytes:
+    """Serialize `info` to a versioned record (magic `OINF`, JSON body, padded to 4 bytes).
+
+    Raises:
+        ValueError: The JSON is above `MAX_INFO_BYTES` (4096).
+    """
     raw = json.dumps(info, sort_keys=True, ensure_ascii=False).encode()
     if len(raw) > MAX_INFO_BYTES:
         raise ValueError(f"collection info is above {MAX_INFO_BYTES} bytes")
@@ -41,6 +46,11 @@ def pack_info(info: dict[str, Any]) -> bytes:
 
 
 def unpack_info(data: bytes) -> dict[str, Any]:
+    """Read a record made by `pack_info`.
+
+    Raises:
+        InfoError: The record is truncated, has another magic or has an unsupported version.
+    """
     if len(data) < _HEAD.size:
         raise InfoError("collection info is truncated")
     magic, version, n = _HEAD.unpack_from(data)

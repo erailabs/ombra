@@ -2,8 +2,6 @@
 
 A vector lives in one slot of each column of its block, as one number inside a ciphertext. The server cannot remove one slot from a ciphertext, because it cannot read it. So a delete has two steps: the server marks the vector as dead right away, and the client later rewrites the blocks without the dead slots. Re-clustering, which rebuilds the clusters from the live vectors, is covered at the end.
 
-The code is in [`client/ombra/collection.py`](https://github.com/erailabs/ombra/blob/main/client/ombra/collection.py) (`delete`, `repack`, `recluster`), [`client/ombra/repack.py`](https://github.com/erailabs/ombra/blob/main/client/ombra/repack.py) (the repack plan) and [`server/search/include/ombra/search/layout.hpp`](https://github.com/erailabs/ombra/blob/main/server/search/include/ombra/search/layout.hpp) (the tombstone penalty).
-
 ## Delete and tombstones
 
 `delete(ids)` does four things. The client opens the vector's record blob to learn its field values and finds its cluster by the nearest center, and lowers the cluster statistics ([filters](filters.md)). It tells the server to tombstone the ids, which means the server keeps the id in a set of deleted ids. It deletes the record and document blobs of those ids. Unknown ids and ids that are already deleted are ignored, and the call returns how many it deleted.

@@ -67,13 +67,27 @@ class Client:
         deadlines: Mapping[str, float] | None = None,
         retry: RetryPolicy | None = None,
     ) -> None:
-        """Connect to a server. TLS is used unless `insecure=True` (loopback test servers only;
-        a warning is raised for any other host). `timeout` (default 120 s) is the deadline of a
-        single-answer call that changes data, `stream_timeout` (default 1800 s) that of a call
-        that streams data or searches; small reads get 30 s and one blob 300 s. `deadlines` sets
-        single calls by name, e.g. `{"Search": 600}`. Every deadline bounds the whole call. `retry`
-        is a `ombra.RetryPolicy` (default: 4 attempts, backoff with full jitter, 120 s budget) for
-        the calls that are safe to repeat; `RetryPolicy.never()` turns retries off."""
+        """Connect to a server.
+
+        TLS is used unless `insecure=True`. Every deadline bounds the whole call.
+
+        Args:
+            address: Server address as `host:port`.
+            api_key: API key sent with every call, if the server needs one.
+            root_certificates: PEM bytes of the CA that signed the server certificate. By
+                default the system roots are used.
+            insecure: No TLS. For loopback test servers only; a warning is raised for any
+                other host.
+            timeout: Deadline in seconds of a single-answer call that changes data
+                (default 120 s).
+            stream_timeout: Deadline in seconds of a call that streams data or searches
+                (default 1800 s). Small reads get 30 s and one blob 300 s.
+            deadlines: Deadlines in seconds for single calls by gRPC name, for example
+                `{"Search": 600}`.
+            retry: An `ombra.RetryPolicy` for the calls that are safe to repeat (default: 4
+                attempts, backoff with full jitter, 120 s budget). `RetryPolicy.never()`
+                turns retries off.
+        """
         self._core = ClientCore(
             _grpc_transport(
                 address,
@@ -89,7 +103,14 @@ class Client:
 
     @classmethod
     def local(cls, path: str | Path) -> Client:
-        """A CPU (OpenFHE) server in a child process that keeps its files under `path`."""
+        """Start a CPU (OpenFHE) server in a child process that keeps its files under `path`.
+
+        Args:
+            path: Directory where the local server keeps its files.
+
+        Returns:
+            A client that talks to that local server.
+        """
         self = cls.__new__(cls)
         self._core = ClientCore(_local_transport(path))
         return self
@@ -113,12 +134,38 @@ class Client:
     ) -> str:
         """Cluster and encrypt `vectors` (unit length), write the key file, create the collection.
 
-        `preset` defaults to "fast" in local mode and to "balanced" against a server.
-        `filter_fields` maps a field name to its number of values; every metadata dict then needs
-        an integer in range under that name. `range_fields` maps a field name to the cut points of
-        its buckets (a list of up to 63 ascending integers) or to {"kind": "two_digit"} (domain
-        0..4095); every metadata dict then needs the raw integer under that name, and a filter can
-        say {"year": {"gte": 2020, "lt": 2024}}. Back up the key file: without it the data is lost.
+        The collection stays open in this client. Back up the key file: without it the data is
+        lost.
+
+        Args:
+            name: Collection name.
+            vectors: One unit-length vector per row; at least one.
+            ids: One unique id per vector (1 to 256 bytes each). Random ids if omitted.
+            key_file: Path the encrypted key file is written to.
+            passphrase: Passphrase that protects the key file.
+            preset: Parameter preset. Defaults to "fast" in local mode and to "balanced"
+                against a server.
+            metadata: One dict per vector.
+            documents: One document per vector, or None for a vector without one.
+            filter_fields: Maps a field name to its number of values. Every metadata dict then
+                needs an integer in range under that name.
+            range_fields: Maps a field name to the cut points of its buckets (a list of up to 63
+                ascending integers) or to `{"kind": "two_digit"}` (domain 0..4095). Every
+                metadata dict then needs the raw integer under that name, and a filter can say
+                `{"year": {"gte": 2020, "lt": 2024}}`.
+            security_level: Default search level of the collection: "fast", "decoy" or "strict".
+            n_clusters: Number of clusters. If omitted, the number of vectors divided by the
+                preset's batch size, rounded, at least 1.
+            scrypt_params: Key derivation cost `(n, r, p)` of the key file. Library default if
+                omitted.
+
+        Returns:
+            The collection name.
+
+        Raises:
+            ValueError: `vectors` is not a non-empty 2-D array, ids are missing or not unique,
+                or a metadata dict lacks a filter field.
+            OmbraError: The server refused the call.
         """
         return self._core.create_collection(
             name,
@@ -145,53 +192,162 @@ class Client:
         filter_fields: Sequence[str] | None = None,
     ) -> str:
         """Reopen a collection with its key file; name the filter fields in their creation order.
+
         `name` may be an alias: the server resolves it once, the collection is pinned under its
         real name (the return value) and under the name you gave, and a later switch of the alias
-        does not move it. Open the alias again to follow the switch."""
+        does not move it. Open the alias again to follow the switch.
+
+        Args:
+            name: Collection name or alias.
+            key_file: Path of the key file written by `create_collection`.
+            passphrase: Passphrase of the key file.
+            filter_fields: Names of the equality filter fields in their creation order. The
+                server stores only the value counts. Omit if the collection has none.
+
+        Returns:
+            The real collection name, which differs from `name` if `name` is an alias.
+
+        Raises:
+            ValueError: The number of names does not match the collection's equality fields.
+            OmbraError: The server refused the call, for example `NotFoundError`.
+        """
         return self._core.open_collection(
             name, key_file=key_file, passphrase=passphrase, filter_fields=filter_fields
         )
 
     def get_collection(self, name: str) -> CollectionInfo:
+        """Read what the server stores about a collection.
+
+        Args:
+            name: Collection name.
+
+        Returns:
+            The collection's `CollectionInfo`.
+
+        Raises:
+            NotFoundError: There is no such collection.
+        """
         return self._core.get_collection(name)
 
     def list_collections(self) -> list[str]:
+        """List the collections on the server.
+
+        Returns:
+            The collection names, sorted.
+        """
         return self._core.list_collections()
 
     def drop_collection(self, name: str) -> None:
+        """Delete a collection from the server and close it in this client.
+
+        Alias names pinned to the collection in this client are forgotten too. The call is
+        never retried.
+
+        Args:
+            name: Collection name.
+
+        Raises:
+            NotFoundError: There is no such collection.
+        """
         return self._core.drop_collection(name)
 
     def iter_records(self, collection: str, *, ids_only: bool = False) -> Iterator[StoredRecord]:
-        """The live vectors of an open collection with their exact float32 vectors, metadata and
-        documents, read from the encrypted blobs and decrypted here. With `ids_only` the blobs are
-        not read. The server has no call that lists ids, so this reads every block of the
-        collection; use it for migration and export, not in a request path."""
+        """Read the live vectors of an open collection with their exact float32 vectors,
+        metadata and documents, from the encrypted blobs, decrypted here.
+
+        The server has no call that lists ids, so this reads every block of the collection; use
+        it for migration and export, not in a request path.
+
+        Args:
+            collection: Name of an open collection.
+            ids_only: Do not read the blobs; only the ids are set.
+
+        Returns:
+            An iterator of `StoredRecord`.
+        """
         return self._core.iter_records(collection, ids_only=ids_only)
 
     def get_collection_info(self, collection: str) -> dict[str, Any] | None:
-        """The encrypted "collection info" of an open collection (for example the embedding model
-        label that `ombra-migrate` wrote), or None."""
+        """Read the encrypted "collection info" of an open collection.
+
+        An example is the embedding model label that `ombra-migrate` wrote.
+
+        Args:
+            collection: Name of an open collection.
+
+        Returns:
+            The info dict, or None if there is none.
+        """
         return self._core.get_collection_info(collection)
 
     def set_collection_info(self, collection: str, info: dict[str, Any]) -> None:
-        """Store a small JSON object (up to 4 KiB) as the collection's encrypted info."""
+        """Store a small JSON object (up to 4 KiB) as the collection's encrypted info.
+
+        Args:
+            collection: Name of an open collection.
+            info: JSON-serializable dict, up to 4 KiB.
+        """
         self._core.set_collection_info(collection, info)
 
     def create_alias(self, name: str, target: str) -> AliasInfo:
-        """Make `name` an alias of the collection `target` (admin key). The name may not be a
-        collection or end in `.g<number>`."""
+        """Make `name` an alias of the collection `target` (admin key).
+
+        The name may not be a collection or end in `.g<number>`.
+
+        Args:
+            name: New alias name.
+            target: Collection the alias points at.
+
+        Returns:
+            The new `AliasInfo`.
+
+        Raises:
+            InvalidArgumentError: In local mode, which has no alias table.
+            OmbraError: The server refused the call.
+        """
         return self._core.create_alias(name, target)
 
     def switch_alias(self, name: str, new_target: str, expected_target: str) -> AliasInfo:
-        """Move an alias to `new_target` if it points at `expected_target` now (admin key). Raises
-        `AliasConflictError` if it points elsewhere. Clients see the switch when they open the
-        alias again; collections they have open keep working."""
+        """Move an alias to `new_target` if it points at `expected_target` now (admin key).
+
+        Clients see the switch when they open the alias again; collections they have open keep
+        working. Switching to the current target succeeds, so a retry after a lost answer is safe.
+
+        Args:
+            name: Alias name.
+            new_target: Collection the alias should point at.
+            expected_target: Collection the alias must point at now.
+
+        Returns:
+            The updated `AliasInfo`.
+
+        Raises:
+            AliasConflictError: The alias points elsewhere.
+            InvalidArgumentError: In local mode, which has no alias table.
+        """
         return self._core.switch_alias(name, new_target, expected_target)
 
     def drop_alias(self, name: str) -> None:
+        """Delete an alias (admin key). The collection it pointed at is not touched.
+
+        Args:
+            name: Alias name.
+
+        Raises:
+            InvalidArgumentError: In local mode, which has no alias table.
+            NotFoundError: There is no such alias.
+        """
         return self._core.drop_alias(name)
 
     def list_aliases(self) -> list[AliasInfo]:
+        """List the aliases on the server.
+
+        Returns:
+            One `AliasInfo` per alias.
+
+        Raises:
+            InvalidArgumentError: In local mode, which has no alias table.
+        """
         return self._core.list_aliases()
 
     def insert(
@@ -202,10 +358,33 @@ class Client:
         metadata: Sequence[dict[str, Any]] | None = None,
         documents: Sequence[str | bytes | None] | None = None,
     ) -> list[str]:
-        """Add vectors; their documents and metadata are stored encrypted."""
+        """Add vectors; their documents and metadata are stored encrypted.
+
+        The call is never retried: a lost answer shows up as an error you handle yourself.
+
+        Args:
+            collection: Name of an open collection.
+            vectors: One unit-length vector per row.
+            ids: One unique id per vector (1 to 256 bytes each). Random ids if omitted.
+            metadata: One dict per vector. Filter fields need their value here.
+            documents: One document per vector, or None for a vector without one.
+
+        Returns:
+            The ids of the new vectors, in input order.
+
+        Raises:
+            KeyError: The collection is not open in this client.
+            ValueError: Ids are missing, too long or not unique, or metadata lacks a filter field.
+        """
         return self._core.insert(collection, vectors, ids, metadata, documents)
 
     def delete(self, collection: str, ids: Sequence[str]) -> None:
+        """Delete vectors, and their record and document blobs, from an open collection.
+
+        Args:
+            collection: Name of an open collection.
+            ids: Ids to delete, 1 to 256 bytes each.
+        """
         return self._core.delete(collection, ids)
 
     def search(
@@ -218,10 +397,37 @@ class Client:
         level: str | None = None,
         n_probe: int | None = None,
     ) -> list[SearchHit]:
-        """The k nearest vectors (unit-length query) that pass `filter`, best first."""
+        """Find the k nearest vectors (unit-length query) that pass `filter`, best first.
+
+        Scores are exact cosine scores from the re-ranking records. If fewer than k vectors match
+        after the search rounds, fewer hits are returned; the list is never padded.
+
+        Args:
+            collection: Name of an open collection.
+            query: Unit-length query vector.
+            k: Number of hits to return.
+            filter: Maps a filter field name to one allowed value or a list of them (OR inside a
+                field, AND across fields). A range field takes a dict such as
+                `{"gte": 2020, "lt": 2024}`.
+            level: Security level for this query: "fast", "decoy" or "strict". Defaults to the
+                collection's level.
+            n_probe: Cluster count of the first round. Default is the square root of the
+                cluster count, rounded up.
+
+        Returns:
+            Up to k `SearchHit`, best first.
+
+        Raises:
+            KeyError: The collection is not open in this client.
+            ValueError: A filter field is unknown or `level` is not a security level.
+        """
         return self._core.search(collection, query, k, filter, level=level, n_probe=n_probe)
 
     def close(self) -> None:
+        """Close every open collection, stop the decrypt workers and close the connection.
+
+        The client cannot be used afterwards.
+        """
         self._core.close()
 
 
@@ -240,13 +446,27 @@ class AsyncClient:
         deadlines: Mapping[str, float] | None = None,
         retry: RetryPolicy | None = None,
     ) -> None:
-        """Connect to a server. TLS is used unless `insecure=True` (loopback test servers only;
-        a warning is raised for any other host). `timeout` (default 120 s) is the deadline of a
-        single-answer call that changes data, `stream_timeout` (default 1800 s) that of a call
-        that streams data or searches; small reads get 30 s and one blob 300 s. `deadlines` sets
-        single calls by name, e.g. `{"Search": 600}`. Every deadline bounds the whole call. `retry`
-        is a `ombra.RetryPolicy` (default: 4 attempts, backoff with full jitter, 120 s budget) for
-        the calls that are safe to repeat; `RetryPolicy.never()` turns retries off."""
+        """Connect to a server.
+
+        TLS is used unless `insecure=True`. Every deadline bounds the whole call.
+
+        Args:
+            address: Server address as `host:port`.
+            api_key: API key sent with every call, if the server needs one.
+            root_certificates: PEM bytes of the CA that signed the server certificate. By
+                default the system roots are used.
+            insecure: No TLS. For loopback test servers only; a warning is raised for any
+                other host.
+            timeout: Deadline in seconds of a single-answer call that changes data
+                (default 120 s).
+            stream_timeout: Deadline in seconds of a call that streams data or searches
+                (default 1800 s). Small reads get 30 s and one blob 300 s.
+            deadlines: Deadlines in seconds for single calls by gRPC name, for example
+                `{"Search": 600}`.
+            retry: An `ombra.RetryPolicy` for the calls that are safe to repeat (default: 4
+                attempts, backoff with full jitter, 120 s budget). `RetryPolicy.never()`
+                turns retries off.
+        """
         self._core = ClientCore(
             _grpc_transport(
                 address,
@@ -262,7 +482,14 @@ class AsyncClient:
 
     @classmethod
     def local(cls, path: str | Path) -> AsyncClient:
-        """A CPU (OpenFHE) server in a child process that keeps its files under `path`."""
+        """Start a CPU (OpenFHE) server in a child process that keeps its files under `path`.
+
+        Args:
+            path: Directory where the local server keeps its files.
+
+        Returns:
+            A client that talks to that local server.
+        """
         self = cls.__new__(cls)
         self._core = ClientCore(_local_transport(path))
         return self
@@ -286,12 +513,38 @@ class AsyncClient:
     ) -> str:
         """Cluster and encrypt `vectors` (unit length), write the key file, create the collection.
 
-        `preset` defaults to "fast" in local mode and to "balanced" against a server.
-        `filter_fields` maps a field name to its number of values; every metadata dict then needs
-        an integer in range under that name. `range_fields` maps a field name to the cut points of
-        its buckets (a list of up to 63 ascending integers) or to {"kind": "two_digit"} (domain
-        0..4095); every metadata dict then needs the raw integer under that name, and a filter can
-        say {"year": {"gte": 2020, "lt": 2024}}. Back up the key file: without it the data is lost.
+        The collection stays open in this client. Back up the key file: without it the data is
+        lost.
+
+        Args:
+            name: Collection name.
+            vectors: One unit-length vector per row; at least one.
+            ids: One unique id per vector (1 to 256 bytes each). Random ids if omitted.
+            key_file: Path the encrypted key file is written to.
+            passphrase: Passphrase that protects the key file.
+            preset: Parameter preset. Defaults to "fast" in local mode and to "balanced"
+                against a server.
+            metadata: One dict per vector.
+            documents: One document per vector, or None for a vector without one.
+            filter_fields: Maps a field name to its number of values. Every metadata dict then
+                needs an integer in range under that name.
+            range_fields: Maps a field name to the cut points of its buckets (a list of up to 63
+                ascending integers) or to `{"kind": "two_digit"}` (domain 0..4095). Every
+                metadata dict then needs the raw integer under that name, and a filter can say
+                `{"year": {"gte": 2020, "lt": 2024}}`.
+            security_level: Default search level of the collection: "fast", "decoy" or "strict".
+            n_clusters: Number of clusters. If omitted, the number of vectors divided by the
+                preset's batch size, rounded, at least 1.
+            scrypt_params: Key derivation cost `(n, r, p)` of the key file. Library default if
+                omitted.
+
+        Returns:
+            The collection name.
+
+        Raises:
+            ValueError: `vectors` is not a non-empty 2-D array, ids are missing or not unique,
+                or a metadata dict lacks a filter field.
+            OmbraError: The server refused the call.
         """
         return self._core.create_collection(
             name,
@@ -318,50 +571,111 @@ class AsyncClient:
         filter_fields: Sequence[str] | None = None,
     ) -> str:
         """Reopen a collection with its key file; name the filter fields in their creation order.
+
         `name` may be an alias: the server resolves it once, the collection is pinned under its
         real name (the return value) and under the name you gave, and a later switch of the alias
-        does not move it. Open the alias again to follow the switch."""
+        does not move it. Open the alias again to follow the switch.
+
+        Args:
+            name: Collection name or alias.
+            key_file: Path of the key file written by `create_collection`.
+            passphrase: Passphrase of the key file.
+            filter_fields: Names of the equality filter fields in their creation order. The
+                server stores only the value counts. Omit if the collection has none.
+
+        Returns:
+            The real collection name, which differs from `name` if `name` is an alias.
+
+        Raises:
+            ValueError: The number of names does not match the collection's equality fields.
+            OmbraError: The server refused the call, for example `NotFoundError`.
+        """
         return self._core.open_collection(
             name, key_file=key_file, passphrase=passphrase, filter_fields=filter_fields
         )
 
     async def get_collection(self, name: str) -> CollectionInfo:
+        """Read what the server stores about a collection (see `Client.get_collection`)."""
         return self._core.get_collection(name)
 
     async def list_collections(self) -> list[str]:
+        """List the collection names, sorted (see `Client.list_collections`)."""
         return self._core.list_collections()
 
     async def drop_collection(self, name: str) -> None:
+        """Delete a collection from the server (see `Client.drop_collection`)."""
         return self._core.drop_collection(name)
 
     async def iter_records(
         self, collection: str, *, ids_only: bool = False
     ) -> Iterator[StoredRecord]:
-        """The live vectors of an open collection with their exact float32 vectors, metadata and
-        documents (see `Client.iter_records`). The work runs in the calling thread."""
+        """Read the live vectors of an open collection (see `Client.iter_records`).
+
+        The work runs in the calling thread.
+
+        Args:
+            collection: Name of an open collection.
+            ids_only: Do not read the blobs; only the ids are set.
+
+        Returns:
+            An iterator of `StoredRecord`.
+        """
         return self._core.iter_records(collection, ids_only=ids_only)
 
     async def get_collection_info(self, collection: str) -> dict[str, Any] | None:
+        """The encrypted collection info of an open collection, or None (see
+        `Client.get_collection_info`)."""
         return self._core.get_collection_info(collection)
 
     async def set_collection_info(self, collection: str, info: dict[str, Any]) -> None:
+        """Store a small JSON object as the collection's encrypted info (see
+        `Client.set_collection_info`)."""
         self._core.set_collection_info(collection, info)
 
     async def create_alias(self, name: str, target: str) -> AliasInfo:
-        """Make `name` an alias of the collection `target` (admin key). The name may not be a
-        collection or end in `.g<number>`."""
+        """Make `name` an alias of the collection `target` (admin key).
+
+        The name may not be a collection or end in `.g<number>`.
+
+        Args:
+            name: New alias name.
+            target: Collection the alias points at.
+
+        Returns:
+            The new `AliasInfo`.
+
+        Raises:
+            InvalidArgumentError: In local mode, which has no alias table.
+            OmbraError: The server refused the call.
+        """
         return self._core.create_alias(name, target)
 
     async def switch_alias(self, name: str, new_target: str, expected_target: str) -> AliasInfo:
-        """Move an alias to `new_target` if it points at `expected_target` now (admin key). Raises
-        `AliasConflictError` if it points elsewhere. Clients see the switch when they open the
-        alias again; collections they have open keep working."""
+        """Move an alias to `new_target` if it points at `expected_target` now (admin key).
+
+        Clients see the switch when they open the alias again; collections they have open keep
+        working. Switching to the current target succeeds, so a retry after a lost answer is safe.
+
+        Args:
+            name: Alias name.
+            new_target: Collection the alias should point at.
+            expected_target: Collection the alias must point at now.
+
+        Returns:
+            The updated `AliasInfo`.
+
+        Raises:
+            AliasConflictError: The alias points elsewhere.
+            InvalidArgumentError: In local mode, which has no alias table.
+        """
         return self._core.switch_alias(name, new_target, expected_target)
 
     async def drop_alias(self, name: str) -> None:
+        """Delete an alias (see `Client.drop_alias`)."""
         return self._core.drop_alias(name)
 
     async def list_aliases(self) -> list[AliasInfo]:
+        """List the aliases on the server (see `Client.list_aliases`)."""
         return self._core.list_aliases()
 
     async def insert(
@@ -372,10 +686,28 @@ class AsyncClient:
         metadata: Sequence[dict[str, Any]] | None = None,
         documents: Sequence[str | bytes | None] | None = None,
     ) -> list[str]:
-        """Add vectors; their documents and metadata are stored encrypted."""
+        """Add vectors; their documents and metadata are stored encrypted.
+
+        The call is never retried: a lost answer shows up as an error you handle yourself.
+
+        Args:
+            collection: Name of an open collection.
+            vectors: One unit-length vector per row.
+            ids: One unique id per vector (1 to 256 bytes each). Random ids if omitted.
+            metadata: One dict per vector. Filter fields need their value here.
+            documents: One document per vector, or None for a vector without one.
+
+        Returns:
+            The ids of the new vectors, in input order.
+
+        Raises:
+            KeyError: The collection is not open in this client.
+            ValueError: Ids are missing, too long or not unique, or metadata lacks a filter field.
+        """
         return self._core.insert(collection, vectors, ids, metadata, documents)
 
     async def delete(self, collection: str, ids: Sequence[str]) -> None:
+        """Delete vectors from an open collection (see `Client.delete`)."""
         return self._core.delete(collection, ids)
 
     async def search(
@@ -388,8 +720,32 @@ class AsyncClient:
         level: str | None = None,
         n_probe: int | None = None,
     ) -> list[SearchHit]:
-        """The k nearest vectors (unit-length query) that pass `filter`, best first."""
+        """Find the k nearest vectors (unit-length query) that pass `filter`, best first.
+
+        Scores are exact cosine scores from the re-ranking records. If fewer than k vectors match
+        after the search rounds, fewer hits are returned; the list is never padded.
+
+        Args:
+            collection: Name of an open collection.
+            query: Unit-length query vector.
+            k: Number of hits to return.
+            filter: Maps a filter field name to one allowed value or a list of them (OR inside a
+                field, AND across fields). A range field takes a dict such as
+                `{"gte": 2020, "lt": 2024}`.
+            level: Security level for this query: "fast", "decoy" or "strict". Defaults to the
+                collection's level.
+            n_probe: Cluster count of the first round. Default is the square root of the
+                cluster count, rounded up.
+
+        Returns:
+            Up to k `SearchHit`, best first.
+
+        Raises:
+            KeyError: The collection is not open in this client.
+            ValueError: A filter field is unknown or `level` is not a security level.
+        """
         return self._core.search(collection, query, k, filter, level=level, n_probe=n_probe)
 
     async def close(self) -> None:
+        """Close every open collection and the connection (see `Client.close`)."""
         self._core.close()

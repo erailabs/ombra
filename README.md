@@ -14,7 +14,7 @@
   <a href="https://github.com/erailabs/ombra/actions/workflows/docs.yml"><img src="https://github.com/erailabs/ombra/actions/workflows/docs.yml/badge.svg?branch=dev" alt="Docs build"></a>
   <a href="https://erailabs.github.io/ombra/"><img src="https://img.shields.io/badge/docs-erailabs.github.io%2Fombra-5B4CF5" alt="Documentation"></a>
   <img src="https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-5B4CF5" alt="Python 3.11 to 3.13">
-  <img src="https://img.shields.io/badge/FHE-CKKS%20%C2%B7%20128--bit-5B4CF5" alt="CKKS, 128-bit security">
+  <img src="https://img.shields.io/badge/HE-CKKS%20%C2%B7%20128--bit-5B4CF5" alt="CKKS, 128-bit security">
   <a href="#license"><img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial%20%7C%20Commercial-lightgrey" alt="License: PolyForm Noncommercial or commercial"></a>
 </p>
 
@@ -33,7 +33,7 @@
 
 When you put embeddings in a vector database, you hand them to whoever runs it. That might be a cloud provider, a vendor, or a team down the hall. They can read your vectors, and vectors give away more than people expect: you can often rebuild a good part of the original text from them. They can also read every query, which tells them what you are looking for.
 
-Encryption that lets a server compute on data it cannot read, called fully homomorphic encryption (FHE), has existed for years. Until now, FHE vector databases gave you privacy but were so slow that the trade was rarely worth it. With Ombra we set out to remove that trade. We run the encrypted search on GPUs, pack many vectors into each ciphertext, and keep the work per query small, so you get both privacy and speed.
+Encryption that lets a server compute on data it cannot read, called homomorphic encryption (HE), has existed for years. Until now, HE vector databases gave you privacy but were so slow that the trade was rarely worth it. With Ombra we set out to remove that trade. We run the encrypted search on GPUs, pack many vectors into each ciphertext, and keep the work per query small, so you get both privacy and speed.
 
 Your data is encrypted on your machine before it goes anywhere, and the secret key never leaves the Python client. The server stores the ciphertexts, runs the search on them, and sends back encrypted scores that only you can open.
 
@@ -103,7 +103,7 @@ Most of Ombra's code was written by AI coding agents (Claude Code).
 ## Documentation
 
 - [Getting started](https://erailabs.github.io/ombra/getting-started/install/): install, quickstart, your first search, local mode or a server, examples
-- [Concepts](https://erailabs.github.io/ombra/concepts/homomorphic-encryption/): what FHE and CKKS are, and who holds which key
+- [Concepts](https://erailabs.github.io/ombra/concepts/homomorphic-encryption/): what HE and CKKS are, and who holds which key
 - [How it works](https://erailabs.github.io/ombra/how-it-works/encoding/): encoding, query expansion, search, clusters, filters, deletes
 - [Security](https://erailabs.github.io/ombra/security/threat-model/): the threat model and what the server learns
 - [Operations](https://erailabs.github.io/ombra/operations/docker/): running the server, routing, backups, migration, monitoring

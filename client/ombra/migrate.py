@@ -36,7 +36,7 @@ Steps, each resumable from the state file (`ombra-migrate.json`, no secrets):
 Blobs are not copied byte for byte: their associated data binds the collection name, and the
 target has its own name and its own document master key. Every record and document is opened with
 the source's keys and sealed again with the target's, which is also what a key change needs
-(decision 0031). The target therefore always gets a new FHE key pair and a new master key.
+(decision 0031). The target therefore always gets a new HE key pair and a new master key.
 Nothing here prints or stores a vector, a document or a key.
 """
 
@@ -331,6 +331,16 @@ class Migration:
         embed: Embedder | None = None,
         **options: Any,
     ) -> Migration:
+        """Continue a migration from its state file.
+
+        Args:
+            client: The client used for the migration.
+            state_path: State file written by `plan`.
+            source_passphrase: Passphrase of the source key file.
+            target_passphrase: Passphrase of the target key file.
+            embed: The embedder, for a re-embed migration.
+            **options: Passed to the `Migration` constructor.
+        """
         return cls(
             client,
             load_state(state_path),
@@ -715,6 +725,8 @@ class Migration:
         return f"dropped {s.target!r}; the source is untouched"
 
     def status(self) -> dict[str, Any]:
+        """Return the migration state as a dict: source, target, mode, phase, alias, backfilled
+        and verified."""
         return status_of(self.state)
 
 
@@ -782,7 +794,7 @@ def build_parser() -> argparse.ArgumentParser:
     plan.add_argument(
         "--new-keys",
         action="store_true",
-        help="key rotation: same model and preset, new FHE key pair and new master key",
+        help="key rotation: same model and preset, new HE key pair and new master key",
     )
     plan.add_argument("--target-preset", help="preset of the target (default: the source's)")
     plan.add_argument("--model", help="label of the embedding model (required with --embedder)")

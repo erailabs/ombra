@@ -2,7 +2,7 @@
 
 One `ombra_server` serves one data directory. To hold more clusters than one machine can, run several nodes and put `ombra_router` in front of them. Clients talk to the router with the same API, so no client code changes, and the nodes are plain `ombra_server` processes.
 
-The router never decrypts anything and holds no FHE key. It reads the placement file, splits each call by cluster, and passes the encrypted answers on as bytes.
+The router never decrypts anything and holds no HE key. It reads the placement file, splits each call by cluster, and passes the encrypted answers on as bytes.
 
 ## How it works
 
@@ -25,13 +25,13 @@ Expansion runs once on every node that holds the collection, so the work per que
 
 ## Run it
 
-Start the nodes as usual (see [Configuration](../reference/configuration.md)). Give each node an API key with the `admin` scope for the router to use:
+Start the nodes as usual (see [Configuration](../reference/configuration/server.md)). Give each node an API key with the `admin` scope for the router to use:
 
 ```bash
 ombra_server --create-api-key --scope admin --data-dir /var/lib/ombra-a > node.key
 ```
 
-Write the placement file (see [File formats](../reference/file-formats.md#placement-file)):
+Write the placement file (see [File formats](../reference/file-formats/placement-file.md)):
 
 ```text
 ombra-placement 1
@@ -60,7 +60,7 @@ Clients connect to the router with a key from the router's key file. The node ke
 | `CreateCollection`, `DropCollection`, `GetCollection` | Goes to every node of the collection. `GetCollection` adds the counts and answers `keys_uploaded` only when every node has the keys. A repeat of a `CreateCollection` that was cut short finishes it when the nodes that have the collection hold the same spec. `DropCollection` goes to the first node first, because an alias may stop it. |
 | `ListCollections` | Asks every node and merges by name. |
 | `UploadKeys` | Streams the keys to every node at once. It succeeds only when every node accepted them. If a node is down the call fails with `UNAVAILABLE`, and a repeat replaces the keys again on all nodes. The router keeps no keys. |
-| `Insert` | Sends each block to the owner of its cluster. Center blocks go to every node. A repeat of an insert is safe because [inserts are idempotent](../reference/grpc-api.md). |
+| `Insert` | Sends each block to the owner of its cluster. Center blocks go to every node. A repeat of an insert is safe because [inserts are idempotent](../reference/grpc/insert-and-delete.md#insert). |
 | `Delete` | Goes to every node. Ids that a node does not hold are ignored. |
 | `Search` | See above. |
 | `ListBlocks` | Asks every node. Segment names get the node id in front (`a/seg-17`). Center blocks show up once per node. |
@@ -81,7 +81,7 @@ A call that cannot reach a node fails with the gRPC status `UNAVAILABLE` (a sear
 
 ## What each process learns
 
-- The **router** sees what one server sees today: every cluster number of every round, the ciphertexts in transit and the ids of the blobs a client reads. It does not hold the stored segments, and it holds no FHE key. It does hold an `admin` API key for every node, so a break-in at the router is as bad as a break-in at a server.
+- The **router** sees what one server sees today: every cluster number of every round, the ciphertexts in transit and the ids of the blobs a client reads. It does not hold the stored segments, and it holds no HE key. It does hold an `admin` API key for every node, so a break-in at the router is as bad as a break-in at a server.
 - A **node** sees only the part of each round it owns, the ids and ciphertexts of its own clusters, and its own part of the blob store.
 - **Placement never depends on the data.** The owner of a cluster is a function of the cluster number and the node ids. If neighbouring clusters were put on one node, that node could tell real clusters from decoys, because real clusters would gather on it while decoys spread evenly. Putting them by hash prevents that.
 - A router and all nodes that collude learn no more than one server learns today.

@@ -6,31 +6,7 @@ It does not defend against a server that lies. A malicious server can return wro
 
 ## The parties
 
-```mermaid
-flowchart LR
-    subgraph Client["Client (you)"]
-        SK["Secret key and document master key<br/>(key file, passphrase protected)"]
-        PT["Plaintext vectors, queries, documents,<br/>filter values, scores"]
-        ST["Cluster statistics<br/>(stored sealed)"]
-    end
-    subgraph Server["Server (untrusted)"]
-        EK["Public key and evaluation keys"]
-        CT["Encrypted vector blocks<br/>and cluster centers"]
-        ENG["Encrypted search engine (GPU or CPU)"]
-        ID["Vector ids, the cluster of each vector,<br/>tombstones, collection layout (plaintext)"]
-    end
-    subgraph Storage["Server storage (untrusted)"]
-        BL["Sealed record and document blobs<br/>(AES-256-GCM, fixed size buckets)"]
-        CAT["Catalog and segment files"]
-    end
-    Client -- "ciphertexts, evaluation keys, ids" --> Server
-    Server -- "encrypted scores" --> Client
-    Client -- "sealed blobs" --> BL
-    BL -- "sealed blobs" --> Client
-    ENG --- CT
-    CT --- CAT
-    ID --- CAT
-```
+![The client holds the secret keys and sees plaintext; the server holds evaluation keys, encrypted blocks and a plaintext layout of ids and clusters; server storage holds sealed blobs and the catalog](../assets/parties.svg)
 
 The client holds the secret key and every plaintext. It encrypts vectors and queries with the public key, decrypts the scores the server sends back, picks the top k, and re-ranks the best candidates with the exact vectors it gets from the blob store. Clustering also runs on the client, because the server cannot see the vectors. See [Keys](../concepts/keys.md) for what each key does.
 
@@ -48,11 +24,11 @@ We do not assume the server is physically secure, that its operators are trustwo
 
 ## With a router
 
-When several nodes sit behind `ombra_router`, the parties are the router and the nodes instead of one server, and all of them are untrusted in the same way. The router sees what one server sees today and holds no FHE key. Each node sees only its own part of each search round. The router holds an API key for every node, so it must be protected like a server. Which node owns a cluster depends only on the cluster number and the node ids, never on vectors or cluster centers, so the placement tells a node nothing about the data and does not let it tell real clusters from decoys. Nodes and router that collude learn no more than one server. See [Several nodes and a router](../operations/routing.md#what-each-process-learns).
+When several nodes sit behind `ombra_router`, the parties are the router and the nodes instead of one server, and all of them are untrusted in the same way. The router sees what one server sees today and holds no HE key. Each node sees only its own part of each search round. The router holds an API key for every node, so it must be protected like a server. Which node owns a cluster depends only on the cluster number and the node ids, never on vectors or cluster centers, so the placement tells a node nothing about the data and does not let it tell real clusters from decoys. Nodes and router that collude learn no more than one server. See [Several nodes and a router](../operations/routing.md#what-each-process-learns).
 
 ## Key rotation
 
-You can replace the keys of a collection with `ombra-migrate --new-keys` (see [Rotating keys](../operations/migration.md#rotating-keys)). The client makes a new FHE key pair and a new document master key, encrypts every vector again from its stored float32 copy, and seals every blob again. The old and the new keys are unrelated, and the server gets no key that links them.
+You can replace the keys of a collection with `ombra-migrate --new-keys` (see [Rotating keys](../operations/migration.md#rotating-keys)). The client makes a new HE key pair and a new document master key, encrypts every vector again from its stored float32 copy, and seals every blob again. The old and the new keys are unrelated, and the server gets no key that links them.
 
 Rotation protects what you write and query after it, and the stored data once the old collection is dropped. It does not protect copies made before it. A server backup, a disk image or a copy of the stored blocks taken before the rotation stays readable with the old key file. If the old key leaks, assume those copies are open. To end that exposure, destroy the old key file and delete the old copies, as far as you control them.
 

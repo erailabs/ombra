@@ -1,18 +1,18 @@
 # API keys
 
-An API key is an access token for the server. It is not an FHE key, and your secret key never leaves the client. The server stores only a salted hash of each key. You see the token once, when you create it.
+An API key is an access token for the server. It is not an HE key, and your secret key never leaves the client. The server stores only a salted hash of each key. You see the token once, when you create it.
 
 ## Scopes
 
-A key has one scope. `read` may call the read methods and `search`. `write` may also change data. `admin` may call everything, including `DropCollection` and `/metrics`. The table of methods is on the [gRPC API](../reference/grpc-api.md) page.
+A key has one scope. `read` may call the read methods and `search`. `write` may also change data. `admin` may call everything, including `DropCollection` and `/metrics`. The table of methods is on the [gRPC API](../reference/grpc/index.md) page.
 
 ## Keys on the HTTP port
 
-The collection API on the HTTP port takes the same keys, sent as `Authorization: Bearer <key>`, and applies the same rules as the gRPC method that does the same work. Listing and reading a collection need `read`, creating one needs `write`, and dropping one needs `admin`. A key limited to one collection sees only that collection in the list, and any other name gets `403`, whether it exists or not. Since an `admin` key cannot be limited, a limited key can never drop a collection. Requests without a valid key get `401` and learn nothing. With `--no-auth` there is no check, and the server accepts that only on a loopback address. The table of routes is on the [REST API](../reference/rest-api.md) page.
+The collection API on the HTTP port takes the same keys, sent as `Authorization: Bearer <key>`, and applies the same rules as the gRPC method that does the same work. Listing and reading a collection need `read`, creating one needs `write`, and dropping one needs `admin`. A key limited to one collection sees only that collection in the list, and any other name gets `403`, whether it exists or not. Since an `admin` key cannot be limited, a limited key can never drop a collection. Requests without a valid key get `401` and learn nothing. With `--no-auth` there is no check, and the server accepts that only on a loopback address. The table of routes is on the [REST API](../reference/rest/index.md) page.
 
 ## Limiting a key to one collection
 
-A `read` or `write` key can be limited to one collection (it works the same over gRPC and over the [REST API](../reference/rest-api.md)):
+A `read` or `write` key can be limited to one collection (it works the same over gRPC and over the [REST API](../reference/rest/index.md)):
 
 ```bash
 ombra_server --create-api-key --scope write --collection docs --data-dir /data
@@ -32,6 +32,6 @@ The check needs one catalog read, and the answer is the same whether a name exis
 
 ## The key file
 
-The keys are in `api_keys.v1`, or `api_keys.v2` once a key is limited to a collection. See [File formats](../reference/file-formats.md#server-files). The file must be mode 0600. Create keys while the server runs and then send it SIGHUP to load them. To revoke a key, remove its line and send SIGHUP. A file that does not parse keeps the loaded keys and logs an error.
+The keys are in `api_keys.v1`, or `api_keys.v2` once a key is limited to a collection. See [File formats](../reference/file-formats/server-files.md#api-key-file). The file must be mode 0600. Create keys while the server runs and then send it SIGHUP to load them. To revoke a key, remove its line and send SIGHUP. A file that does not parse keeps the loaded keys and logs an error.
 
 The first limited key moves the file to version 2 and keeps the old file as `api_keys.v1.migrated`. Old keys work as before. Editing `api_keys.v1.migrated` has no effect; delete it when you no longer need it. To go back to a server without version 2 support, keep a copy of the old file.

@@ -1,8 +1,6 @@
 # Ombra
 
-Ombra is a vector database where the vectors, the queries and the scores stay encrypted. The server stores and searches ciphertexts only, so it never sees your data or what you ask for. It uses fully homomorphic encryption (FHE), and the search runs on GPUs.
-
-You hold the secret key in a Python client. The client encrypts your vectors and your query, the server computes similarity scores on the ciphertexts, and the client decrypts the scores and picks the top results. Results are exact: encryption costs no recall, and the client re-ranks the candidates itself.
+Ombra is a vector database where the vectors, the queries and the scores stay encrypted. The server stores and searches ciphertexts only, so it never sees your data or what you ask for. It uses homomorphic encryption (HE), and the search runs on GPUs.
 
 ## Who it is for
 

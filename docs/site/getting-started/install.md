@@ -43,4 +43,4 @@ docker compose up -d
 
 The data lives in a volume and survives restarts. [Docker](../operations/docker.md) covers the image, the volume, TLS and API keys, and [GPUs](../operations/gpus.md) the card requirements. With no GPU, stay with local mode.
 
-Next: the [quickstart](quickstart.md).
+Next: [Quickstart](quickstart.md)

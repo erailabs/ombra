@@ -28,10 +28,12 @@ _LAST_REQUEST_ID: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 
 
 def set_last_request_id(request_id: str | None) -> None:
+    """Record the request id of the call this thread made last. Called by the transport."""
     _LAST_REQUEST_ID.set(request_id)
 
 
 def last_request_id() -> str | None:
+    """Return the request id of the last call this thread made, or None."""
     return _LAST_REQUEST_ID.get()
 
 

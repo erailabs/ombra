@@ -223,6 +223,7 @@ class KeyKit:
 
     @property
     def public_key(self) -> Any:
+        """The OpenFHE public key."""
         return self._keys.publicKey
 
     def key_files(self, pb: Any) -> dict[int, bytes]:
@@ -309,6 +310,7 @@ class KeyKit:
         return self.decrypt_columns([envelope])[0]
 
     def decrypt_columns(self, envelopes: Sequence[bytes]) -> list[np.ndarray]:
+        """Decrypt stored-column envelopes (kind 2 or 4), one array of `slots` values each."""
 
         envs = [
             read_column_envelope(e, self.derived.preset, self.openfhe_version) for e in envelopes
@@ -331,6 +333,8 @@ class KeyKit:
 
 @dataclass(frozen=True)
 class RepackReport:
+    """What `Collection.repack` did."""
+
     groups: int  # ReplaceBlock calls made
     blocks_before: int  # blocks read
     blocks_after: int  # blocks written
@@ -376,10 +380,12 @@ class Collection:
 
     @property
     def cluster_count(self) -> int:
+        """Number of clusters."""
         return len(self.centers)
 
     @property
     def n_leaves(self) -> int:
+        """Number of values in a vector record: the dimension plus all filter field values."""
         return self.derived.dimension + sum(self.cards)
 
     # ---- create ---------------------------------------------------------------------------
@@ -753,6 +759,7 @@ class Collection:
         return unpack_info(self.codec.open_record(INFO_ID, blob).vector)
 
     def set_info(self, info: dict[str, Any]) -> None:
+        """Store `info` as the collection info (see ombra.collection_info)."""
         self.blobs.put(
             self.name, KIND_RECORD, INFO_ID, self.codec.seal_record(INFO_ID, pack_info(info), {})
         )

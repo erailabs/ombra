@@ -2,8 +2,6 @@
 
 Scoring every vector against the query is the cost that grows with the collection. Ombra groups similar vectors into clusters and scores only the clusters likely to hold the nearest neighbours.
 
-The code is in [`client/ombra/search.py`](https://github.com/erailabs/ombra/blob/main/client/ombra/search.py) (the search loop), [`client/ombra/probe.py`](https://github.com/erailabs/ombra/blob/main/client/ombra/probe.py) (which clusters to ask for) and [`client/ombra/clustering.py`](https://github.com/erailabs/ombra/blob/main/client/ombra/clustering.py) (k-means). The client decides which clusters to ask for; the server only scores what it is asked.
-
 ## Making the clusters
 
 When you create a collection, the client runs spherical k-means (faiss) on your plaintext vectors. Vectors have unit length, so the nearest center is the one with the largest dot product, and the centers are unit vectors too. K-means runs on your machine, in a short-lived child process of the client that loads faiss and nothing else, on vectors the client already holds. The vectors pass through a pipe between the two local processes and are never written to disk. The server never sees the plaintext centers. It gets them encrypted, one ciphertext per dimension, in a block of their own (see [encoding](encoding.md) for how a block is laid out).
