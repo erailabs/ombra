@@ -20,9 +20,11 @@
 
 <p align="center">
   <a href="https://erailabs.github.io/ombra/">Documentation</a> ·
-  <a href="docs/site/getting-started/install.md">Quickstart</a> ·
-  <a href="docs/site/security/what-the-server-learns.md">What the server learns</a> ·
-  <a href="docs/site/roadmap.md">Roadmap</a>
+  <a href="https://erailabs.github.io/ombra/getting-started/quickstart/">Quickstart</a> ·
+  <a href="https://erailabs.github.io/ombra/how-it-works/encoding/">How it works</a> ·
+  <a href="https://erailabs.github.io/ombra/security/threat-model/">Security</a> ·
+  <a href="https://erailabs.github.io/ombra/roadmap/">Roadmap</a> ·
+  <a href="CHANGELOG.md">Changelog</a>
 </p>
 
 ---
@@ -37,7 +39,7 @@ Your data is encrypted on your machine before it goes anywhere, and the secret k
 
 Note that encryption does not cost you accuracy. Your client decrypts the scores and re-ranks the best candidates itself, so the top results are the real top results. The cryptography is CKKS through [OpenFHE](https://github.com/openfheorg/openfhe-development) 1.6.1, every preset is at least 128-bit secure, and every GPU kernel is checked against OpenFHE's own output.
 
-Your data is now almost completely private, but not entirely. A curious server operator, or someone listening on the network, can still learn a few things about it, such as how many vectors you store and when you search. [What the server learns](docs/site/security/what-the-server-learns.md) lists all of them.
+Your data is now almost completely private, but not entirely. A curious server operator, or someone listening on the network, can still learn a few things about it, such as how many vectors you store and when you search. [What the server learns](https://erailabs.github.io/ombra/security/what-the-server-learns/) lists all of them.
 
 ## How it works
 
@@ -53,9 +55,46 @@ At setup, your client groups similar vectors into clusters, so a search can skip
 4. **Pick clusters.** Only the client can read those scores, so only it knows which clusters are closest. With the Decoy and Strict levels it mixes in random clusters, so the server cannot tell which ones it really wanted.
 5. **Score the clusters.** The server scores every vector in them, thousands per ciphertext at once. With several nodes, the router sends each cluster to the node that holds it.
 6. **Fetch records.** The client decrypts the scores and fetches the encrypted records of the best candidates.
-7. **Re-rank.** The client decrypts those records and re-ranks them exactly on your machine. Encryption therefore changes no result. Like any clustered index, the clusters can miss a few neighbours; the [accuracy page](docs/site/how-it-works/accuracy.md) has the numbers.
+7. **Re-rank.** The client decrypts those records and re-ranks them exactly on your machine. Encryption therefore changes no result. Like any clustered index, the clusters can miss a few neighbours; the [accuracy page](https://erailabs.github.io/ombra/how-it-works/accuracy/) has the numbers.
 
-The server never holds a key that can decrypt, and nothing it sends back can be read without your secret key. [How it works](docs/site/how-it-works/encoding.md) in the docs goes through each step, with the math.
+The server never holds a key that can decrypt, and nothing it sends back can be read without your secret key. [How it works](https://erailabs.github.io/ombra/how-it-works/encoding/) in the docs goes through each step, with the math.
+
+## Quickstart
+
+Local mode runs a CPU server inside your Python process, so you can try Ombra without a GPU:
+
+```bash
+pip install "ombra-db[local]" sentence-transformers
+```
+
+```python
+from ombra import Client
+from sentence_transformers import SentenceTransformer
+
+
+def main() -> None:
+    texts = ["The central bank raised its policy rate.", "Kittens love to chase yarn.",
+             "A GPU runs thousands of threads.", "Interest rates rose again."]
+    model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+    vectors = model.encode(texts, normalize_embeddings=True).tolist()
+
+    client = Client.local("./ombra-data")  # a CPU server in a child process
+    client.create_collection(
+        "notes", vectors,
+        key_file="notes.key",  # holds your secret key: back it up, never share it
+        passphrase="change this passphrase",
+    )
+    query = model.encode(["What did the central bank do?"], normalize_embeddings=True)[0].tolist()
+    for hit in client.search("notes", query, k=2):
+        print(f"{hit.score:.3f}  {hit.id}")
+    client.close()
+
+
+if __name__ == "__main__":  # needed: local mode starts a child process
+    main()
+```
+
+Local mode takes a few seconds per search and suits trying Ombra and small collections. For GPU speed, run the server with `docker compose up -d` on a host with a [supported NVIDIA GPU](https://erailabs.github.io/ombra/operations/gpus/) and connect with `Client("host:port", ...)`. The [quickstart](https://erailabs.github.io/ombra/getting-started/quickstart/) has the full script, and `examples/` has more.
 
 ## AI Disclosure
 
@@ -63,12 +102,12 @@ Most of Ombra's code was written by AI coding agents (Claude Code).
 
 ## Documentation
 
-- [Getting started](docs/site/getting-started/install.md): install, quickstart, your first search, local mode or a server, examples
-- [Concepts](docs/site/concepts/homomorphic-encryption.md): what FHE and CKKS are, and who holds which key
-- [How it works](docs/site/how-it-works/encoding.md): encoding, query expansion, search, clusters, filters, deletes
-- [Security](docs/site/security/threat-model.md): the threat model and what the server learns
-- [Operations](docs/site/operations/docker.md): running the server, routing, backups, migration, monitoring
-- [Performance](docs/site/performance/latency-and-throughput.md): latency, throughput and storage
+- [Getting started](https://erailabs.github.io/ombra/getting-started/install/): install, quickstart, your first search, local mode or a server, examples
+- [Concepts](https://erailabs.github.io/ombra/concepts/homomorphic-encryption/): what FHE and CKKS are, and who holds which key
+- [How it works](https://erailabs.github.io/ombra/how-it-works/encoding/): encoding, query expansion, search, clusters, filters, deletes
+- [Security](https://erailabs.github.io/ombra/security/threat-model/): the threat model and what the server learns
+- [Operations](https://erailabs.github.io/ombra/operations/docker/): running the server, routing, backups, migration, monitoring
+- [Performance](https://erailabs.github.io/ombra/performance/latency-and-throughput/): latency, throughput and storage
 
 The `examples/` folder has runnable scripts. The adapters live in `integrations/langchain-ombra/` and `integrations/llama-index-vector-stores-ombra/`.
 
