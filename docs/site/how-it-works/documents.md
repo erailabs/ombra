@@ -60,4 +60,4 @@ References are not wired into `Collection.add` yet. That call only seals inline 
 
 The `uri` is encrypted inside the blob, but the fetch is yours: the request to your storage is not hidden by Ombra. Files in your storage are as protected as you make them. The document master key lives in the key file; lose the file and the passphrase and every record and document is unreadable. The same holds for the secret key, and there is no recovery.
 
-The code is in [`client/ombra/documents.py`](https://github.com/erailabs/ombra/blob/main/client/ombra/documents.py) (seal and open), [`client/ombra/blobstore.py`](https://github.com/erailabs/ombra/blob/main/client/ombra/blobstore.py) (the bucket sizes and the store protocol) and [`client/ombra/keyfile.py`](https://github.com/erailabs/ombra/blob/main/client/ombra/keyfile.py) (the key file). The byte layout is also on the [file formats](../reference/file-formats/index.md) page.
+The byte layout is on the [file formats](../reference/file-formats/index.md) page.

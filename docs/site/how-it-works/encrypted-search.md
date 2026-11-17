@@ -57,7 +57,7 @@ So a result is at level 1 of {{ preset("balanced", "multiplicative_depth") }}, w
 !!! deep-dive "How big can a score get"
     CKKS stores a value times $\Delta$ modulo the remaining modulus, so a slot that gets too large wraps around and decrypts to nonsense. The client allows a slot value of at most $2^{\,b}$, with
 
-    $$b = \text{first\_mod\_size}-\text{scaling\_mod\_size}-1-3$$
+    $$b = \mathtt{first\_mod\_size}-\mathtt{scaling\_mod\_size}-1-3$$
 
     which is the bound at the lowest level minus a margin of 3 bits. For the balanced preset $b = {{ preset("balanced", "first_mod_size") - preset("balanced", "scaling_mod_size") - 4 }}$, so slots stay below {{ 2 ** (preset("balanced", "first_mod_size") - preset("balanced", "scaling_mod_size") - 4) }}. A score is at most 1 in size, and a filter adds a penalty of $\lambda = {{ const("ombra.presets.FILTER_LAMBDA") }}$ per matched field. That caps the number of filter fields at $F_{max} = {{ fmax("balanced") }}$ for the balanced preset and {{ fmax("fast") }} for the fast one.
 
@@ -66,7 +66,3 @@ So a result is at level 1 of {{ preset("balanced", "multiplicative_depth") }}, w
 Per block, the search is one kernel launch for the sum, then a relinearization and a rescale for a group of blocks. In the measured runs the kernel was 3.5% to 8.1% of server time at 1,000,000 vectors with 20% of them searched on an A100, so the [expansion](query-expansion.md) is the larger cost. Each GPU thread handles {{ cpp("core/kernels/column_search.cu", "kBlockTile") }} blocks at once, so the query words are read once for all of them.
 
 Search only works on CKKS with fixed manual scaling and hybrid key switching, which both presets use. Other settings are refused. Every step is written to give exactly the words OpenFHE's CPU code gives, and the tests compare the two.
-
-## Where the code is
-
-The kernel and its memory layout are in [`core/kernels/column_search.cu`](https://github.com/erailabs/ombra/blob/main/core/kernels/column_search.cu), with the host side in [`core/include/ombra/core/column_search.hpp`](https://github.com/erailabs/ombra/blob/main/core/include/ombra/core/column_search.hpp). Relinearization and rescaling are in [`core/include/ombra/core/gpu_search.hpp`](https://github.com/erailabs/ombra/blob/main/core/include/ombra/core/gpu_search.hpp). The server loop that runs them for each block is in [`server/search/src/session.cpp`](https://github.com/erailabs/ombra/blob/main/server/search/src/session.cpp).
