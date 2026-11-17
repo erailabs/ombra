@@ -39,6 +39,7 @@ from ombra.errors import (
 from ombra.file_format import Kind, read_envelope
 from ombra.presets import FILTER_LAMBDA
 from ombra.probe import FIELDS_KEY, ProbePlanner, decoy_round_sizes, strict_halves
+from ombra.ranges import FETCH_FACTOR
 from ombra.retry import retrying
 from ombra.topk import ParallelTopk
 
@@ -62,6 +63,8 @@ class SearchResult:
     rounds: int
     matches: int  # candidates that passed the filter
     strict_fallback: bool  # expected selectivity < 0.5%: all clusters scanned in two rounds
+    fetched: int = 0  # record blobs fetched (range collections: a fixed number per query)
+    rejected: int = 0  # fetched candidates that failed the exact check (edge buckets, digits)
 
 
 class _Stream:
@@ -172,14 +175,26 @@ def decode_band(slots: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 
 def filter_query(
-    query: np.ndarray, cards: Sequence[int], filter: Mapping[int, int | Sequence[int]] | None
+    query: np.ndarray,
+    cards: Sequence[int],
+    filter: Mapping[int, int | Sequence[int]] | None,
+    weights: Mapping[int, np.ndarray] | None = None,
 ) -> np.ndarray:
-    """The d query values, then lambda * one-hot per field (all lambda for a field left free)."""
+    """The d query values, then lambda * one-hot per field (all lambda for a field left free).
+
+    `weights` gives a field its own unit weights per value (range fields), times lambda.
+    """
     wants = dict(filter or {})
+    ws = dict(weights or {})
     if any(not 0 <= f < len(cards) for f in wants):
         raise ValueError("filter names a field the collection does not have")
     parts = [np.asarray(query, dtype=np.float64)]
     for fi, card in enumerate(cards):
+        if fi in ws:
+            if len(ws[fi]) != card:
+                raise ValueError("range weights do not match the field's cardinality")
+            parts.append(FILTER_LAMBDA * np.asarray(ws[fi], dtype=np.float64))
+            continue
         if fi not in wants:
             parts.append(np.full(card, float(FILTER_LAMBDA)))
             continue
@@ -225,6 +240,7 @@ def run_search(
     max_probe_factor: int = 8,
     rerank_factor: int = 3,
     workers: int = 1,
+    range_plan: Any = None,
     _rng: random.Random | None = None,
 ) -> SearchResult:
     """Search `col` for the k nearest vectors that pass `filter`.
@@ -260,7 +276,13 @@ def run_search(
     if abs(float(np.linalg.norm(q)) - 1.0) > 1e-6:
         raise ValueError("query must be normalized to unit length before encryption")
     n_fields = len(col.cards)
-    ext = filter_query(q, col.cards, filter)
+    plan_filter = dict(filter or {})
+    if range_plan is not None:
+        plan_filter.update(range_plan.planner)  # range fields as value lists, for the statistics
+    ext = filter_query(q, col.cards, filter, None if range_plan is None else range_plan.weights)
+    lo_c, hi_c = (n_fields, n_fields) if range_plan is None else range_plan.accept(n_fields)
+    is_range = getattr(col, "schema", None) is not None
+    seen: list[bytes] = []
     total = col.cluster_count
     # Decoys and the request order must be unpredictable. `_rng` is a private hook for tests only;
     # Collection.search refuses it (audit A-42).
@@ -311,7 +333,9 @@ def run_search(
             for vals, ids in zip(_decrypt_round(col, envs, counts, workers), owners, strict=True):
                 c, score = decode_band(vals)
                 for j, ident in enumerate(ids):
-                    if c[j] == n_fields:  # live (c >= 0) and every field matches
+                    if is_range:
+                        seen.append(ident)
+                    if lo_c <= c[j] <= hi_c:  # live (c >= 0) and every field matches
                         cand[ident] = float(score[j])
 
     def scan_all() -> None:
@@ -331,9 +355,9 @@ def run_search(
         if level == "strict":
             scan_all()
         else:
-            if filter and col.stats is not None:
+            if plan_filter and col.stats is not None:
                 policy = "e2"
-            elif level == "fast" and not filter:
+            elif level == "fast" and not plan_filter:
                 policy = "basic"
             else:
                 policy = "plain2"
@@ -343,7 +367,7 @@ def run_search(
                 k,
                 first,
                 stats=col.stats,
-                filter=filter,
+                filter=plan_filter or None,
                 cap1=2 * first if level == "decoy" else None,
                 max_probe_factor=max_probe_factor,
             )
@@ -366,6 +390,10 @@ def run_search(
     finally:
         stream.close()
 
+    if is_range:
+        return _finish_range(
+            col, q, k, cand, seen, rerank_factor, filter, range_plan, rng, probed, rounds, fell_back
+        )
     top = sorted(cand.items(), key=lambda kv: (-kv[1], kv[0]))[: rerank_factor * k]
     return SearchResult(
         hits=_rerank(col, q, top, k),
@@ -386,3 +414,58 @@ def _rerank(col: Any, q: np.ndarray, top: list[tuple[bytes, float]], k: int) -> 
         scored.append(Hit(ident, float(v @ q), meta))
     scored.sort(key=lambda h: (-h.score, h.id))
     return scored[:k]
+
+
+def _finish_range(
+    col, q, k, cand, seen, rerank_factor, filter, range_plan, rng, probed, rounds, fell_back
+) -> SearchResult:
+    """Re-rank on a collection with range fields.
+
+    Always fetches the same number of record blobs, FETCH_FACTOR * rerank_factor * k, however
+    selective the filter is: the best candidates by approximate score, padded with other ids seen
+    in the probed clusters (their records are fetched and thrown away) and fetched in random order.
+    Each candidate is then checked exactly (equality values and raw range values) and the survivors
+    are ranked by exact score. Fewer than k survivors: `incomplete`.
+    """
+    fetch = FETCH_FACTOR * rerank_factor * k
+    top = [i for i, _ in sorted(cand.items(), key=lambda kv: (-kv[1], kv[0]))[:fetch]]
+    if len(top) < fetch:
+        pool = [i for i in dict.fromkeys(seen) if i not in cand]
+        top_set = set(top)
+        pad = rng.sample(pool, min(fetch - len(top), len(pool)))
+        pad = [i for i in pad if i not in top_set]
+    else:
+        pad = []
+    order = top + pad
+    rng.shuffle(order)
+    real = set(top)
+    eq = {
+        fi: ([w] if isinstance(w, int | np.integer) else [int(v) for v in w])
+        for fi, w in (filter or {}).items()
+    }
+    scored, rejected = [], 0
+    for ident in order:
+        rec = col.codec.open_record(ident, col.blobs.get(col.name, KIND_RECORD, ident))
+        if ident not in real:
+            continue
+        meta = rec.metadata
+        vals = meta.get(FIELDS_KEY)
+        ok = all(vals is not None and vals[fi] in allowed for fi, allowed in eq.items())
+        ok = ok and (range_plan is None or range_plan.exact(meta))
+        if not ok:
+            rejected += 1
+            continue
+        v = np.frombuffer(rec.vector, dtype="<f4").astype(np.float64)
+        user = {k_: m for k_, m in meta.items() if k_ != FIELDS_KEY}
+        scored.append(Hit(ident, float(v @ q), user))
+    scored.sort(key=lambda h: (-h.score, h.id))
+    return SearchResult(
+        hits=scored[:k],
+        incomplete=len(scored) < k,
+        probed=probed,
+        rounds=rounds,
+        matches=len(cand),
+        strict_fallback=fell_back,
+        fetched=len(order),
+        rejected=rejected,
+    )

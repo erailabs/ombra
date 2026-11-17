@@ -73,6 +73,8 @@ def derive(preset: str, dimension: int, path: Path | None = None) -> Derived:
 MAX_FILTER_FIELDS = 16
 MAX_FILTER_CARDINALITY = 64
 FILTER_LAMBDA = 4  # the penalty weight of one filter entry
+# Range collections: records fetched per query = RANGE_FETCH_FACTOR * rerank_factor * k (fixed).
+RANGE_FETCH_FACTOR = 4
 _HEADROOM_MARGIN_BITS = 3  # allowed value = textbook bound at the lowest level, less 3 bits
 
 
