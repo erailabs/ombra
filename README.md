@@ -57,21 +57,9 @@ At setup, your client groups similar vectors into clusters, so a search can skip
 
 The server never holds a key that can decrypt, and nothing it sends back can be read without your secret key. [How it works](docs/site/how-it-works/encoding.md) in the docs goes through each step, with the math.
 
-## What the server can still see
+## AI Disclosure
 
-We would rather you hear this from us. Ombra assumes an honest-but-curious server: it runs the software correctly but tries to learn what it can. A server that cheats can return wrong results, and the client cannot tell.
-
-Even an honest one sees some things: how many vectors you store, the ids you choose (so use random ones), which cluster each vector is in, how many queries you send and when, and, after each search, which records your client fetches. The Decoy and Strict privacy levels hide which clusters a query asks for, but not the rest.
-
-The full list is in [What the server learns](docs/site/security/what-the-server-learns.md). No outside cryptographer has reviewed Ombra yet, so treat the cryptography as unreviewed until one has. To report a vulnerability, see [SECURITY.md](SECURITY.md).
-
-## How it was built
-
-Most of Ombra's code was written by AI coding agents (Claude Code), working from plans, design decisions and acceptance tests written by a human maintainer. The maintainer decides what gets built, makes every design and security decision, and reviews changes before they merge.
-
-The agents work under fixed rules: no parameters below 128-bit security, the secret key never leaves the client, no plaintext in logs, a test against OpenFHE for every GPU kernel, and a version header on every file format. CI runs the CPU, OpenFHE, sanitizer and fuzzing jobs on every pull request. The rules the agents follow are public, in [CLAUDE.md](CLAUDE.md) and `.claude/`.
-
-We say this so you can weigh it. AI-written code can be wrong in ways that look right, and in cryptography that matters more than usual. It is one more reason to wait for the outside review before you trust Ombra with data that matters.
+Most of Ombra's code was written by AI coding agents (Claude Code). 
 
 ## Documentation
 
