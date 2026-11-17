@@ -64,13 +64,13 @@ def test_non_rpc_exception_is_not_mapped():
     assert from_rpc_error(ValueError("x"), "Delete") is None
 
 
-def test_every_proto_error_code_has_a_class_and_is_not_retryable():
+def test_every_proto_error_code_has_a_class_and_only_two_are_retryable():
     for name, code in pb.ErrorCode.items():
         if code == 0:
             continue
         err = from_proto_error(code, "m")
         assert err.error_code == code, name
-        assert err.retryable is (name == "ERROR_STORAGE_FULL"), name  # the one retryable code
+        assert err.retryable is (name in ("ERROR_STORAGE_FULL", "ERROR_UNAVAILABLE")), name
         assert type(err) is not CollectionError  # a specific class
         assert isinstance(err, CollectionError) and err.code == code and err.message == "m"
         blob = from_proto_error(code, "m", BlobStoreError)
@@ -467,13 +467,19 @@ class _Msg(SimpleNamespace):
         return self.kind
 
 
-def _fake_search(break_after):
+def _fake_search(break_after, in_band=False):
     """A collection whose first Search stream dies (UNAVAILABLE) at `break_after`: "start" (while
     the server reads the query), or "round1" / "round2" (after it read that round's request).
-    Records every stream's start query and chosen lists."""
+    Records every stream's start query and chosen lists. With `in_band` the first stream ends with
+    the in-band ERROR_UNAVAILABLE answer of a router instead of a gRPC status."""
     streams: list[dict] = []
     encrypted: list[int] = []
     cs = np.random.default_rng(0).uniform(-1, 1, C)
+
+    def brk():
+        if in_band:
+            return _Msg(kind="error", error=_ns(code=19, message="a node did not answer"))
+        raise _rpc_error("UNAVAILABLE")
 
     def search_stream(it):
         rec = {"query": None, "chosen": []}
@@ -481,12 +487,14 @@ def _fake_search(break_after):
         first = len(streams) == 1
         rec["query"] = next(it).start.query
         if first and break_after == "start":
-            raise _rpc_error("UNAVAILABLE")
+            yield brk()
+            return
         yield _Msg(kind="centers", centers=_ns(score_blocks=[cs.tobytes()], center_count=C))
         for req in it:
             rec["chosen"].append(list(req.chosen.cluster_ids))
             if first and break_after == f"round{len(rec['chosen'])}":
-                raise _rpc_error("UNAVAILABLE")
+                yield brk()
+                return
             for c in req.chosen.cluster_ids:
                 ids = [bytes([c, j]) for j in range(N)]
                 blk = np.full(N, GOOD).tobytes()
@@ -542,9 +550,11 @@ def _search(col):
     return search.run_search(col, np.array([1.0, 0, 0, 0]), 3, level="decoy")
 
 
+@pytest.mark.parametrize("in_band", [False, True])
 @pytest.mark.parametrize("break_after", ["start", "round1", "round2"])
-def test_search_reconnect_resends_same_query_and_same_cluster_choice(break_after):
-    col, streams, encrypted = _fake_search(break_after)
+def test_search_reconnect_resends_same_query_and_same_cluster_choice(break_after, in_band):
+    # in_band: a router's ERROR_UNAVAILABLE answer is retryable and replays like a broken stream
+    col, streams, encrypted = _fake_search(break_after, in_band)
     res = _search(col)
     assert res.rounds == 2 and len(streams) == 2
     first, second = streams

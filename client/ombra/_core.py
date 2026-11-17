@@ -10,7 +10,7 @@ method names of the gRPC stub of service ombra.v1.Ombra), `openfhe_version` and 
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -19,7 +19,8 @@ import numpy as np
 
 from ombra import presets
 from ombra.collection import Collection, KeyKit, check_server_spec
-from ombra.errors import collection_error
+from ombra.errors import InvalidArgumentError, collection_error
+from ombra.ranges import RangeSchema
 from ombra.search import Hit
 
 MAX_ID_BYTES = 256  # LIMIT_MAX_ID_BYTES
@@ -40,6 +41,29 @@ class CollectionInfo:
 
 
 @dataclass(frozen=True)
+class AliasInfo:
+    """An alias: a name the server resolves to one collection (decision 0028). `previous` is the
+    target before the last switch (empty if never switched); `switched_at` is unix seconds."""
+
+    name: str
+    target: str
+    previous: str
+    switched_at: int
+
+
+@dataclass(frozen=True)
+class StoredRecord:
+    """A live vector as the client stored it: the exact float32 vector, the metadata and the
+    document of its encrypted blobs. `vector` is None if the record blob is missing (or if
+    `ids_only` was set); `document` is None if there is none."""
+
+    id: str
+    vector: np.ndarray | None = field(repr=False, default=None)
+    metadata: dict[str, Any] = field(repr=False, default_factory=dict)
+    document: str | bytes | None = field(repr=False, default=None)
+
+
+@dataclass(frozen=True)
 class SearchHit:
     id: str
     score: float = field(repr=False)  # exact cosine score (from the re-ranking record)
@@ -51,7 +75,7 @@ class ClientCore:
 
     def __init__(self, transport: Any) -> None:
         self._t = transport
-        self._open: dict[str, tuple[Collection, tuple[str, ...]]] = {}
+        self._open: dict[str, tuple[Collection, tuple[str, ...]]] = {}  # names: equality fields
         self.closed = False
 
     def __repr__(self) -> str:
@@ -73,6 +97,21 @@ class ClientCore:
         if not 1 <= len(b) <= MAX_ID_BYTES:
             raise ValueError(f"ids must be 1 to {MAX_ID_BYTES} bytes")
         return b
+
+    @staticmethod
+    def _all_fields(
+        names: Sequence[str],
+        cards: Sequence[int],
+        schema: RangeSchema | None,
+        metadata: Sequence[dict[str, Any]] | None,
+        n: int,
+    ) -> np.ndarray | None:
+        """Equality field values, then the bucket values of the range fields."""
+        eq = ClientCore._field_values(names, cards[: len(names)], metadata, n)
+        if schema is None:
+            return eq
+        rng = schema.bucket_values(metadata, n)
+        return rng if eq is None else np.hstack([eq, rng])
 
     @staticmethod
     def _field_values(
@@ -110,6 +149,7 @@ class ClientCore:
         metadata: Sequence[dict[str, Any]] | None = None,
         documents: Sequence[str | bytes | None] | None = None,
         filter_fields: Mapping[str, int] | None = None,
+        range_fields: Mapping[str, Any] | None = None,
         security_level: str = "fast",
         n_clusters: int | None = None,
         scrypt_params: tuple[int, int, int] | None = None,
@@ -119,11 +159,15 @@ class ClientCore:
         if x.ndim != 2 or len(x) == 0:
             raise ValueError("vectors must be a non-empty 2-D array")
         names = tuple(filter_fields or {})
-        cards = tuple((filter_fields or {}).values())
+        eq_cards = tuple((filter_fields or {}).values())
+        schema = RangeSchema.from_spec(range_fields, len(names), names) if range_fields else None
+        cards = eq_cards + (schema.cards if schema else ())
         id_bytes = self._make_ids(ids, len(x))
         derived = presets.derive(preset, x.shape[1])
         presets.check_filter_schema(derived, cards)  # refused here, before any key is made
-        fields = self._field_values(names, cards, metadata, len(x))
+        if schema is not None:
+            schema.check_headroom(derived, len(cards))
+        fields = self._all_fields(names, cards, schema, metadata, len(x))
         kit = KeyKit(derived, self._t.openfhe_version, derived.dimension + sum(cards))
         save = {} if scrypt_params is None else {"scrypt_params": scrypt_params}
         kit.save(key_file, passphrase, **save)  # the key is on disk before the server has a byte
@@ -142,6 +186,7 @@ class ClientCore:
             metadata=metadata,
             documents=documents,
             security_level=security_level,
+            schema=schema,
         )
         self._open[name] = (col, names)
         return name
@@ -163,16 +208,23 @@ class ClientCore:
         spec = r.info.spec
         cards = tuple(f.cardinality for f in sorted(spec.filter_fields, key=lambda f: f.field_id))
         names = tuple(filter_fields or ())
-        if names and len(names) != len(cards):
-            raise ValueError(f"the collection has {len(cards)} filter fields, not {len(names)}")
         derived = presets.derive(spec.preset, spec.dimension)
         check_server_spec(derived, cards, spec.cluster_count)  # before any key is generated
         kit = KeyKit.load(
             key_file, passphrase, derived, self._t.openfhe_version, derived.dimension + sum(cards)
         )
-        col = Collection.open(pb, self._t.stub, name, kit)
-        self._open[name] = (col, names)
-        return name
+        real = spec.name  # the server resolved an alias; keep the real name from here on
+        col = Collection.open(pb, self._t.stub, real, kit)
+        n_eq = len(cards) - (col.schema.n_fields if col.schema else 0)
+        if names and len(names) != n_eq:
+            col.close()
+            raise ValueError(f"the collection has {n_eq} equality filter fields, not {len(names)}")
+        self._open[real] = (col, names)
+        if real != name:
+            # The caller may keep using the name it opened. It stays pinned to this collection,
+            # also after the alias moves, until the caller opens the alias again.
+            self._open[name] = (col, names)
+        return real
 
     def get_collection(self, name: str) -> CollectionInfo:
         pb = self._t.pb
@@ -206,6 +258,70 @@ class ClientCore:
         opened = self._open.pop(name, None)
         if opened is not None:
             opened[0].close()
+            for k in [k for k, v in self._open.items() if v[0] is opened[0]]:
+                del self._open[k]  # alias names that were pinned to it
+
+    # ---- stored records and collection info -----------------------------------------------
+    def iter_records(self, collection: str, *, ids_only: bool = False) -> Iterator[StoredRecord]:
+        col, _ = self._get(collection)
+        for ident in col.live_ids():
+            if ids_only:
+                yield StoredRecord(ident.decode(errors="replace"))
+                continue
+            vec, meta = col.get_record(ident)
+            doc = col.get_document(ident)
+            yield StoredRecord(ident.decode(errors="replace"), vec, meta, doc)
+
+    def get_collection_info(self, collection: str) -> dict[str, Any] | None:
+        return self._get(collection)[0].get_info()
+
+    def set_collection_info(self, collection: str, info: dict[str, Any]) -> None:
+        self._get(collection)[0].set_info(info)
+
+    # ---- aliases ----------------------------------------------------------------------------
+    def _need_aliases(self) -> None:
+        if not getattr(self._t, "supports_aliases", True):
+            raise InvalidArgumentError(
+                "aliases need a server; local mode has no alias table. Use the collection name "
+                "directly.",
+                error_code=4,
+            )
+
+    @staticmethod
+    def _alias_info(a: Any) -> AliasInfo:
+        return AliasInfo(a.name, a.target, a.previous, a.switched_at)
+
+    def create_alias(self, name: str, target: str) -> AliasInfo:
+        self._need_aliases()
+        pb = self._t.pb
+        r = self._t.stub.CreateAlias(pb.CreateAliasRequest(name=name, target=target))
+        if r.WhichOneof("result") == "error":
+            raise collection_error(r.error.code, r.error.message)
+        return self._alias_info(r.alias)
+
+    def switch_alias(self, name: str, new_target: str, expected_target: str) -> AliasInfo:
+        """Point `name` at `new_target` if it points at `expected_target` now (one transaction on
+        the server). Raises `AliasConflictError` if it points elsewhere; switching to the current
+        target succeeds, so a retry after a lost answer is safe."""
+        self._need_aliases()
+        pb = self._t.pb
+        r = self._t.stub.SwitchAlias(
+            pb.SwitchAliasRequest(name=name, new_target=new_target, expected_target=expected_target)
+        )
+        if r.WhichOneof("result") == "error":
+            raise collection_error(r.error.code, r.error.message)
+        return self._alias_info(r.alias)
+
+    def drop_alias(self, name: str) -> None:
+        self._need_aliases()
+        r = self._t.stub.DropAlias(self._t.pb.DropAliasRequest(name=name))
+        if r.error.code != 0:
+            raise collection_error(r.error.code, r.error.message)
+
+    def list_aliases(self) -> list[AliasInfo]:
+        self._need_aliases()
+        r = self._t.stub.ListAliases(self._t.pb.ListAliasesRequest())
+        return [self._alias_info(a) for a in r.aliases]
 
     # ---- data -------------------------------------------------------------------------------
     @staticmethod
@@ -230,7 +346,7 @@ class ClientCore:
         col, names = self._get(collection)
         x = np.asarray(vectors, dtype=np.float64)
         id_bytes = self._make_ids(ids, len(x))
-        fields = self._field_values(names, col.cards, metadata, len(x))
+        fields = self._all_fields(names, col.cards, col.schema, metadata, len(x))
         col.insert_vectors(x, id_bytes, fields, metadata, documents)
         return [i.decode() for i in id_bytes]
 
@@ -250,16 +366,25 @@ class ClientCore:
     ) -> list[SearchHit]:
         col, names = self._get(collection)
         fidx: dict[int, Any] = {}
+        ranges: dict[str, Any] = {}
+        known = list(names) + list(col.schema.names if col.schema else ())
         for fname, want in (filter or {}).items():
-            if fname not in names:
-                raise ValueError(f"unknown filter field {fname!r}; known: {list(names)}")
-            fidx[names.index(fname)] = want
+            if col.schema is not None and col.schema.get(fname) is not None:
+                ranges[fname] = want
+            elif fname in names:
+                fidx[names.index(fname)] = want
+            else:
+                raise ValueError(f"unknown filter field {fname!r}; known: {known}")
+        extra: dict[str, Any] = {}
+        if col.schema is not None:
+            extra["range_plan"] = col.schema.plan(ranges) if ranges else None
         res = col.search(
             np.asarray(query, dtype=np.float64),
             k,
             filter=fidx or None,
             level=level,
             n_probe=n_probe,
+            **extra,
         )
         hits: list[Hit] = res.hits
         return [SearchHit(h.id.decode(), h.score, h.metadata) for h in hits]

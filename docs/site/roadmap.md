@@ -6,8 +6,6 @@ Items are in two groups. "Next" is work that has started or is small and agreed.
 
 ## Next
 
-**Checks on uploaded contexts before they are read.** The server rebuilds the encryption context from bytes the client sends. It checks the size and the file header first, then lets OpenFHE read the bytes, and only then checks the security floor and compares the context with the collection's preset. We plan to check the floor and the preset from the raw bytes, before OpenFHE reads them. Today: give API keys only to clients you trust.
-
 **Bucketing of filter value counts in the client.** The server sees how many fields a filter uses and how many distinct values each field has. The client does not yet round those counts up to a few sizes, so the exact counts leak. [What the server learns](security/what-the-server-learns.md) lists them as they are. Today: keep the number of values per field in mind when you design your fields.
 
 ## Later
@@ -18,15 +16,13 @@ Items are in two groups. "Next" is work that has started or is small and agreed.
 
 **Hiding which cluster each record is in.** On insert, the client sends the cluster of each vector in the clear, next to its id. The server therefore holds the full split of ids into clusters. No setting hides this today. We want an option that does.
 
-**Key rotation.** A key cannot be replaced in place. We plan to let the server switch stored vectors to a new key without seeing them, and to re-wrap the document keys. Today: create a new collection with a new key and insert the vectors again from your source data.
+**Key rotation on the server.** `ombra-migrate --new-keys` rotates keys today: the client encrypts every vector again under a new key pair and seals every blob under a new master key, then switches an alias. That moves the whole collection through the client. We plan a server-side switch that keeps stored vectors seeded, so large collections can rotate without that transfer. It needs a new envelope version and an outside review first. Today: use `ombra-migrate --new-keys`, see [Migrating a collection](operations/migration.md).
 
 **An external review of the cryptography.** No outside cryptographer has reviewed Ombra yet. One part needs it most: stored ciphertexts are seeded, and the noise used there depends on the secret key, unlike the textbook form. No attack is known. We plan a review of that step and of the rest of the design. Until then, treat the cryptography as unreviewed.
 
 ### Scale and operations
 
 **Several nodes and a router.** One server runs on one machine, so a collection must fit there. We plan a router that sends each query to the nodes holding the clusters it needs and merges the encrypted results. Today: split your data across separate collections or servers in your own code.
-
-**A REST admin API.** The REST port serves only a health check and metrics. Collections are managed through gRPC and the Python client. We plan REST calls for collection management.
 
 **Other operations features.** Mutual TLS as an alternative to API keys, a Helm chart for Kubernetes, backup to object storage such as S3, and a scheduler that runs several queries in one pass over the stored data. Today: see [Backups](operations/backups.md) for how to back up the data directory.
 
@@ -40,11 +36,7 @@ Items are in two groups. "Next" is work that has started or is small and agreed.
 
 **Plaintext-database mode.** For a corpus that any client may read, the server could keep vectors in the clear and hide only the query and the results. It would be faster. It does not exist: every vector is always encrypted.
 
-**A LlamaIndex adapter.** Only the LangChain adapter exists. Today: use the Python client directly.
-
 **Automatic normalization.** The client would normalize vectors for you. Today: normalize them before you insert.
-
-**Migration tools.** One tool would build a new collection next to the old one when you change embedding model, and switch over with no downtime. Another would convert files from older format versions. Today: create the new collection yourself and switch your application when it is ready.
 
 ### Housekeeping
 

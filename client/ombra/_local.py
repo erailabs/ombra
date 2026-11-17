@@ -137,6 +137,9 @@ class LocalTransport:
     """What `ClientCore` needs: pb, stub, openfhe_version, close()."""
 
     default_preset = "fast"  # m0_compact_n8192: the preset local mode is sized for
+    # Local mode keeps no alias table (that would add a file to the local directory format);
+    # ClientCore refuses the alias calls with a clear error. ombra.migrate skips `switch` here.
+    supports_aliases = False
 
     def __init__(self, path: str | os.PathLike[str]) -> None:
         import openfhe

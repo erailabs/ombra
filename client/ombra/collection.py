@@ -43,12 +43,14 @@ from ombra._proto import insert_requests
 from ombra._transport import id_batches
 from ombra.blobstore import KIND_DOCUMENT, KIND_RECORD, BlobStore, BlobStoreError, GrpcBlobStore
 from ombra.clustering import assign, cluster_vectors
+from ombra.collection_info import INFO_ID, pack_info, unpack_info
 from ombra.documents import DocumentCodec
 from ombra.errors import CollectionError, collection_error
 from ombra.file_format import Kind, read_column_envelope, write_envelope
 from ombra.keyfile import DEFAULT_SCRYPT, KeyMaterial, export_key_file, import_key_file
 from ombra.params import make_ckks_params
 from ombra.probe import FIELDS_KEY, STATS_ID, ClusterStats, check_user_id
+from ombra.ranges import SCHEMA_ID, RangeSchema
 from ombra.repack import DEFAULT_THRESHOLD, BlockStat, plan_repack
 from ombra.retry import Replayable, retrying
 
@@ -352,8 +354,10 @@ class Collection:
         centers: np.ndarray,
         blobs: BlobStore | None = None,
         security_level: str = "fast",
+        schema: RangeSchema | None = None,
     ) -> None:
         self.pb, self.stub = pb, stub
+        self.schema = schema  # range fields (ombra.ranges); None: equality-only collection
         self.blobs: BlobStore = blobs if blobs is not None else GrpcBlobStore(stub, pb)
         self.security_level = security_level
         # blob associated data binds the base name, so blobs survive a re-clustering unchanged
@@ -401,6 +405,7 @@ class Collection:
         security_level: str = "fast",
         store_records: bool = True,
         blobs: BlobStore | None = None,
+        schema: RangeSchema | None = None,
     ) -> Collection:
         """Cluster, create the collection, upload the keys once, insert centers and data."""
         x = np.asarray(vectors, dtype=np.float64)
@@ -412,6 +417,8 @@ class Collection:
             raise ValueError("vectors must be normalized before they are encrypted")
         cards = tuple(cards)
         presets.check_filter_schema(derived, cards)  # Refuse above F_max
+        if schema is not None:
+            schema.check_headroom(derived, len(cards))
         if security_level not in _LEVELS:
             raise ValueError(f"security level must be one of {sorted(_LEVELS)}")
         f = _fields(fields, len(x), cards)
@@ -443,6 +450,7 @@ class Collection:
             centers=centers,
             blobs=blobs,
             security_level=security_level,
+            schema=schema,
         )
         spec = pb.CollectionSpec(
             api_version=API_VERSION,
@@ -466,6 +474,8 @@ class Collection:
                 self._put_records(x, ids, metadata, documents, f)
             self.stats = ClusterStats.build(clustering.labels, len(centers), f, cards)
             self._save_stats()
+            if schema is not None:
+                self.blobs.put(self.name, KIND_RECORD, SCHEMA_ID, schema.seal(self.codec))
         except Exception:
             stub.DropCollection(pb.DropCollectionRequest(name=self.name))
             raise
@@ -518,6 +528,12 @@ class Collection:
             )
         except (BlobStoreError, ValueError):
             self.stats = None  # an older collection or stats version: no filter-aware probing
+        try:
+            self.schema = RangeSchema.unseal(
+                self.codec, self.blobs.get(self.name, KIND_RECORD, SCHEMA_ID)
+            )
+        except (BlobStoreError, ValueError):
+            self.schema = None  # no range fields: equality-only
         return self
 
     def search(self, query: np.ndarray, k: int = 10, **options: Any) -> Any:
@@ -693,6 +709,54 @@ class Collection:
         )
         self._save_stats()
 
+    # ---- stored records, collection info ----------------------------------------------------
+    def live_ids(self) -> list[bytes]:
+        """The ids of the live vectors, in block order. Reads the block headers (and so the block
+        columns, which are not decrypted); the server has no call that lists ids alone."""
+        ids: list[bytes] = []
+        for b in self.block_stats():
+            if b.live == 0:
+                continue
+            header, _ = self._get_block(b.segment)
+            dead = list(header.deleted) or [False] * len(header.ids)
+            ids += [bytes(i) for i, d in zip(header.ids, dead, strict=True) if not d]
+        return ids
+
+    def get_record(self, ident: bytes) -> tuple[np.ndarray | None, dict[str, Any]]:
+        """The exact float32 vector and the metadata of a stored record; (None, {}) if the
+        record blob is missing."""
+        try:
+            rec = self.codec.open_record(ident, self.blobs.get(self.name, KIND_RECORD, ident))
+        except BlobStoreError:
+            return None, {}
+        meta = {k: v for k, v in rec.metadata.items() if k != FIELDS_KEY}
+        return np.frombuffer(rec.vector, dtype="<f4").copy(), meta
+
+    def get_document(self, ident: bytes) -> str | bytes | None:
+        """The inline body of a stored document, or None if there is none. A document stored by
+        reference raises ValueError (it lives in your own storage, not here)."""
+        try:
+            blob = self.blobs.get(self.name, KIND_DOCUMENT, ident)
+        except BlobStoreError:
+            return None
+        doc = self.codec.open_document(ident, blob)
+        if doc.reference is not None:
+            raise ValueError("a document is stored by reference; it cannot be copied here")
+        return doc.body
+
+    def get_info(self) -> dict[str, Any] | None:
+        """The collection info (see ombra.collection_info), or None if there is none."""
+        try:
+            blob = self.blobs.get(self.name, KIND_RECORD, INFO_ID)
+        except BlobStoreError:
+            return None
+        return unpack_info(self.codec.open_record(INFO_ID, blob).vector)
+
+    def set_info(self, info: dict[str, Any]) -> None:
+        self.blobs.put(
+            self.name, KIND_RECORD, INFO_ID, self.codec.seal_record(INFO_ID, pack_info(info), {})
+        )
+
     def retire(self) -> None:
         """Drop this collection from the server (after the caller switched to a newer one)."""
         r = self.stub.DropCollection(self.pb.DropCollectionRequest(name=self.name))
@@ -825,9 +889,10 @@ class Collection:
             security_level=self.security_level,
             store_records=False,  # the exact vectors are copied below, not re-derived
             blobs=self.blobs,
+            schema=self.schema,
         )
         try:
-            self._copy_blobs(new.name, ids)
+            self._copy_blobs(new.name, [*ids, INFO_ID])  # the info blob is not a vector's
         except Exception:
             new.retire()
             raise

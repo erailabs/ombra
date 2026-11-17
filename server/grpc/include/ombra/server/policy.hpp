@@ -32,7 +32,16 @@ enum class Err : int {
   BlockMismatch = 13,
   BlobNotFound = 14,
   StorageFull = 15,
+  AliasNotFound = 16,
+  AliasExists = 17,
+  AliasConflict = 18,
+  Unavailable = 19,  // sent by the router only
 };
+
+// The proto name of an error code without its ERROR_ prefix ("COLLECTION_NOT_FOUND"), and the HTTP
+// status the REST admin API answers with. Fixed texts; the REST error body carries the name.
+const char* err_name(Err e);
+int err_http_status(Err e);
 
 struct Status {
   Err code = Err::Ok;

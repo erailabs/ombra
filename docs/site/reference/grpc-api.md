@@ -6,7 +6,7 @@ What the API never carries: the secret key, plaintext vectors, queries, document
 
 ## Is there a REST API?
 
-There is no REST data API. Everything that reads or writes vectors, blobs or collections goes over gRPC. The server has a small HTTP port for operators, turned on with `--rest-port` (the Docker image turns it on at 8080). It answers `GET` only and has three paths. `/healthz` needs no key and returns `{"status":"ok"}` while the process lives. `/readyz` needs no key and returns `{"status":"ready"}`, or 503 with `{"status":"draining"}` once the server has been told to stop. `/metrics` needs an admin API key and returns counters as JSON. See [Monitoring](../operations/monitoring.md). Any other path returns 404 and any other method 405.
+There is a small REST API for collection management and no REST data API. Everything that reads or writes vectors, blobs or documents goes over gRPC. The server has an HTTP port, turned on with `--rest-port` (the Docker image turns it on at 8080). It has `/healthz` and `/readyz` (no key), `/metrics` (admin key) and `/v1/collections` to list, create, inspect and drop collections. See [REST API](rest-api.md) and [Monitoring](../operations/monitoring.md).
 
 ## Connecting and authenticating
 
@@ -34,8 +34,24 @@ The service is `Ombra`. A method marked "stream" sends or receives a sequence of
 | `PutBlob` | write | stream `PutBlobRequest` to `PutBlobResponse` | Stores an encrypted blob under (collection, kind, id), replacing any blob with that key. |
 | `GetBlob` | read | `GetBlobRequest` to stream `GetBlobResponse` | Streams a blob: its size, then data chunks. |
 | `DeleteBlobs` | write | `DeleteBlobsRequest` to `DeleteBlobsResponse` | Deletes blobs by id. A missing id is not an error. |
+| `CreateAlias` | admin | `CreateAliasRequest` to `CreateAliasResponse` | Makes a name an alias of one collection. See [Aliases](#aliases). |
+| `SwitchAlias` | admin | `SwitchAliasRequest` to `SwitchAliasResponse` | Moves an alias to another collection if it points at the expected one now. |
+| `DropAlias` | admin | `DropAliasRequest` to `DropAliasResponse` | Removes an alias. The collection stays. |
+| `ListAliases` | read | `ListAliasesRequest` to `ListAliasesResponse` | Lists the aliases. A key limited to a collection sees only the alias it is limited to. |
 
 Responses report most failures in an `Error` field (code and message) instead of a gRPC status. The message never contains ids, ciphertext bytes or values.
+
+### Aliases
+
+An alias is a name that points at one collection, so an application can keep one name while the collection behind it changes. Alias names and collection names share one namespace: an alias cannot have the name of a collection, a collection cannot have the name of an alias, and an alias name cannot end in `.g<number>` (the names that re-clustering uses). The server keeps aliases in its catalog, so every client sees the same answer.
+
+Only `GetCollection` resolves an alias: the answer carries the real name in `spec.name`. Every data method (`Insert`, `Search`, `GetBlob` and the rest) takes a real collection name and never resolves an alias. A client resolves the alias once when it opens the collection and keeps the real name. Searches that are running when the alias moves finish on the old collection, and a client sees the move when it opens the alias again.
+
+`SwitchAlias` is a compare-and-swap in one catalog transaction. It moves the alias to `new_target` only if the alias points at `expected_target` now, and otherwise fails with `ERROR_ALIAS_CONFLICT`. The old target becomes the alias's `previous`. A repeat of a switch that was applied succeeds and changes nothing (the alias is at `new_target` and its `previous` is `expected_target`), so a call whose answer was lost can be repeated. Switching to the current target with the current target as expected also succeeds. `AliasInfo` carries `name`, `target`, `previous` (empty if never switched) and `switched_at` (unix seconds).
+
+`DropCollection` fails with `ERROR_ALIAS_CONFLICT` while an alias points at the collection. The collection that is only the `previous` target can be dropped, and the alias then forgets it. The three methods that change aliases need `admin` because a switch moves every client of a name, as a drop does. An `admin` key cannot be limited to a collection.
+
+A key limited to a name that is an alias may use the alias's target and its previous target, and nothing else. The previous target keeps working for a drain period after a switch. The answer for any other name is the same whether that name exists or not. See [API keys](../security/api-keys.md#keys-limited-to-an-alias).
 
 ### Search
 
@@ -157,7 +173,7 @@ Blobs are opaque client ciphertexts. The server never parses them. A blob become
 | `ERROR_UNSUPPORTED_VERSION` | `api_version` or the envelope version is not understood. |
 | `ERROR_COLLECTION_NOT_FOUND` | No collection with that name. |
 | `ERROR_COLLECTION_EXISTS` | A collection with that name exists. |
-| `ERROR_INVALID_ARGUMENT` | Malformed message or an empty required field. |
+| `ERROR_INVALID_ARGUMENT` | Malformed message or an empty required field. A key upload is refused with this code when the context is not the collection's preset's context, or a key file has a size no key of the preset has. |
 | `ERROR_SIZE_LIMIT` | A limit above was exceeded, or a blob is not a bucket size. |
 | `ERROR_KEY_TAG_MISMATCH` | A ciphertext or key was made under another key than the collection's. |
 | `ERROR_PRESET_MISMATCH` | The envelope's preset differs from the collection's. |
@@ -169,3 +185,7 @@ Blobs are opaque client ciphertexts. The server never parses them. A blob become
 | `ERROR_BLOCK_MISMATCH` | The ids of a `ReplaceBlock` are not exactly the live ids, or the cluster or columns differ. |
 | `ERROR_BLOB_NOT_FOUND` | No blob with this kind and id in the collection. |
 | `ERROR_STORAGE_FULL` | The server's disk or quota is full. Nothing was stored. The server sends this as the gRPC status `RESOURCE_EXHAUSTED`, and the client retries. |
+| `ERROR_ALIAS_NOT_FOUND` | No alias has this name. |
+| `ERROR_ALIAS_EXISTS` | The alias name is already a collection or an alias. |
+| `ERROR_ALIAS_CONFLICT` | `SwitchAlias`: the alias does not point at `expected_target`. `DropCollection`: an alias points at the collection. |
+| `ERROR_UNAVAILABLE` | Sent only by a router, and only on a `Search` stream: a node that holds a needed cluster did not answer. The answers of the round that were already sent are not used. The client opens a new stream and sends the same requests again, with the same decoys. Other calls that cannot reach a node fail with the gRPC status `UNAVAILABLE`. |

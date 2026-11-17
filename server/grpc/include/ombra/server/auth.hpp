@@ -44,13 +44,19 @@ enum class Rpc : int {
   PutBlob,
   GetBlob,
   DeleteBlobs,
+  CreateAlias,
+  SwitchAlias,
+  DropAlias,
+  ListAliases,
   kCount
 };
 inline constexpr std::size_t kRpcCount = static_cast<std::size_t>(Rpc::kCount);
 const char* rpc_name(Rpc r);
 // read: Get/List collections, ListBlocks, GetBlock, Search. write: read + Insert, Delete,
 // UploadKeys, ReplaceBlock, PutBlob, DeleteBlobs, CreateCollection (GetBlob is read). admin:
-// everything (DropCollection, REST /metrics).
+// everything (DropCollection, CreateAlias, SwitchAlias, DropAlias, REST /metrics), except
+// ListAliases, which is read: a switch moves every client of a name, like a drop does, so it needs
+// the admin scope.
 Scope required_scope(Rpc r);
 inline bool scope_allows(Scope have, Scope need) {
   return static_cast<int>(have) >= static_cast<int>(need);

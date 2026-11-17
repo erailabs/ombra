@@ -90,6 +90,7 @@ nav:
   - Reference:
       - reference/python-api.md
       - reference/grpc-api.md
+      - reference/rest-api.md
       - reference/configuration.md
       - reference/cli.md
       - reference/presets.md
@@ -98,6 +99,8 @@ nav:
       - operations/docker.md
       - operations/gpus.md
       - operations/backups.md
+      - operations/migration.md
+      - operations/routing.md
       - operations/monitoring.md
       - operations/upgrades.md
   - Roadmap: roadmap.md

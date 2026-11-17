@@ -6,7 +6,7 @@
 # protobuf-compiler-grpc); without either, only the policy is built.
 
 # ---- Preset table, generated from the preset JSON (no hand-picked numbers) ----------
-set(OMBRA_PRESET_JSON ${CMAKE_CURRENT_SOURCE_DIR}/../../core/params/ckks_presets.json)
+get_filename_component(OMBRA_PRESET_JSON ${CMAKE_CURRENT_SOURCE_DIR}/../../core/params/ckks_presets.json ABSOLUTE)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${OMBRA_PRESET_JSON})
 file(READ ${OMBRA_PRESET_JSON} _presets_json)
 string(JSON _count LENGTH ${_presets_json} presets)
@@ -50,6 +50,14 @@ add_library(ombra_server_admin STATIC src/log.cpp src/auth.cpp src/metrics.cpp s
 target_include_directories(ombra_server_admin PUBLIC include)
 find_package(Threads REQUIRED)
 target_link_libraries(ombra_server_admin PUBLIC Threads::Threads)
+
+add_library(ombra_server_rest STATIC src/rest_api.cpp)
+target_include_directories(ombra_server_rest PUBLIC include)
+target_link_libraries(ombra_server_rest PUBLIC ombra_server_policy)
+
+add_executable(server_rest_test tests/rest_test.cpp)
+target_link_libraries(server_rest_test PRIVATE ombra_server_rest)
+add_test(NAME server_rest COMMAND server_rest_test)
 
 add_executable(server_limits_test tests/limits_test.cpp)
 target_link_libraries(server_limits_test PRIVATE ombra_server_admin)
@@ -120,9 +128,10 @@ target_include_directories(ombra_gpu_info PUBLIC src)
 # The REST port speaks TLS with OpenSSL, which gRPC already depends on.
 find_package(OpenSSL REQUIRED)
 
-add_executable(ombra_server src/ombra_server.cpp src/service.cpp src/rest_server.cpp)
+add_executable(ombra_server src/ombra_server.cpp src/service.cpp src/rest_server.cpp
+               src/rest_admin.cpp)
 target_include_directories(ombra_server PRIVATE src)
-target_link_libraries(ombra_server PRIVATE ombra_server_policy ombra_server_admin ombra_gpu_info
+target_link_libraries(ombra_server PRIVATE ombra_server_policy ombra_server_rest ombra_server_admin ombra_gpu_info
                                            ombra_search ombra_proto OpenSSL::SSL OpenSSL::Crypto)
 target_compile_definitions(ombra_server PRIVATE OMBRA_VERSION="${PROJECT_VERSION}")
 if(NOT OMBRA_ENABLE_CUDA)
@@ -134,3 +143,9 @@ find_package(OpenFHE QUIET)
 if(DEFINED OpenFHE_VERSION)
   target_compile_definitions(ombra_server PRIVATE OMBRA_OPENFHE_VERSION="${OpenFHE_VERSION}")
 endif()
+
+# ---- ombra_router (decision 0029): CPU only, no OpenFHE, no GPU ---------------------------------
+add_executable(ombra_router ../router/src/ombra_router.cpp ../router/src/router_service.cpp)
+target_include_directories(ombra_router PRIVATE ../router/src)
+target_link_libraries(ombra_router PRIVATE ombra_router_placement ombra_server_admin ombra_proto)
+target_compile_definitions(ombra_router PRIVATE OMBRA_VERSION="${PROJECT_VERSION}")
