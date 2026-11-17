@@ -1,32 +1,86 @@
-# Ombra
+<p align="center">
+  <img src="docs/site/assets/ombra-logo.png" alt="Ombra logo" width="140">
+</p>
 
-Ombra is a vector database where your vectors, your queries and the scores stay encrypted with fully homomorphic encryption (FHE). The server stores and searches ciphertexts only, so it never sees your data or what you search for.
+<h1 align="center">Ombra</h1>
 
-You keep the secret key in a Python client. The client encrypts vectors and queries, the server computes similarity on the ciphertexts with CUDA kernels on an NVIDIA GPU, and the client decrypts the scores and picks the top results. Results are exact, because the client re-ranks the candidates itself. The cryptography is CKKS, and OpenFHE does key generation, encryption and decryption.
+<p align="center">
+  <strong>A vector database that never sees your data.</strong><br>
+  Vectors, queries, filters and scores stay encrypted, from your laptop to the GPU and back.
+</p>
 
-## Try it
+<p align="center">
+  <a href="https://github.com/erailabs/ombra/actions/workflows/ci.yml"><img src="https://github.com/erailabs/ombra/actions/workflows/ci.yml/badge.svg?branch=dev" alt="CI"></a>
+  <a href="https://github.com/erailabs/ombra/actions/workflows/docs.yml"><img src="https://github.com/erailabs/ombra/actions/workflows/docs.yml/badge.svg?branch=dev" alt="Docs build"></a>
+  <a href="https://erailabs.github.io/ombra/"><img src="https://img.shields.io/badge/docs-erailabs.github.io%2Fombra-5B4CF5" alt="Documentation"></a>
+  <img src="https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-5B4CF5" alt="Python 3.11 to 3.13">
+  <img src="https://img.shields.io/badge/FHE-CKKS%20%C2%B7%20128--bit-5B4CF5" alt="CKKS, 128-bit security">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-lightgrey" alt="License: PolyForm Noncommercial or commercial"></a>
+  <img src="https://img.shields.io/badge/built%20with-AI%20agents-lightgrey" alt="Built with AI agents">
+</p>
+
+<p align="center">
+  <a href="https://erailabs.github.io/ombra/">Documentation</a> ·
+  <a href="docs/site/getting-started/install.md">Quickstart</a> ·
+  <a href="docs/site/security/what-the-server-learns.md">What the server learns</a> ·
+  <a href="docs/site/roadmap.md">Roadmap</a>
+</p>
+
+---
+
+## Why Ombra
+
+Most vector databases ask you to trust whoever runs the server. Your embeddings sit there in the clear, and embeddings can be turned back into a surprising amount of the text they came from. Your queries are in the clear too, so the operator can see what you look for.
+
+Ombra takes that trust off the table. It uses fully homomorphic encryption (FHE), which lets a server do math on data it cannot read. You keep the secret key on your side, in a small Python client. The server stores ciphertexts, runs the similarity search on them with CUDA kernels on an NVIDIA GPU, and sends back encrypted scores. Only your client can open them.
+
+A few things we care about:
+
+- **Exact results.** The client decrypts the candidate scores and re-ranks them itself, so the top results are the real top results.
+- **Standard cryptography.** The scheme is CKKS. Key generation, encryption and decryption go through [OpenFHE](https://github.com/openfheorg/openfhe-development) 1.6.1, and every GPU kernel is tested against OpenFHE's own output.
+- **128-bit security or more, always.** Every preset meets `HEStd_128_classic`, and both the client and the server refuse anything weaker.
+- **Honest about the limits.** FHE hides a lot, but not everything. We list exactly what the server can still see, below and in the docs.
+
+## Try it in two minutes
+
+You do not need a GPU to try it. Local mode runs a CPU server inside your Python process:
 
 ```bash
-pip install "ombra[local]" sentence-transformers
+pip install "ombra-db[local]" sentence-transformers
 python examples/local_search.py
 ```
 
-Local mode runs a CPU server inside your process, so you need no GPU. It takes several seconds per search and is for trying Ombra and small collections. Wheels exist for Python 3.11 to 3.13 on Linux (x86_64, aarch64) and macOS 15 or newer (arm64, x86_64). There is no Windows build.
+Local mode is slow (a few seconds per search) and meant for trying Ombra and for small collections. Wheels exist for Python 3.11 to 3.13 on Linux (x86_64, aarch64) and macOS 15 or newer (arm64, x86_64). There is no Windows build yet.
 
-For GPU speed, run the server with `docker compose up -d` on a host with a [supported NVIDIA GPU](docs/site/operations/gpus.md), and connect with `Client("host:port", ...)`.
+When you want GPU speed, start the server with `docker compose up -d` on a host with a [supported NVIDIA GPU](docs/site/operations/gpus.md), and point the client at it with `Client("host:port", ...)`.
 
-## Status
+## What you get
 
-Version 0.1.0. One server on one machine, with the Python client and LangChain and LlamaIndex adapters. The server is single-tenant: an API key has a scope (read, write or admin) but no collection, so any read key reads every collection on that server. Not built yet: several nodes, a plaintext-database mode, range filters, and key rotation. The [roadmap](docs/site/roadmap.md) lists what is planned.
+- Encrypted vectors, queries, filters and scores, end to end
+- Equality and integer range filters, evaluated on ciphertexts
+- Collections with aliases, and `ombra-migrate` to rebuild a collection or rotate its keys
+- Several server nodes behind a router that never decrypts anything (first phase)
+- API keys with read, write and admin scopes, optionally limited to one collection
+- A REST admin API, structured logs with request ids, online backups and a storage checker
+- LangChain and LlamaIndex adapters
 
-## Security
+Ombra has no published release yet. The [roadmap](docs/site/roadmap.md) lists what is still missing.
 
-- Every preset uses at least 128-bit security (`HEStd_128_classic`). The client and the server both refuse a parameter set below that.
-- The secret key stays in the client's key file, protected by a passphrase. The server receives only ciphertexts and public evaluation keys.
-- The threat model is an honest-but-curious server: it runs the software correctly but tries to learn what it can. A malicious server can return wrong results, and the client cannot tell.
-- The server still sees the number of vectors, the ids you choose (use random ones), which cluster each vector is in, the number and timing of queries, and, after each search, the ids of the records the client fetches. The Decoy and Strict levels hide only which clusters a query asks for.
+## What the server can still see
 
-[What the server learns](docs/site/security/what-the-server-learns.md) has the full list. Report a vulnerability as described in [SECURITY.md](SECURITY.md).
+We would rather you hear this from us. Ombra assumes an honest-but-curious server: it runs the software correctly but tries to learn what it can. A server that cheats can return wrong results, and the client cannot tell.
+
+Even an honest one sees some things: how many vectors you store, the ids you choose (so use random ones), which cluster each vector is in, how many queries you send and when, and, after each search, which records your client fetches. The Decoy and Strict privacy levels hide which clusters a query asks for, but not the rest.
+
+The full list is in [What the server learns](docs/site/security/what-the-server-learns.md). No outside cryptographer has reviewed Ombra yet, so treat the cryptography as unreviewed until one has. To report a vulnerability, see [SECURITY.md](SECURITY.md).
+
+## How it was built
+
+Most of Ombra's code was written by AI coding agents (Claude Code), working from plans, design decisions and acceptance tests written by a human maintainer. The maintainer decides what gets built, makes every design and security decision, and reviews changes before they merge.
+
+The agents work under fixed rules: no parameters below 128-bit security, the secret key never leaves the client, no plaintext in logs, a test against OpenFHE for every GPU kernel, and a version header on every file format. CI runs the CPU, OpenFHE, sanitizer and fuzzing jobs on every pull request. The rules the agents follow are public, in [CLAUDE.md](CLAUDE.md) and `.claude/`.
+
+We say this so you can weigh it. AI-written code can be wrong in ways that look right, and in cryptography that matters more than usual. It is one more reason to wait for the outside review before you trust Ombra with data that matters.
 
 ## Documentation
 
@@ -34,25 +88,26 @@ Version 0.1.0. One server on one machine, with the Python client and LangChain a
 - [Concepts](docs/site/concepts/homomorphic-encryption.md): what FHE and CKKS are, and who holds which key
 - [How it works](docs/site/how-it-works/encoding.md): encoding, query expansion, search, clusters, filters, deletes
 - [Security](docs/site/security/threat-model.md): the threat model and what the server learns
+- [Operations](docs/site/operations/docker.md): running the server, routing, backups, migration, monitoring
 - [Performance](docs/site/performance/latency-and-throughput.md): latency, throughput and storage
 
-The `examples/` folder has runnable scripts, and the adapters are in `integrations/langchain-ombra/` and `integrations/llama-index-vector-stores-ombra/`.
+The `examples/` folder has runnable scripts. The adapters live in `integrations/langchain-ombra/` and `integrations/llama-index-vector-stores-ombra/`.
 
 ## Repository layout
 
 | Folder | What lives there |
 | --- | --- |
 | `core/` | CUDA kernels and OpenFHE ciphertext format handling (C++/CUDA) |
-| `server/` | API, storage, clustering and GPU scheduling (C++) |
+| `server/` | gRPC and REST API, storage, router, GPU scheduling (C++) |
 | `client/` | Python client: keys, encryption, top-k, re-ranking |
 | `integrations/` | LangChain and LlamaIndex adapters |
 | `examples/` | Runnable scripts |
 | `tests/` | Cross-component and end-to-end tests |
-| `docs/` | The documentation site (`docs/site/`) and internal notes |
+| `docs/site/` | The documentation site |
 
 ## Development
 
-GPU work runs on [Modal](https://modal.com). Reference cards: NVIDIA Ampere (A10 for development, A100 for benchmarks). Turing, Ada and Hopper cards are built and tested too. See [CONTRIBUTING.md](CONTRIBUTING.md).
+GPU work runs on [Modal](https://modal.com). Our reference cards are NVIDIA Ampere: an A10 for development and an A100 for benchmarks. Turing, Ada and Hopper cards are built and tested too. See [CONTRIBUTING.md](CONTRIBUTING.md) before you open a pull request.
 
 ```bash
 make help        # list all commands
