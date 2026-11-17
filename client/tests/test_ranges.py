@@ -162,3 +162,51 @@ def test_digit_headroom_counts_three_units() -> None:
     s.check_headroom(d, 2)
     with pytest.raises(presets.ParamsError):
         s.check_headroom(d, fmax)  # fmax fields + 1 extra unit is over
+
+
+@pytest.mark.parametrize("kind", ["buckets", "two_digit"])
+@pytest.mark.parametrize("with_eq", [False, True])
+def test_band_exact_means_no_record_is_needed(kind, with_eq) -> None:
+    """When `band_exact` says so, the decoded band alone is the exact answer (search without
+    re-ranking relies on this); when the bounds miss the cut points it is not, and it says no."""
+    rng = np.random.default_rng(4)
+    n = 4000
+    raw = rng.integers(0, D_DOMAIN, n)
+    edges = quantile_edges(raw, 20)
+    spec = {"x": edges if kind == "buckets" else {"kind": "two_digit"}}
+    schema = RangeSchema.from_spec(spec, first_index=1 if with_eq else 0)
+    eq_cards = (5,) if with_eq else ()
+    eq_vals = rng.integers(0, 5, (n, 1)) if with_eq else np.zeros((n, 0), dtype=np.int64)
+    n_fields = len(eq_cards) + schema.n_fields
+    cuts = edges if kind == "buckets" else [64 * i for i in range(1, 64)]
+    aligned = [
+        {"gte": cuts[2], "lt": cuts[9]},
+        {"gte": cuts[5]},
+        {"lt": cuts[3]},
+        {"gte": cuts[0], "lt": cuts[1]},
+    ]
+    if kind == "two_digit":
+        aligned += [{"gte": 0, "lte": D_DOMAIN - 1}, {"gte": 128, "lte": 191}]
+    unaligned = [{"gte": cuts[2] + 1, "lt": cuts[9]}, {"gte": 100, "lte": 2000}, 1234]
+    eqf = {0: [1, 3]} if with_eq else None
+    lost_somewhere = False
+    for want in aligned + unaligned:
+        plan = schema.plan({"x": want})
+        lo, hi = parse_bounds(want)
+        slot, _ = _slots(schema, plan, eq_cards, eqf, eq_vals, raw, rng)
+        c, _ = decode_band(slot)
+        a, b = plan.accept(n_fields)
+        band = set(np.nonzero((c >= a) & (c <= b))[0].tolist())
+        truth = (raw >= lo) & (raw <= hi)
+        if with_eq:
+            truth &= np.isin(eq_vals[:, 0], [1, 3])
+        truth_set = set(np.nonzero(truth)[0].tolist())
+        exact = plan.band_exact(1 if with_eq else 0)
+        if want in aligned:
+            assert exact == (kind == "buckets" or not with_eq), want
+        else:
+            assert not exact, want
+        if exact:
+            assert band == truth_set, want
+        lost_somewhere |= band != truth_set
+    assert lost_somewhere  # some answers do need the records, so the refusal is not idle

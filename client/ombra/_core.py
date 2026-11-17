@@ -69,8 +69,9 @@ class SearchHit:
 
     Attributes:
         id: The vector id.
-        score: Exact cosine score, computed from the re-ranking record.
-        metadata: The metadata dict stored with the vector.
+        score: Exact cosine score, computed from the re-ranking record, or the decrypted
+            approximate score when the search ran with `rerank=False`.
+        metadata: The metadata dict stored with the vector (empty with `rerank=False`).
     """
 
     id: str
@@ -371,6 +372,7 @@ class ClientCore:
         *,
         level: str | None = None,
         n_probe: int | None = None,
+        rerank: bool = True,
     ) -> list[SearchHit]:
         col, names = self._get(collection)
         fidx: dict[int, Any] = {}
@@ -392,6 +394,7 @@ class ClientCore:
             filter=fidx or None,
             level=level,
             n_probe=n_probe,
+            rerank=rerank,
             **extra,
         )
         hits: list[Hit] = res.hits

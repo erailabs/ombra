@@ -14,7 +14,7 @@ The server never sees vectors, queries, scores, filter values, document text, me
 - **Deletes.** The ids you delete, and when. A deleted vector stays as a tombstone in its block, still scored and returned, until the block is dropped or repacked. The count of deleted vectors per block is visible. See [Deletes](../how-it-works/deletes.md).
 - **Blob sizes and ids.** Every record and document blob is padded to one of four sizes ({{ const("ombra.blobstore.BUCKET_SIZES")[0] }}, {{ const("ombra.blobstore.BUCKET_SIZES")[1] }}, {{ const("ombra.blobstore.BUCKET_SIZES")[2] }} or {{ const("ombra.blobstore.BUCKET_SIZES")[3] }} bytes). The server sees the size class, not the true length. A vector's record and document use the same id as the vector. The client also stores its per-cluster statistics as one sealed blob under a reserved id, which the server sees as a blob like any other.
 - **Query count and timing.** When each query arrives, how long each round takes, and how many bytes move.
-- **Candidate ids after the search.** To re-rank, the client fetches the record blobs of its best `rerank_factor * k` candidates (3 times k by default, never fewer than k). The server sees those ids. It cannot tell which of them end up in the final k, and it cannot read the vectors inside, but the ids are near neighbours of the query. A document fetched afterwards is one more blob request. These fetches happen at every level, Decoy and Strict included. Because the server knows the cluster of each id, they reveal which records were candidates and, from their number, k. The levels hide only which clusters a query requested.
+- **Candidate ids after the search.** To re-rank, the client fetches the record blobs of its best `rerank_factor * k` candidates (3 times k by default, never fewer than k). The server sees those ids. It cannot tell which of them end up in the final k, and it cannot read the vectors inside, but the ids are near neighbours of the query. A document fetched afterwards is one more blob request. These fetches happen at every level, Decoy and Strict included. Because the server knows the cluster of each id, they reveal which records were candidates and, from their number, k. The levels hide only which clusters a query requested. A search with `rerank=False` fetches no blob, so the server learns none of this; its hits carry the approximate scores and no metadata.
 - **Keys that are public by design.** The key tag, the crypto context and the evaluation keys (relinearization and automorphism keys), uploaded once per collection. The public encryption key stays on the client.
 - **Network metadata.** The client address, the API key and request sizes, as for any service.
 
@@ -50,7 +50,7 @@ Strict asks for every cluster in two rounds: the first half of the cluster ids, 
 
 On top of the common list, the server learns nothing about the query from the cluster choice, because every query asks for everything. The fetch of candidate records after the search still shows which records were near the query.
 
-What Strict does not hide is the candidate ids fetched for re-ranking, the count and timing of queries, and the cost. A Strict query scores every vector, so it is the slowest level. See [Clusters and search levels](../how-it-works/clusters.md).
+What Strict does not hide is the candidate ids fetched for re-ranking (unless you search with `rerank=False`), the count and timing of queries, and the cost. A Strict query scores every vector, so it is the slowest level. See [Clusters and search levels](../how-it-works/clusters.md).
 
 ## Side by side
 
@@ -60,7 +60,7 @@ What Strict does not hide is the candidate ids fetched for re-ranking, the count
 | Number of rounds | 1 unfiltered, 2 filtered | always 2 | always 2 |
 | Whether a filter was used | yes, from the round count | no, unless the filter is rare | no |
 | Rare filter (under 0.5%) | visible as a full scan | visible as a full scan | not visible |
-| Record ids fetched for re-ranking | yes | yes | yes |
+| Record ids fetched for re-ranking | yes, none with `rerank=False` | yes, none with `rerank=False` | yes, none with `rerank=False` |
 | Vectors, queries, scores, filter values | no | no | no |
 
 !!! deep-dive "Where each item comes from"

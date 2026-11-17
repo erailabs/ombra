@@ -16,7 +16,8 @@ from ombra import recall  # noqa: E402
 def test_parser_defaults_and_options() -> None:
     a = recall.build_parser().parse_args(["v.npy"])
     assert (a.preset, a.security_level, a.k) == ("fast", "fast", 10)
-    assert (a.n_probe, a.n_queries) == (None, 100)
+    assert (a.n_probe, a.n_queries, a.no_rerank) == (None, 100, False)
+    assert recall.build_parser().parse_args(["v.npy", "--no-rerank"]).no_rerank
     a = recall.build_parser().parse_args(
         ["v.npy", "--filter-field", "f.npy", "--queries", "q.npy", "--n-probe", "3", "--k", "5"]
     )

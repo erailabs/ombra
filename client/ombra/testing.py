@@ -271,11 +271,13 @@ class FakeClient:
         *,
         level: str | None = None,
         n_probe: int | None = None,
+        rerank: bool = True,
     ) -> list[SearchHit]:
         """Exact cosine search over the vectors, best first.
 
         `filter` takes a value, a list of values or a range dict such as `{"gte": 1}` per
-        metadata field. `level` and `n_probe` are ignored.
+        metadata field. `level` and `n_probe` are ignored; `rerank=False` leaves the metadata
+        out, as the real client does.
         """
         c = self._get(collection)
         q = np.asarray(query, dtype=np.float64)
@@ -285,7 +287,7 @@ class FakeClient:
             if all(self._match(c.metadata[i].get(f), want) for f, want in (filter or {}).items()):
                 rows.append((float(vec @ q), i))
         rows.sort(key=lambda r: (-r[0], r[1]))
-        return [SearchHit(c.ids[i], s, c.metadata[i]) for s, i in rows[:k]]
+        return [SearchHit(c.ids[i], s, c.metadata[i] if rerank else {}) for s, i in rows[:k]]
 
     def close(self) -> None:
         """Forget every collection."""
