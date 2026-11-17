@@ -1,12 +1,12 @@
 # Several nodes and a router
 
-One `ombra_server` serves one data directory. To hold more clusters than one machine can, run several nodes and put `ombra_router` in front of them. Clients talk to the router with the same API as before: no client code changes, and the nodes are plain `ombra_server` processes.
+One `ombra_server` serves one data directory. To hold more clusters than one machine can, run several nodes and put `ombra_router` in front of them. Clients talk to the router with the same API, so no client code changes, and the nodes are plain `ombra_server` processes.
 
-The router never decrypts anything. It holds no FHE key. It reads the placement file, splits each call by cluster, and passes the encrypted answers on as bytes.
+The router never decrypts anything and holds no FHE key. It reads the placement file, splits each call by cluster, and passes the encrypted answers on as bytes.
 
 ## How it works
 
-Each cluster of a collection lives on exactly one node. The owner is the node with the highest random weight for the pair (cluster number, node id). This is rendezvous hashing. It has three properties that matter here:
+Each cluster of a collection lives on exactly one node. The owner is the node with the highest random weight for the pair (cluster number, node id). This is rendezvous hashing, with three properties:
 
 - The owner depends on the cluster number and the node ids only. It never depends on the vectors, the cluster centers or the number of vectors in a cluster. See [what each process learns](#what-each-process-learns).
 - Adding a node to n others moves about 1 in n+1 clusters, all of them to the new node. Removing a node moves only its own clusters.
@@ -19,7 +19,7 @@ A search runs like this:
 3. For each `SearchChosen`, the router drops repeated clusters, splits the list by owner, and sends each node only its own clusters. It passes the node answers to the client unchanged, in the order of the request, and sets `last` on the final one.
 4. If a node does not answer, the router ends the stream with `ERROR_UNAVAILABLE`. The client treats it as retryable and sends the same requests again on a new stream, with the same decoys. It never draws new decoys.
 
-Because the answers keep the order of the request, a replay returns the same bytes. A replay after a node restart gives the same scores as a stream that never failed.
+The answers keep the order of the request, so a replay returns the same bytes, also after a node restart.
 
 Expansion runs once on every node that holds the collection, so the work per query grows with the number of nodes. Each node also holds one search session per query.
 
@@ -70,7 +70,7 @@ Clients connect to the router with a key from the router's key file. The node ke
 
 A call that cannot reach a node fails with the gRPC status `UNAVAILABLE` (a search stream ends with `ERROR_UNAVAILABLE` instead). The client retries both.
 
-## Limits of this first version
+## Limits
 
 - A node that goes down makes every search that needs one of its clusters fail until it is back. There is one copy of each cluster. Replicas are not built yet.
 - The router has no `/metrics` and no REST port. Run `ombra_server` nodes with `--rest-port` to monitor them.

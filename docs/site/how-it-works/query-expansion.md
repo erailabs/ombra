@@ -1,6 +1,6 @@
 # Query expansion
 
-[Column packing](encoding.md) needs the query as $D$ ciphertexts, one per dimension, each with the same value $q_j$ in every slot. Sending that would cost the client $D$ encryptions and about $D$ times the upload. Instead the client sends one ciphertext and the server expands it. This page shows how, why the expansion uses no multiplication level, and where the factor $2^{-L}$ in the client code comes from.
+[Column packing](encoding.md) needs the query as $D$ ciphertexts, one per dimension, each with the same value $q_j$ in every slot. Sending that would cost the client $D$ encryptions and about $D$ times the upload. Instead the client sends one ciphertext and the server expands it. The expansion uses no multiplication level; the factor $2^{-L}$ in the client code is explained below.
 
 ## The query as a polynomial
 
@@ -8,7 +8,7 @@ A CKKS plaintext is a polynomial of degree below $N$ with coefficients in the ri
 
 $$p(X) = q_0 + \sum_{j=1}^{d-1} q_j \left( X^j + X^{ -j } \right)$$
 
-Since $X^N = -1$, we get $X^{ -j } = -X^{N-j}$. So coefficient $j$ of $p$ is $q_j$, coefficient $N-j$ is $-q_j$, and every other coefficient is zero. This symmetric shape makes the slot values real, which is what OpenFHE's default mode keeps. The client computes the slot values with a numpy FFT and hands them to OpenFHE for encoding and encryption.
+Since $X^N = -1$, we get $X^{ -j } = -X^{N-j}$. So coefficient $j$ of $p$ is $q_j$, coefficient $N-j$ is $-q_j$, and every other coefficient is zero. This symmetric shape makes the slot values real, as OpenFHE's default mode requires. The client computes the slot values with a numpy FFT and hands them to OpenFHE for encoding and encryption.
 
 **Worked example.** Take $d = 4$, $N = 16$ and $q = (0.5, -0.5, 0.5, 0.5)$. Then
 
@@ -18,7 +18,7 @@ Coefficients 13, 14 and 15 are $-q_3$, $-q_2$ and $-q_1$, in that order. Slot $k
 
 $$z_k = q_0 + 2\sum_{j=1}^{d-1} q_j \cos\!\left( \frac{\pi \, j \, 5^k}{N} \right)$$
 
-For $k = 0$ this is $0.5 + 2(-0.5\cos\frac{\pi}{16} + 0.5\cos\frac{2\pi}{16} + 0.5\cos\frac{3\pi}{16}) = 1.2746$. The next slots are $-1.419$, $-1.1745$, $-0.1439$ and so on. There are $N/2 = 8$ of them, and they are real. (The client actually encodes $p$ scaled by $2^{-L}$, so the numbers it stores are 8 times smaller. More on that below.)
+For $k = 0$ this is $0.5 + 2(-0.5\cos\frac{\pi}{16} + 0.5\cos\frac{2\pi}{16} + 0.5\cos\frac{3\pi}{16}) = 1.2746$. The next slots are $-1.419$, $-1.1745$, $-0.1439$ and so on. There are $N/2 = 8$ of them, and they are real. (The client actually encodes $p$ scaled by $2^{-L}$, so the numbers it stores are 8 times smaller.)
 
 ## One split step
 
@@ -78,7 +78,7 @@ In CKKS, multiplying by a number such as $2^{-L}$ is a multiplication, and every
 The tree does leave one unwanted factor: each leaf is $2^L$ times the value we want. Removing it would take a multiplication by $2^{-L}$, and so a level. Instead the client divides by $2^L$ before encrypting. Scaling a number by a power of two changes only its floating-point exponent, so $q \cdot 2^{-L}$ is exact in 64-bit floats, and the encrypted polynomial has coefficients $q_j 2^{-L}$. After $L$ doublings the leaf is exactly $q_j$. That is `prescale_query` in the client. The norm check on the query happens before the scaling, on the real $q$.
 
 !!! deep-dive "What the pre-scaling costs"
-    Pre-scaling shrinks the signal but not the noise: the encryption noise of the query ciphertext is the same as for any fresh ciphertext, and every split adds the noise of a key switch. Each split also doubles what it passes on, so a leaf can carry up to about $2^L$ times the noise of a fresh ciphertext while holding $q_j$ at its true size. The leaves are therefore noisier than freshly encrypted ones. The effect on search quality is measured on the [accuracy page](accuracy.md).
+    Pre-scaling shrinks the signal but not the noise: the encryption noise of the query ciphertext is the same as for any fresh ciphertext, and every split adds the noise of a key switch. Each split also doubles what it passes on, so a leaf can carry up to about $2^L$ times the noise of a fresh ciphertext while holding $q_j$ at its true size. The leaves are therefore noisier than freshly encrypted ones. The effect on search quality is on the [accuracy page](accuracy.md).
 
 ## What is slow
 

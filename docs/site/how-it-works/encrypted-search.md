@@ -1,6 +1,6 @@
 # Encrypted search
 
-After [expansion](query-expansion.md) the server holds the query as $D$ ciphertexts $\hat q_j$, each with $q_j$ in every slot. A stored block is $D$ ciphertexts $a_j$ with dimension $j$ of up to {{ preset("balanced", "batch_size") }} vectors (see [column packing](encoding.md)). The server now computes, for each block, one ciphertext whose slot $s$ is the score of vector $s$. This page walks through the four steps: multiply and add, relinearize, rescale, and what is left of the level budget.
+After [expansion](query-expansion.md) the server holds the query as $D$ ciphertexts $\hat q_j$, each with $q_j$ in every slot. A stored block is $D$ ciphertexts $a_j$ with dimension $j$ of up to {{ preset("balanced", "batch_size") }} vectors (see [column packing](encoding.md)). The server now computes, for each block, one ciphertext whose slot $s$ is the score of vector $s$. The steps are multiply and add, relinearize and rescale.
 
 ## Multiply and add
 
@@ -24,7 +24,7 @@ modular multiplications, for {{ preset("balanced", "batch_size") }} vectors, whi
 
 $$(0 + 0 + 0.3 + 0.4)\,\Delta^2 = 0.7\,\Delta^2$$
 
-The result is correct, but it now sits at scale $\Delta^2$ and has three components.
+The result is correct, but it sits at scale $\Delta^2$ and has three components.
 
 ## Relinearize
 
@@ -38,11 +38,11 @@ After multiplication the scale is $\Delta^2$, which doubles the number of bits e
 
 $$\text{scale} = \Delta^2 \;\longrightarrow\; \frac{\Delta^2}{q_\ell} \approx \Delta$$
 
-In the example the encoded sum $0.7\,\Delta^2$ becomes about $0.7\,\Delta$ again. In the balanced preset the scaling moduli have {{ preset("balanced", "scaling_mod_size") }} bits and the first modulus has {{ preset("balanced", "first_mod_size") }} bits, so $\Delta \approx 2^{ {{ preset("balanced", "scaling_mod_size") }} }$. The ciphertext goes from {{ preset("balanced", "multiplicative_depth") + 1 }} towers to {{ preset("balanced", "multiplicative_depth") }}. This is one of the two levels the preset provides, as the next section explains. The server sends this ciphertext to the client, which decrypts it with the secret key and reads one score per slot.
+In the example the encoded sum $0.7\,\Delta^2$ becomes about $0.7\,\Delta$ again. In the balanced preset the scaling moduli have {{ preset("balanced", "scaling_mod_size") }} bits and the first modulus has {{ preset("balanced", "first_mod_size") }} bits, so $\Delta \approx 2^{ {{ preset("balanced", "scaling_mod_size") }} }$. The ciphertext goes from {{ preset("balanced", "multiplicative_depth") + 1 }} towers to {{ preset("balanced", "multiplicative_depth") }}. The server sends this ciphertext to the client, which decrypts it with the secret key and reads one score per slot.
 
 ## The level budget
 
-A level is one rescale. The preset's `multiplicative_depth` sets how many a fresh ciphertext can take: {{ preset("balanced", "multiplicative_depth") }} in both product presets. The search above uses one of them. Everything else in the pipeline is free of levels:
+A level is one rescale. The preset's `multiplicative_depth` sets how many a fresh ciphertext can take: {{ preset("balanced", "multiplicative_depth") }} in both product presets. The search above uses one of them. Nothing else in the pipeline uses a level:
 
 | step | levels used |
 | --- | --- |

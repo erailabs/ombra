@@ -1,6 +1,6 @@
 # Deletes and compaction
 
-A vector lives in one slot of each column of its block, as one number inside a ciphertext. The server cannot remove one slot from a ciphertext, because it cannot read it. So a delete works in two steps: the server marks the vector as dead right away, and the client later rewrites the blocks without the dead slots. This page covers both, and re-clustering, which rebuilds the clusters from the live vectors.
+A vector lives in one slot of each column of its block, as one number inside a ciphertext. The server cannot remove one slot from a ciphertext, because it cannot read it. So a delete has two steps: the server marks the vector as dead right away, and the client later rewrites the blocks without the dead slots. Re-clustering, which rebuilds the clusters from the live vectors, is covered at the end.
 
 The code is in [`client/ombra/collection.py`](https://github.com/erailabs/ombra/blob/main/client/ombra/collection.py) (`delete`, `repack`, `recluster`), [`client/ombra/repack.py`](https://github.com/erailabs/ombra/blob/main/client/ombra/repack.py) (the repack plan) and [`server/search/include/ombra/search/layout.hpp`](https://github.com/erailabs/ombra/blob/main/server/search/include/ombra/search/layout.hpp) (the tombstone penalty).
 
@@ -18,7 +18,7 @@ Example with $F = 2$ and $\lambda = {{ const("ombra.presets.FILTER_LAMBDA") }}$:
 
 The penalty is also why $F_{max}$ keeps a spare unit of headroom (see the limits in [filters](filters.md)). The server adds the penalty only to blocks that have at least one tombstoned id.
 
-What a delete does not do: it frees nothing. The ciphertexts keep their size, searching a block costs the same with or without dead slots, and the stored bytes stay as they were. A block whose slots are all dead is dropped by the server on its own. Anything else needs compaction.
+A delete frees nothing. The ciphertexts keep their size, searching a block costs the same with or without dead slots, and the stored bytes stay as they were. A block whose slots are all dead is dropped by the server on its own. Anything else needs compaction.
 
 ## Compaction (repack)
 
@@ -30,9 +30,9 @@ $$\frac{\text{deleted slots}}{\text{used slots}} \ge \tau$$
 
 with $\tau = {{ const("ombra.repack.DEFAULT_THRESHOLD") }}$ by default (the `threshold` argument changes it). Inside a flagged cluster, the blocks that still have live vectors are packed first-fit, largest first, into groups of at most $S$ live vectors, where $S$ is {{ preset("balanced", "batch_size") }} slots on Balanced and {{ preset("fast", "batch_size") }} on Fast. Each group becomes one new block. A group is written if it holds a flagged block or merges more than one.
 
-{% set S = preset("balanced", "batch_size") %}Example on Balanced ($S = {{ S }}$). One cluster has three full blocks of {{ S }} slots with {{ S-5000 }}, {{ S-2500 }} and {{ S-900 }} deleted. Their live counts are 5000, 2500 and 900, and the deleted fractions are {{ "%.2f" | format((S-5000) / S) }}, {{ "%.2f" | format((S-2500) / S) }} and {{ "%.2f" | format((S-900) / S) }}, all above {{ const("ombra.repack.DEFAULT_THRESHOLD") }}. Largest first: 5000, then 2500 fits ($7500 \le {{ S }}$), then 900 does not ($8400 > {{ S }}$), so it starts a second group. The result is two blocks in place of three, holding 7500 and 900 vectors. The 900 block is still mostly empty. It stays that way until more vectors are inserted into the cluster and another repack, or until the collection is re-clustered.
+{% set S = preset("balanced", "batch_size") %}Example on Balanced ($S = {{ S }}$). One cluster has three full blocks of {{ S }} slots with {{ S-5000 }}, {{ S-2500 }} and {{ S-900 }} deleted. Their live counts are 5000, 2500 and 900, and the deleted fractions are {{ "%.2f" | format((S-5000) / S) }}, {{ "%.2f" | format((S-2500) / S) }} and {{ "%.2f" | format((S-900) / S) }}, all above {{ const("ombra.repack.DEFAULT_THRESHOLD") }}. Largest first: 5000, then 2500 fits ($7500 \le {{ S }}$), then 900 does not ($8400 > {{ S }}$), so it starts a second group. The result is two blocks in place of three, holding 7500 and 900 vectors. The 900 block stays mostly empty until more vectors are inserted and another repack runs, or until the collection is re-clustered.
 
-Repack is slow and moves data. Every column of every rewritten block, which is $d + \sum_f m_f$ ciphertexts per block, is downloaded, decrypted, encrypted and uploaded. It needs the secret key, so it runs on the client and cannot be handed to the server. Run it when the deleted fraction is high, not after every delete. It returns a report with the block counts and bytes before and after.
+Repack is slow and moves data. Every column of every rewritten block, which is $d + \sum_f m_f$ ciphertexts per block, is downloaded, decrypted, encrypted and uploaded. It needs the secret key, so it runs on the client. Run it when the deleted fraction is high, not after every delete. It returns a report with the block counts and bytes before and after.
 
 Each `insert_vectors` call also adds a new block per touched cluster, so a collection with many small inserts has many half-empty blocks. Repack merges those too, but only in clusters that have a flagged block.
 
@@ -46,7 +46,7 @@ The centers are fixed when the collection is created. Deletes remove vectors fro
 
 Search keeps working on the old collection the whole time. When `recluster` returns, you switch your searches to the new collection and call `retire()` on the old one, which drops it from the server. Until then both exist, so the server stores about twice the data.
 
-This is the slowest operation. It decrypts and re-encrypts the whole collection, runs k-means on all of it, and copies every blob over gRPC. It is meant for a maintenance window, not for regular use. There is no automatic trigger, and nothing yet that tells you when the clusters have drifted.
+This is the slowest operation: it decrypts and re-encrypts the whole collection, runs k-means on all of it, and copies every blob over gRPC. Use it in a maintenance window. Nothing triggers it automatically or tells you when the clusters have drifted.
 
 !!! deep-dive "Why the statistics are rebuilt, not copied"
     The cluster statistics ([filters](filters.md)) count live vectors per cluster and per field value. After re-clustering every vector can sit in a different cluster, so the new collection builds fresh statistics from the new labels and seals them as an encrypted blob. The old collection's blob is left alone.

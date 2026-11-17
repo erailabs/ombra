@@ -1,10 +1,10 @@
 # Backups
 
-Two things need a backup, and they live in different places. The server's data directory holds the encrypted collections. The client's key file holds the only key that can read them.
+Two things need a backup: the server's data directory, which holds the encrypted collections, and the client's key file, which holds the only key that can read them.
 
 ## The key file
 
-Back up each collection's key file, and its passphrase, on the client side. Without the key file the data on the server cannot be decrypted by anyone, and there is no recovery. Keep the copy somewhere other than the server. The file is passphrase-protected, see the [key file format](../reference/file-formats.md#key-file), so it is safe to store like any other sensitive file. A backup of the server data without the key file is useless, and a key file without the server data has nothing to open.
+Back up each collection's key file, and its passphrase, on the client side. Without the key file the data on the server cannot be decrypted by anyone, and there is no recovery. Keep the copy somewhere other than the server. The file is passphrase-protected, see the [key file format](../reference/file-formats.md#key-file), so store it like any other sensitive file. Server data without the key file is useless, and a key file without the server data has nothing to open.
 
 ### Copy and check a key file
 
@@ -40,11 +40,11 @@ In Docker this is the `ombra-data` volume, mounted at `/data`. Outside Docker it
 | `tls/` | The self-signed certificate and its key (Docker image). |
 | `admin_api_key` | The admin token made on the first start (Docker image). |
 
-Nothing here is plaintext vectors or documents, and nothing here can decrypt anything: the server never has the secret key. A stolen backup gives the same access as a stolen disk of the server, and no more. It does contain the TLS private key and the admin token, so treat the backup as a secret anyway.
+Nothing here is plaintext vectors or documents, and nothing here can decrypt anything: the server never has the secret key. A stolen backup gives the same access as a stolen server disk, and no more. It does contain the TLS private key and the admin token, so treat it as a secret.
 
 ### Online backup
 
-`ombra_backup` copies the data directory as of one instant while the server keeps running. Use it in preference to the stop-and-copy below. It reads the directory without changing it. The server does not need to know.
+`ombra_backup` copies the data directory as of one instant while the server keeps running. Prefer it to the stop-and-copy below. It reads the directory without changing it.
 
 ```bash
 mkdir -p backup && sudo chown 10001 backup

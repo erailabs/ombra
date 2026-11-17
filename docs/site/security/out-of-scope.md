@@ -1,7 +1,5 @@
 # Out of scope
 
-This page lists what Ombra does not protect against. Read it before you put sensitive data in.
-
 ## A server that lies
 
 The threat model is an honest-but-curious server. A malicious server can do any of the following, and nothing in the client will notice:
@@ -15,7 +13,7 @@ The final ranking is exact because the client re-scores the top candidates with 
 
 ## Access patterns and metadata
 
-Encryption hides values, not behavior. The server sees which ids you insert, which clusters you ask for, which record blobs you fetch and when. The full list is in [What the server learns](what-the-server-learns.md). In short:
+Encryption hides values, not behavior. The server sees which ids you insert, which clusters you ask for, which record blobs you fetch and when. The full list is in [What the server learns](what-the-server-learns.md).
 
 - Vector ids are plaintext. Use ids that carry no meaning, such as random identifiers, not email addresses or file names.
 - Sizes: the number of vectors, the number of clusters, the vectors per cluster, the filter field count and values per field, and the size class of each blob.
@@ -25,7 +23,7 @@ Strict mode removes the cluster choice from this list. It does not remove the bl
 
 ## Side channels
 
-We have not tested for or defended against timing, cache, power or memory-access side channels on the server or the client. The GPU kernels are not written to be constant time. Anyone who can run code next to the secret key on the client, or measure the client's decryption, is outside the model. The server sees how long each round takes, and in Fast and Decoy that time depends on which clusters were asked.
+Timing, cache, power and memory-access side channels, on the server or the client, are neither tested nor defended against. The GPU kernels are not written to be constant time. Anyone who can run code next to the secret key on the client, or measure the client's decryption, is outside the model. The server sees how long each round takes, and in Fast and Decoy that time depends on which clusters were asked.
 
 ## Repeated queries
 

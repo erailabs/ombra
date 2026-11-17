@@ -18,7 +18,7 @@ where $c$ is the number of fields on which the vector matches the filter. A fiel
 
 Example with $\lambda = {{ const("ombra.presets.FILTER_LAMBDA") }}$ and two fields, language (3 values) and year (2 values). The filter is language in {0, 2} and year = 1. The query extension is $[4, 0, 4,\ 0, 4]$. A vector with language 2, year 1 gets $4 + 4 = 8$ on top of its score, so $c = 2$. A vector with language 1, year 1 gets $0 + 4$, so $c = 1$. A vector with language 0, year 0 gets $4 + 0$, also $c = 1$.
 
-Matching inside a field is OR, across fields it is AND. Fields and values are numbered integers. There is no text matching. Integer ranges are built on top of this, see [Range fields](#range-fields).
+Matching inside a field is OR, across fields it is AND. Fields and values are numbered integers; there is no text matching. Integer ranges are built on top of this, see [Range fields](#range-fields).
 
 ## Bands
 
@@ -28,11 +28,11 @@ $$c = \left\lfloor \frac{\text{slot} + 2}{\lambda} \right\rfloor \qquad \text{sc
 
 The shift by 2 centers each band on $\lambda c$, so it covers $[\lambda c-2,\ \lambda c + 2)$. A score of at most 1 in size leaves a margin of 1 on each side for the small noise CKKS adds (see [CKKS](../concepts/ckks.md)).
 
-Example with $\lambda = {{ const("ombra.presets.FILTER_LAMBDA") }}$. Slot value 8.3 gives $c = \lfloor 10.3 / 4 \rfloor = 2$ and score $8.3-8 = 0.3$. Slot value 3.7 gives $c = \lfloor 5.7 / 4 \rfloor = 1$ and score $3.7-4 = -0.3$. With two fields only the first one passes, and the client keeps vectors with $c = 2$. The score it keeps is the approximate one. The final ranking uses the exact vectors from the record blobs.
+Example with $\lambda = {{ const("ombra.presets.FILTER_LAMBDA") }}$. Slot value 8.3 gives $c = \lfloor 10.3 / 4 \rfloor = 2$ and score $8.3-8 = 0.3$. Slot value 3.7 gives $c = \lfloor 5.7 / 4 \rfloor = 1$ and score $3.7-4 = -0.3$. With two fields only the first one passes, and the client keeps vectors with $c = 2$. The score it keeps is approximate; the final ranking uses the exact vectors from the record blobs.
 
 ## Where tombstones fit
 
-A deleted vector stays in its block until the block is rewritten. The server adds $-\lambda(F + 1)$ to its slot. With $c$ between 0 and $F$, the band index drops to at most $-1$, below every live vector, and never equals $F$. So a deleted vector can never pass the filter, with or without a filter in the query. [Deletes and compaction](deletes.md) has the rest.
+A deleted vector stays in its block until the block is rewritten. The server adds $-\lambda(F + 1)$ to its slot. With $c$ between 0 and $F$, the band index drops to at most $-1$, below every live vector, and never equals $F$. So a deleted vector can never pass the filter, with or without a filter in the query. See [Deletes and compaction](deletes.md).
 
 ## Limits per preset
 
@@ -79,7 +79,7 @@ From these counts it estimates the matches in cluster $i$ as
 
 $$E_i = n_i \prod_{f \in \text{filtered}} \frac{n_{i,f,A_f}}{n_i}$$
 
-where $n_i$ is the number of live vectors in the cluster, and $n_{i,f,A_f}$ the number of them whose field $f$ is in the allowed set $A_f$. The product treats the fields as independent. When they are correlated the estimate is off, and the result is still correct, since every candidate is checked exactly by its band; only the cluster choice suffers.
+where $n_i$ is the number of live vectors in the cluster, and $n_{i,f,A_f}$ the number of them whose field $f$ is in the allowed set $A_f$. The product treats the fields as independent. When they are correlated the estimate is off. The result is still correct, since every candidate is checked by its band; only the cluster choice suffers.
 
 Example: a cluster of $n_i = 1000$ vectors, 100 with language in {0, 2} and 500 with year 1. $E_i = 1000 \times 0.1 \times 0.5 = 50$.
 
@@ -87,11 +87,11 @@ The first round goes down the clusters in center-score order. It skips clusters 
 
 ## The extra round
 
-A filtered query always makes a second round: the next clusters with $E_i > 0$, twice as many as round 1 used. It runs even if round 1 found enough matches. That keeps the round count the same for every filtered query at a level. The cost is a second trip to the server, and more scoring. There is no third round. If fewer than $k$ vectors passed the filter after two rounds, the result says `incomplete` and is not padded.
+A filtered query always makes a second round: the next clusters with $E_i > 0$, twice as many as round 1 used. It runs even if round 1 found enough matches. That keeps the round count the same for every filtered query at a level. The cost is a second trip to the server and more scoring. There is no third round. If fewer than $k$ vectors passed the filter after two rounds, the result says `incomplete` and is not padded.
 
 Without statistics (a collection opened without its stats blob), a filtered query still makes two rounds, but picks clusters by center score only, as an unfiltered Decoy query does: the first $p$ clusters, then the next $2p$.
 
-If the estimated selectivity, $\sum_i E_i / \sum_i n_i$, is under 0.5%, Fast and Decoy give up planning and scan all clusters in two rounds with no decoys. That is slow, and the server sees it. [Clusters](clusters.md) covers it, and [what the server learns](../security/what-the-server-learns.md) says what it reveals.
+If the estimated selectivity, $\sum_i E_i / \sum_i n_i$, is under 0.5%, Fast and Decoy give up planning and scan all clusters in two rounds with no decoys. That is slow, and the server sees it; see [Clusters](clusters.md) and [what the server learns](../security/what-the-server-learns.md).
 
 In Fast, an unfiltered query normally makes one round and a filtered query two, so the server can tell them apart there. Decoy and Strict use two rounds for every query.
 

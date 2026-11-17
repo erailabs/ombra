@@ -11,7 +11,7 @@ The server runs from a Docker image. You need Docker, an NVIDIA GPU from the [su
 
 ## Compose
 
-This is the `docker-compose.yml` at the root of the repository.
+The `docker-compose.yml` at the root of the repository:
 
 ```yaml
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 OR LicenseRef-Ombra-Commercial
@@ -78,7 +78,7 @@ client = Client(
 )
 ```
 
-An admin key can do everything, including dropping collections. For an application, make a read or write key as described in [Configuration](../reference/configuration.md), and keep the admin key for operations.
+An admin key can do everything, including dropping collections. For an application, make a read or write key as described in [Configuration](../reference/configuration.md).
 
 ## Ports
 

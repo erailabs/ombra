@@ -9,7 +9,7 @@ The server runs on NVIDIA GPUs of five architectures. The code is compiled for c
 | T4 | 7.5 | Works, with no latency target. It has 16 GB of memory and expansion is about five times slower than on an A100. |
 | A30, RTX 30xx, RTX A-series workstation cards | 8.0 and 8.6 | Supported, like the A10 and A100. |
 
-Other GPUs are not supported. That includes Volta (V100) and Blackwell. The kernels are not compiled for them, so the server cannot run on them.
+Other GPUs, including Volta (V100) and Blackwell, are not supported: the kernels are not compiled for them.
 
 To see what you have:
 
@@ -17,7 +17,7 @@ To see what you have:
 nvidia-smi --query-gpu=name,compute_cap --format=csv
 ```
 
-The compute capability should read 7.5, 8.0, 8.6, 8.9 or 9.0.
+It should read 7.5, 8.0, 8.6, 8.9 or 9.0.
 
 ## Driver and toolkit
 

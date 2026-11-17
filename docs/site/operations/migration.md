@@ -1,6 +1,6 @@
 # Migrating a collection
 
-Some changes cannot be made in place. A new embedding model changes the meaning of every vector, a new dimension changes the layout, and a new preset or OpenFHE version changes the ciphertexts. The server cannot transform encrypted data, so these changes build a new collection beside the old one, move your application to it, and drop the old one later. `ombra-migrate` does this with no downtime. It is also the way to re-key a collection: the new collection always gets a new FHE key pair and a new document master key.
+Some changes cannot be made in place. A new embedding model changes the meaning of every vector, a new dimension changes the layout, and a new preset or OpenFHE version changes the ciphertexts. The server cannot transform encrypted data, so these changes build a new collection beside the old one, move your application to it, and drop the old one later. `ombra-migrate` does this with no downtime. It also re-keys a collection: the new collection always gets a new FHE key pair and a new document master key.
 
 The pieces are:
 
@@ -10,14 +10,14 @@ The pieces are:
 
 ## Aliases
 
-An alias is a name that resolves to a collection when a client opens it. Create one once, and let the application use the alias instead of the collection name.
+An alias is a name that resolves to a collection when a client opens it. Create one once, and have the application use the alias instead of the collection name.
 
 ```python
 client.create_alias("docs", "docs-v1")  # needs an admin key
 client.open_collection("docs", key_file="docs-v1.key", passphrase=pw)  # returns "docs-v1"
 ```
 
-`open_collection` asks the server what the alias points at and keeps the real name. After that the collection object works on that collection, also after the alias moves. It never follows a switch by itself, because its keys belong to one collection: a query made for one key set fails on the other. To follow a switch, open the alias again (for example every few minutes, or on a signal). Searches that are running when the switch happens finish on the old collection.
+`open_collection` asks the server what the alias points at and keeps the real name. The collection object stays on that collection, also after the alias moves, because its keys belong to one collection: a query made for one key set fails on the other. To follow a switch, open the alias again (for example every few minutes, or on a signal). Searches running when the switch happens finish on the old collection.
 
 Rules:
 
@@ -78,7 +78,7 @@ ombra-migrate finish    --address ombra.example.com:443
 
 ### Rotating keys
 
-`ombra-migrate plan --new-keys` replaces the keys of a collection and nothing else: same model, same preset, same dimension. It is a rebuild migration whose target is a fresh key set. The tool makes a new OpenFHE key pair and a new document master key, and writes them to the new key file (and syncs it to disk) before the server receives anything. It then encrypts every vector again from the float32 copy in its record blob, and seals every record, document, stats and info blob again under the new master key. It never converts old ciphertexts to the new key: every ciphertext is a fresh encryption, so the old key does not touch the new data. The steps, the checks, the alias switch and the drain period are the same as in any migration.
+`ombra-migrate plan --new-keys` replaces the keys of a collection and nothing else: same model, same preset, same dimension. It is a rebuild migration with a fresh key set. The tool makes a new OpenFHE key pair and a new document master key, and writes them to the new key file (and syncs it to disk) before the server receives anything. It then encrypts every vector again from the float32 copy in its record blob, and seals every record, document, stats and info blob again under the new master key. It never converts old ciphertexts to the new key: every ciphertext is a fresh encryption, so the old key does not touch the new data. The steps, the checks, the alias switch and the drain period are the same as in any migration.
 
 ```bash
 ombra-migrate plan --address ombra.example.com:443 --source docs \
@@ -90,9 +90,9 @@ ombra-migrate plan --address ombra.example.com:443 --source docs \
 
 Writes during a rotation use the same dual write as above (`Migration.insert` and `Migration.delete`). The other way is to pause writes between `start` and `switch`, then run `backfill` once more. Searches keep working on the old collection until `switch`.
 
-The old key file is kept. After `finish`, the old collection is gone from the server, but the old key file still opens any copy made before: a server backup, a disk image, a copy of the blobs. Rotation cannot change those copies. When you no longer need them, delete the copies, then destroy the old key file and its backups (overwrite it, delete it, and remove it from backup systems). Until then, treat the old key file as secret as before.
+The old key file is kept. After `finish`, the old collection is gone from the server, but the old key file still opens any copy made before: a server backup, a disk image, a copy of the blobs. Rotation cannot change those copies. When you no longer need them, delete the copies, then destroy the old key file and its backups (overwrite it, delete it, and remove it from backup systems). Until then, keep the old key file secret.
 
-Cost: the same as any migration, plus the encryption of every vector on your machine. Count about 16 GB down and 41 GB up per million vectors at dimension 384, plus the documents.
+Cost: the same as any migration, plus the encryption of every vector on your machine, about 16 GB down and 41 GB up per million vectors at dimension 384, plus the documents.
 
 ### Writes during a migration
 
@@ -147,7 +147,7 @@ The server sees an encrypted blob like any other. In rebuild mode without `--mod
 ## What it costs and what it does not do
 
 - Storage doubles until `finish`.
-- The tool reads every block of the old collection to learn its ids, and every record and document blob, and it uploads all of them again. The time is dominated by encryption on your machine. Plan for the same work as the first load.
+- The tool reads every block of the old collection to learn its ids, and every record and document blob, and it uploads all of them again. Encryption on your machine dominates the time; plan for the same work as the first load.
 - Blobs are opened with the old keys and sealed again with the new ones, so the document master key changes too. The old key file does not open the new collection, and the target key file must be a different file from the source's.
 - A document stored by reference (above the inline limit) cannot be copied. The tool stops with an error naming the problem.
 - It does not change the preset's security parameters or the number of filter fields.

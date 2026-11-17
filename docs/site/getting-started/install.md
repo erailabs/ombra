@@ -1,6 +1,6 @@
 # Install
 
-The client is a Python package. The server is a Docker image. You need the client to try Ombra at all, and the server only when you want GPU speed.
+The client is a Python package. The server is a Docker image, needed only for GPU speed.
 
 ## The client
 
@@ -27,7 +27,7 @@ The quickstart also uses an embedding model. Any model works as long as its vect
 pip install sentence-transformers
 ```
 
-Check that it worked:
+Check the install:
 
 ```bash
 python -c "import ombra; print(ombra.__version__)"
@@ -41,6 +41,6 @@ The server needs a host with a supported NVIDIA GPU (an A10 or A100, for example
 docker compose up -d
 ```
 
-The data lives in a volume, so it survives restarts. [Docker](../operations/docker.md) covers the image, the volume, TLS and API keys, and [GPUs](../operations/gpus.md) covers the card requirements. If you have no GPU, stay with local mode.
+The data lives in a volume and survives restarts. [Docker](../operations/docker.md) covers the image, the volume, TLS and API keys, and [GPUs](../operations/gpus.md) the card requirements. With no GPU, stay with local mode.
 
 Next: the [quickstart](quickstart.md).

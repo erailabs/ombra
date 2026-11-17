@@ -1,6 +1,6 @@
 # Examples
 
-The scripts live in the `examples/` folder of the repository. Each one is a complete program. The local ones need `pip install "ombra[local]" sentence-transformers`; see [Install](install.md).
+The scripts live in the `examples/` folder of the repository. The local ones need `pip install "ombra[local]" sentence-transformers`; see [Install](install.md).
 
 | Script | What it shows | Needs |
 | --- | --- | --- |
@@ -14,13 +14,13 @@ Each local script creates its data in a temporary folder and prints the path. De
 
 ## filters_and_updates.py
 
-It creates a collection of six texts with a `topic` field, then runs five searches: none filtered, one filtered to a topic, one after an insert, one after a delete, and one after reopening the collection in a new client. It prints each result with its topic, so you can check that a filter only lets matching vectors through.
+It creates a collection of six texts with a `topic` field, then runs five searches: unfiltered, filtered to a topic, after an insert, after a delete, and after reopening the collection in a new client. Each result prints with its topic, so you can check the filter.
 
 ```bash
 python examples/filters_and_updates.py
 ```
 
-Each search takes several seconds in local mode, so the run takes about a minute.
+The run takes about a minute.
 
 ## langchain_search.py
 

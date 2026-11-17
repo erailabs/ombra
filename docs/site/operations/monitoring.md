@@ -1,8 +1,8 @@
 # Monitoring
 
-The server has two sources of operational data: a JSON metrics endpoint on the HTTP admin port and logs on stderr. There is no Prometheus endpoint and no OpenTelemetry export. If you use Prometheus, poll the JSON with a small exporter or a script.
+The server has a JSON metrics endpoint on the HTTP admin port and logs on stderr. There is no Prometheus endpoint and no OpenTelemetry export; to use Prometheus, poll the JSON with a small exporter or a script.
 
-Neither source carries plaintext, ids, collection names, scores or keys. They hold counts, byte sizes and timings only.
+Neither source carries plaintext, ids, collection names, scores or keys, only counts, byte sizes and timings.
 
 ## Health check
 
@@ -10,7 +10,7 @@ Neither source carries plaintext, ids, collection names, scores or keys. They ho
 curl --cacert server.crt https://localhost:8080/healthz
 ```
 
-returns `{"status":"ok"}` and needs no API key. The HTTP port uses the same TLS certificate as gRPC, so drop `--cacert` only if the server runs with `--insecure`. It only tells you that the process is up. It does not check the GPU or the data.
+returns `{"status":"ok"}` and needs no API key. The HTTP port uses the same TLS certificate as gRPC, so drop `--cacert` only if the server runs with `--insecure`. It only tells you that the process is up, not that the GPU or the data are fine.
 
 ## Readiness check
 
@@ -41,7 +41,7 @@ The key must have the admin scope. A missing key returns 401 and a key with a lo
 | `gpu_memory.used_bytes`, `gpu_memory.total_bytes` | GPU memory in use and in total. |
 | `cache.hits`, `cache.misses`, `cache.evictions`, `cache.hit_rate` | Block cache counters since the start, and hits over hits plus misses. |
 
-Counters reset when the server restarts. A latency histogram or percentiles are not available, only the sum, the count and the maximum. A rising `cache.misses` or `cache.evictions` with a low `hit_rate` means the cache budgets are too small for your collections, see [Supported GPUs](gpus.md#memory).
+Counters reset when the server restarts. There are no latency percentiles, only the sum, the count and the maximum. A rising `cache.misses` or `cache.evictions` with a low `hit_rate` means the cache budgets are too small for your collections, see [Supported GPUs](gpus.md#memory).
 
 ## Logs
 

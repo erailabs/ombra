@@ -1,10 +1,10 @@
 # Storage
 
-Encrypted vectors are large. Each dimension of each vector takes 48 bytes on disk, against 4 bytes for a plain float32. That is 12 times the size, and it is the price of keeping the vectors encrypted during search.
+Encrypted vectors are large. Each dimension of each vector takes 48 bytes on disk, against 4 bytes for a plain float32. That is 12 times the size.
 
 The 48 bytes come from the ciphertext layout. A ciphertext holds one dimension of many vectors, one vector per slot. Balanced has {{ preset("balanced", "batch_size") }} slots per ciphertext and a ring dimension of {{ preset("balanced", "ring_dim") }}. Fast has {{ preset("fast", "batch_size") }} slots and a ring dimension of {{ preset("fast", "ring_dim") }}. Both end up at the same size per vector, because halving the ring halves the slots.
 
-A ciphertext is a pair of polynomials, and one of them is a uniformly random polynomial. The client stores a 32-byte seed in its place, and the server regenerates that polynomial when it loads the block. This is called a seeded ciphertext. A stored Balanced ciphertext is 393,336 bytes for 8,192 slots, which is 48.01 bytes per dimension per vector. Without the seed it would be 787,423 bytes, or 96.12 bytes. The client writes seeded ciphertexts when its compiled module is installed, which the wheels include. The GPU holds the same data as before, so memory on the card and search speed do not change.
+A ciphertext is a pair of polynomials, and one of them is a uniformly random polynomial. The client stores a 32-byte seed in its place, and the server regenerates that polynomial when it loads the block. This is a seeded ciphertext. A stored Balanced ciphertext is 393,336 bytes for 8,192 slots, which is 48.01 bytes per dimension per vector. Without the seed it would be 787,423 bytes, or 96.12 bytes. The client writes seeded ciphertexts when its compiled module is installed, which the wheels include. The GPU holds the same data as before, so memory on the card and search speed do not change.
 
 ## Per million vectors
 
@@ -33,7 +33,7 @@ Measured on an A100 run of the gRPC benchmark at d = 384. That benchmark's clien
 | 100,000 | 2 fields of 8 values | 5.70 GB (57.0 KB per vector) | 4.91 GB (49.1 KB per vector) |
 | 1,000,000 | 2 fields of 8 values | TBD | TBD |
 
-The 400 columns alone would be 19.2 KB per vector at 48 bytes each. Measure your own collection before you plan disk.
+The 400 columns alone would be 19.2 KB per vector at 48 bytes each. Measure your own collection before planning disk.
 
 ## Keys
 

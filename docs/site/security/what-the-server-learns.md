@@ -1,15 +1,15 @@
 # What the server learns
 
-This page lists what an honest-but-curious server can see, by search level. It follows the client code, not the design goals: where the code does less than we would like, the page says so.
+What an honest-but-curious server can see, by search level. This follows the client code, not the design goals: where the code does less than we would like, it says so.
 
-The three levels are Fast, Decoy and Strict. Each collection has a default level, and a query can override it. There is no fourth, plaintext-database mode. Every vector is encrypted in every collection, so there is nothing to list for it.
+The three levels are Fast, Decoy and Strict. Each collection has a default level, and a query can override it. Every vector is encrypted in every collection.
 
 ## In every mode
 
-The server never sees vectors, queries, scores, filter values, document text, metadata values or the secret key. A server that does not follow the protocol could return wrong scores, and the client would not notice, see [Out of scope](out-of-scope.md). Everything on this page assumes an honest-but-curious server. It does see the following, whatever the level.
+The server never sees vectors, queries, scores, filter values, document text, metadata values or the secret key. This page assumes an honest-but-curious server; a server that lies is covered in [Out of scope](out-of-scope.md). Whatever the level, the server sees the following.
 
 - **Vector ids.** You choose the ids and they are stored in plaintext. They arrive with each insert and delete, and they come back with every score the server returns. Use random ids.
-- **Cluster membership.** Each insert sends the cluster id of every vector in the clear, next to the vector's id. The server holds the full partition of ids into clusters and knows how many vectors each cluster holds. It does not know what a cluster is about, but it can link any id it sees later to its cluster.
+- **Cluster membership.** Each insert sends the cluster id of every vector in the clear, next to the vector's id. The server holds the full partition of ids into clusters and knows how many vectors each cluster holds. It does not know what a cluster is about, but it can link any id to its cluster.
 - **Collection shape.** The preset, the vector dimension, the number of clusters, the number of blocks, the number of vectors (tombstoned ones included until they are compacted), and the filter layout: how many filter fields there are and how many values each has (the cardinalities). It does not see what a field means, or its values. The cardinalities are exact. Bucketing them, for example by declaring a larger value count than you need, is up to you: the client does not do it.
 - **Deletes.** The ids you delete, and when. A deleted vector stays as a tombstone in its block, still scored and returned, until the block is dropped or repacked. The count of deleted vectors per block is visible. See [Deletes](../how-it-works/deletes.md).
 - **Blob sizes and ids.** Every record and document blob is padded to one of four sizes ({{ const("ombra.blobstore.BUCKET_SIZES")[0] }}, {{ const("ombra.blobstore.BUCKET_SIZES")[1] }}, {{ const("ombra.blobstore.BUCKET_SIZES")[2] }} or {{ const("ombra.blobstore.BUCKET_SIZES")[3] }} bytes). The server sees the size class, not the true length. A vector's record and document use the same id as the vector. The client also stores its per-cluster statistics as one sealed blob under a reserved id, which the server sees as a blob like any other.

@@ -1,6 +1,6 @@
 # Encoding and column packing
 
-A CKKS ciphertext holds a long list of numbers, one per slot (see [CKKS in simple terms](../concepts/ckks.md)). The balanced preset has {{ preset("balanced", "batch_size") }} slots per ciphertext and the fast preset has {{ preset("fast", "batch_size") }}. The question is what to put in those slots. Ombra puts one dimension of many vectors in each ciphertext. This page explains why, and what it costs.
+A CKKS ciphertext holds a long list of numbers, one per slot (see [CKKS in simple terms](../concepts/ckks.md)). The balanced preset has {{ preset("balanced", "batch_size") }} slots per ciphertext and the fast preset has {{ preset("fast", "batch_size") }}. Ombra puts one dimension of many vectors in each ciphertext, which is called column packing.
 
 ## Row packing and column packing
 
@@ -45,7 +45,7 @@ Each ciphertext has two polynomials, each with one residue tower per modulus (se
 
 $$2 \cdot {{ preset("balanced", "multiplicative_depth") + 1 }} \cdot {{ preset("balanced", "ring_dim") }} \cdot 8 \text{ bytes} = {{ 2 * (preset("balanced", "multiplicative_depth") + 1) * preset("balanced", "ring_dim") * 8 // 1024 }} \text{ KiB}.$$
 
-A block of 768 columns is then about {{ 2 * (preset("balanced", "multiplicative_depth") + 1) * preset("balanced", "ring_dim") * 8 * 768 // 1024 // 1024 }} MiB of GPU memory for {{ preset("balanced", "batch_size") }} vectors, around {{ 2 * (preset("balanced", "multiplicative_depth") + 1) * preset("balanced", "ring_dim") * 8 * 768 // preset("balanced", "batch_size") // 1024 }} KiB per vector, against 3 KiB for 768 plain 32-bit floats. That is the price of keeping everything encrypted. The [storage page](../performance/storage.md) covers stored sizes.
+A block of 768 columns is then about {{ 2 * (preset("balanced", "multiplicative_depth") + 1) * preset("balanced", "ring_dim") * 8 * 768 // 1024 // 1024 }} MiB of GPU memory for {{ preset("balanced", "batch_size") }} vectors, around {{ 2 * (preset("balanced", "multiplicative_depth") + 1) * preset("balanced", "ring_dim") * 8 * 768 // preset("balanced", "batch_size") // 1024 }} KiB per vector, against 3 KiB for 768 plain 32-bit floats. The [storage page](../performance/storage.md) covers stored sizes.
 
 Some dimensions do not fit. The query travels as one ciphertext that uses $2d$ of its $N$ coefficients (see [query expansion](query-expansion.md)), so $d \le N/2$. That is {{ preset("fast", "ring_dim") // 2 }} for the fast preset and {{ preset("balanced", "ring_dim") // 2 }} for the balanced one. The client accepts the dimensions {{ const("ombra.presets.SUPPORTED_DIMENSIONS") }} and refuses others.
 
@@ -55,7 +55,7 @@ A filter field with $V$ possible values adds $V$ more columns to the block, one 
 
 ## How the client builds a column
 
-The client takes value $j$ of each vector in the block, pads with zeros up to the slot count, sets any value smaller than $10^{-9}$ to zero (OpenFHE refuses to encode denormal-sized numbers), and passes the list to OpenFHE's `MakeCKKSPackedPlaintext` and `Encrypt`. Encoding and encryption are OpenFHE's. Ombra only decides which number goes in which slot.
+The client takes value $j$ of each vector in the block, pads with zeros up to the slot count, sets any value smaller than $10^{-9}$ to zero (OpenFHE refuses to encode denormal-sized numbers), and passes the list to OpenFHE's `MakeCKKSPackedPlaintext` and `Encrypt`. Encoding and encryption are OpenFHE's; Ombra only decides which number goes in which slot.
 
 !!! deep-dive "Why not a few dimensions per ciphertext"
     A middle layout puts a few dimensions of one vector into each ciphertext. The query then needs fewer ciphertexts, but each dot product needs rotations again. With column packing the rotations happen once per query, during expansion, and not once per block. The cost is that expansion has to make $D$ ciphertexts out of one, which is the largest server step when a search touches few blocks.
