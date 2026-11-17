@@ -1,6 +1,6 @@
 # Quickstart
 
-Your first encrypted search, in about ten minutes. It runs in local mode: a CPU server inside your process, so no GPU and no network. Install first, as described in [Install](install.md):
+In about ten minutes you will encrypt a few sentences, search them, and read back the closest match. Everything runs in local mode, with a CPU server inside your Python process, so you need neither a GPU nor a network. Install first, as described in [Install](install.md):
 
 ```bash
 pip install "ombra[local]" sentence-transformers
@@ -81,8 +81,8 @@ Vectors must have unit length, which `normalize_embeddings=True` does. Scores ar
 
 The `if __name__ == "__main__":` guard is required, because local mode starts a child process.
 
-Local mode is for trying Ombra, for tests and for collections of a few thousand vectors. It is slow and not for production. There is no plaintext mode: local mode encrypts exactly like a server does.
+Local mode is for trying Ombra, for tests and for collections of a few thousand vectors. It is slow and not for production.
 
 The folder the script prints holds the secret key and the encrypted collection (a few hundred MB). Delete it when you are done.
 
-Next: [your first search, step by step](first-search.md).
+Next: [Your first search](first-search.md)
