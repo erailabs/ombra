@@ -68,33 +68,53 @@ pip install "ombra-db[local]" sentence-transformers
 ```
 
 ```python
+"""First encrypted search in local mode: python local_search.py"""
+
+import tempfile
+import uuid
+from pathlib import Path
+
 from ombra import Client
 from sentence_transformers import SentenceTransformer
 
 
 def main() -> None:
-    texts = ["The central bank raised its policy rate.", "Kittens love to chase yarn.",
-             "A GPU runs thousands of threads.", "Interest rates rose again."]
-    model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-    vectors = model.encode(texts, normalize_embeddings=True).tolist()
+    texts = [
+        "The cat sat on the warm windowsill.",
+        "Kittens love to chase a ball of yarn.",
+        "Interest rates rose again this quarter.",
+        "The central bank raised its policy rate.",
+        "A GPU runs thousands of threads in parallel.",
+        "Homomorphic encryption lets a server compute on data it cannot read.",
+    ]
+    ids = [str(uuid.uuid4()) for _ in texts]  # random ids: the server sees ids in the clear
+    text_of = dict(zip(ids, texts, strict=True))
 
-    client = Client.local("./ombra-data")  # a CPU server in a child process
+    model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")  # 384 dimensions
+    vectors = model.encode(texts, normalize_embeddings=True).tolist()  # Ombra needs unit length
+
+    workdir = Path(tempfile.mkdtemp())  # use a folder you keep for real data, e.g. "./ombra-data"
+    client = Client.local(workdir / "server")  # a CPU server inside this process
     client.create_collection(
-        "notes", vectors,
-        key_file="notes.key",  # holds your secret key: back it up, never share it
+        "notes",
+        vectors,
+        ids=ids,
+        key_file=workdir / "notes.key",  # holds the secret key: back it up, never share it
         passphrase="change this passphrase",
     )
+
     query = model.encode(["What did the central bank do?"], normalize_embeddings=True)[0].tolist()
-    for hit in client.search("notes", query, k=2):
-        print(f"{hit.score:.3f}  {hit.id}")
+    for hit in client.search("notes", query, k=3):
+        print(f"{hit.score:.3f}  {text_of[hit.id]}")  # the score is the exact cosine similarity
     client.close()
+    print(f"Keys and encrypted data are in {workdir}; delete it when you are done.")
 
 
 if __name__ == "__main__":  # needed: local mode starts a child process
     main()
 ```
 
-Local mode takes a few seconds per search and suits trying Ombra and small collections. For GPU speed, run the server with `docker compose up -d` on a host with a [supported NVIDIA GPU](https://erailabs.github.io/ombra/operations/gpus/) and connect with `Client("host:port", ...)`. The [quickstart](https://erailabs.github.io/ombra/getting-started/quickstart/) has the full script, and `examples/` has more.
+Local mode takes a few seconds per search and suits trying Ombra and small collections. For GPU speed, run the server with `docker compose up -d` on a host with a [supported NVIDIA GPU](https://erailabs.github.io/ombra/operations/gpus/) and connect with `Client("host:port", ...)`. The script above is `examples/local_search.py`, `examples/` has more, and the [quickstart](https://erailabs.github.io/ombra/getting-started/quickstart/) walks through it.
 
 ## AI Disclosure
 
