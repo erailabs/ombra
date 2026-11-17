@@ -5,8 +5,8 @@
 <h1 align="center">Ombra</h1>
 
 <p align="center">
-  <strong>A vector database that never sees your data.</strong><br>
-  Vectors, queries, filters and scores stay encrypted, from your laptop to the GPU and back.
+  <strong>Don't trust others? Trust Ombra.</strong><br>
+  Ombra is a vector database that keeps your vectors, queries, filters and scores encrypted, even while the server searches them.
 </p>
 
 <p align="center">
@@ -15,8 +15,7 @@
   <a href="https://erailabs.github.io/ombra/"><img src="https://img.shields.io/badge/docs-erailabs.github.io%2Fombra-5B4CF5" alt="Documentation"></a>
   <img src="https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-5B4CF5" alt="Python 3.11 to 3.13">
   <img src="https://img.shields.io/badge/FHE-CKKS%20%C2%B7%20128--bit-5B4CF5" alt="CKKS, 128-bit security">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-lightgrey" alt="License: PolyForm Noncommercial or commercial"></a>
-  <img src="https://img.shields.io/badge/built%20with-AI%20agents-lightgrey" alt="Built with AI agents">
+  <a href="#license"><img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial%20%7C%20Commercial-lightgrey" alt="License: PolyForm Noncommercial or commercial"></a>
 </p>
 
 <p align="center">
@@ -30,16 +29,13 @@
 
 ## Why Ombra
 
-Most vector databases ask you to trust whoever runs the server. Your embeddings sit there in the clear, and embeddings can be turned back into a surprising amount of the text they came from. Your queries are in the clear too, so the operator can see what you look for.
+When you put embeddings in a vector database, you hand them to whoever runs it. That might be a cloud provider, a vendor, or a team down the hall. They can read your vectors, and vectors give away more than people expect: you can often rebuild a good part of the original text from them. They can also read every query, which tells them what you are looking for.
 
-Ombra takes that trust off the table. It uses fully homomorphic encryption (FHE), which lets a server do math on data it cannot read. You keep the secret key on your side, in a small Python client. The server stores ciphertexts, runs the similarity search on them with CUDA kernels on an NVIDIA GPU, and sends back encrypted scores. Only your client can open them.
+We built Ombra because we did not want to make that trade. Your data is encrypted on your machine before it goes anywhere, and the secret key never leaves the Python client. The server still does the hard work. It stores the ciphertexts and runs the search on a GPU, using fully homomorphic encryption (FHE), a kind of encryption that lets it compute on data it cannot read. What comes back are encrypted scores, and only you can open them.
 
-A few things we care about:
+You do not give up accuracy for this. Your client decrypts the scores and re-ranks the best candidates itself, so the top results are the real top results. The cryptography is CKKS through [OpenFHE](https://github.com/openfheorg/openfhe-development) 1.6.1, every preset is at least 128-bit secure, and every GPU kernel is checked against OpenFHE's own output.
 
-- **Exact results.** The client decrypts the candidate scores and re-ranks them itself, so the top results are the real top results.
-- **Standard cryptography.** The scheme is CKKS. Key generation, encryption and decryption go through [OpenFHE](https://github.com/openfheorg/openfhe-development) 1.6.1, and every GPU kernel is tested against OpenFHE's own output.
-- **128-bit security or more, always.** Every preset meets `HEStd_128_classic`, and both the client and the server refuse anything weaker.
-- **Honest about the limits.** FHE hides a lot, but not everything. We list exactly what the server can still see, below and in the docs.
+Encryption does not hide everything, though, and we would rather tell you up front. The section [below](#what-the-server-can-still-see) lists what the server can still see.
 
 ## Try it in two minutes
 
