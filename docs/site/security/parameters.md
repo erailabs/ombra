@@ -48,5 +48,7 @@ The checks that run after OpenFHE has read the context stay: the $\log_2 QP$ flo
 
 Presets come only from the preset file. No code path takes a hand-picked ring size or modulus.
 
+The preset file has a format version (now 2) and each preset may name its scheme. A preset without a scheme is CKKS. The file also holds one preset for the exact scheme BFV, which is meant for fetching stored records and is never a collection preset: the collection code and the server tables read only the CKKS presets, and the BFV preset passes the same 128-bit check.
+
 !!! deep-dive "What the level does not cover"
     The level is a statement about the lattice problem for the chosen $N$ and $\log_2 QP$, with a ternary secret key. It does not cover side channels, a compromised client, or anything the server learns from access patterns, which [What the server learns](what-the-server-learns.md) lists. CKKS also adds a small random error to every result, and decrypted values should not be shown to anyone who also holds the ciphertext, see the [threat model](threat-model.md).

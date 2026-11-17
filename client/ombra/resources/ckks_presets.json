@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "presets": {
     "m0_depth2": {
       "security_level": "HEStd_128_classic",
@@ -21,6 +21,15 @@
       "scaling_technique": "FIXEDMANUAL",
       "key_switch_technique": "HYBRID",
       "num_large_digits": 3
+    },
+    "pir_bfv_n8192": {
+      "scheme": "BFV",
+      "security_level": "HEStd_128_classic",
+      "ring_dim": 8192,
+      "multiplicative_depth": 1,
+      "plaintext_modulus": 786433,
+      "key_switch_technique": "BV",
+      "digit_size": 20
     }
   }
 }
