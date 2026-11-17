@@ -25,13 +25,13 @@ Expansion runs once on every node that holds the collection, so the work per que
 
 ## Run it
 
-Start the nodes as usual (see [Configuration](../reference/configuration.md)). Give each node an API key with the `admin` scope for the router to use:
+Start the nodes as usual (see [Configuration](../reference/configuration/server.md)). Give each node an API key with the `admin` scope for the router to use:
 
 ```bash
 ombra_server --create-api-key --scope admin --data-dir /var/lib/ombra-a > node.key
 ```
 
-Write the placement file (see [File formats](../reference/file-formats.md#placement-file)):
+Write the placement file (see [File formats](../reference/file-formats/placement-file.md)):
 
 ```text
 ombra-placement 1
@@ -60,7 +60,7 @@ Clients connect to the router with a key from the router's key file. The node ke
 | `CreateCollection`, `DropCollection`, `GetCollection` | Goes to every node of the collection. `GetCollection` adds the counts and answers `keys_uploaded` only when every node has the keys. A repeat of a `CreateCollection` that was cut short finishes it when the nodes that have the collection hold the same spec. `DropCollection` goes to the first node first, because an alias may stop it. |
 | `ListCollections` | Asks every node and merges by name. |
 | `UploadKeys` | Streams the keys to every node at once. It succeeds only when every node accepted them. If a node is down the call fails with `UNAVAILABLE`, and a repeat replaces the keys again on all nodes. The router keeps no keys. |
-| `Insert` | Sends each block to the owner of its cluster. Center blocks go to every node. A repeat of an insert is safe because [inserts are idempotent](../reference/grpc-api.md). |
+| `Insert` | Sends each block to the owner of its cluster. Center blocks go to every node. A repeat of an insert is safe because [inserts are idempotent](../reference/grpc/insert-and-delete.md#insert). |
 | `Delete` | Goes to every node. Ids that a node does not hold are ignored. |
 | `Search` | See above. |
 | `ListBlocks` | Asks every node. Segment names get the node id in front (`a/seg-17`). Center blocks show up once per node. |

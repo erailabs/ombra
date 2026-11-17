@@ -331,6 +331,16 @@ class Migration:
         embed: Embedder | None = None,
         **options: Any,
     ) -> Migration:
+        """Continue a migration from its state file.
+
+        Args:
+            client: The client used for the migration.
+            state_path: State file written by `plan`.
+            source_passphrase: Passphrase of the source key file.
+            target_passphrase: Passphrase of the target key file.
+            embed: The embedder, for a re-embed migration.
+            **options: Passed to the `Migration` constructor.
+        """
         return cls(
             client,
             load_state(state_path),
@@ -715,6 +725,8 @@ class Migration:
         return f"dropped {s.target!r}; the source is untouched"
 
     def status(self) -> dict[str, Any]:
+        """Return the migration state as a dict: source, target, mode, phase, alias, backfilled
+        and verified."""
         return status_of(self.state)
 
 

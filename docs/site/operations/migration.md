@@ -74,7 +74,7 @@ ombra-migrate switch    --address ombra.example.com:443
 ombra-migrate finish    --address ombra.example.com:443
 ```
 
-`--filter-fields` names the filter fields of the old collection in their creation order, because the server stores only their sizes. Use `--local DIR` instead of `--address` for local mode. `--insecure` and `--root-certificates` work as in the Python client. The options are listed on the [command line tools](../reference/cli.md#ombra-migrate) page.
+`--filter-fields` names the filter fields of the old collection in their creation order, because the server stores only their sizes. Use `--local DIR` instead of `--address` for local mode. `--insecure` and `--root-certificates` work as in the Python client. The options are listed on the [command line tools](../reference/cli/ombra-migrate.md) page.
 
 ### Rotating keys
 
@@ -142,7 +142,7 @@ info = client.get_collection_info("docs-v2")  # {"model": "model-b", ...}
 assert info["model"] == MY_EMBEDDER_LABEL
 ```
 
-The server sees an encrypted blob like any other. In rebuild mode without `--model`, the label of the old collection carries over. Its format is on [File formats](../reference/file-formats.md#collection-info).
+The server sees an encrypted blob like any other. In rebuild mode without `--model`, the label of the old collection carries over. Its format is on [File formats](../reference/file-formats/collection-info.md).
 
 ## What it costs and what it does not do
 

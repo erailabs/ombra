@@ -11,6 +11,7 @@ theme:
   name: material
   features:
     - navigation.sections
+    - navigation.indexes
     - navigation.footer
     - content.code.copy
   palette:
@@ -31,6 +32,15 @@ plugins:
       handlers:
         python:
           paths: [client]
+          options:
+            show_source: false
+            show_signature_annotations: true
+            separate_signature: true
+            docstring_section_style: table
+            members_order: source
+            merge_init_into_class: true
+            show_if_no_docstring: true
+            show_root_heading: true
 
 markdown_extensions:
   - admonition
@@ -88,13 +98,54 @@ nav:
       - performance/choosing-a-preset.md
       - performance/reproducing.md
   - Reference:
-      - reference/python-api.md
-      - reference/grpc-api.md
-      - reference/rest-api.md
-      - reference/configuration.md
-      - reference/cli.md
+      - reference/index.md
+      - Python API:
+          - reference/python/index.md
+          - reference/python/client.md
+          - reference/python/results.md
+          - reference/python/errors-and-retries.md
+          - reference/python/collections.md
+          - reference/python/migration.md
+          - reference/python/presets.md
+          - reference/python/testing.md
+      - gRPC API:
+          - reference/grpc/index.md
+          - reference/grpc/collections.md
+          - reference/grpc/keys.md
+          - reference/grpc/insert-and-delete.md
+          - reference/grpc/search.md
+          - reference/grpc/blocks.md
+          - reference/grpc/blobs.md
+          - reference/grpc/aliases.md
+          - reference/grpc/messages.md
+      - REST API:
+          - reference/rest/index.md
+          - reference/rest/list-collections.md
+          - reference/rest/get-collection.md
+          - reference/rest/create-collection.md
+          - reference/rest/drop-collection.md
+      - Command line tools:
+          - reference/cli/index.md
+          - reference/cli/ombra-verify.md
+          - reference/cli/ombra-backup.md
+          - reference/cli/ombra-migrate.md
+          - reference/cli/ombra-keys.md
+      - Configuration:
+          - reference/configuration/index.md
+          - reference/configuration/server.md
+          - reference/configuration/router.md
+          - reference/configuration/docker.md
+          - reference/configuration/client.md
       - reference/presets.md
-      - reference/file-formats.md
+      - File formats:
+          - reference/file-formats/index.md
+          - reference/file-formats/envelope.md
+          - reference/file-formats/key-file.md
+          - reference/file-formats/blobs.md
+          - reference/file-formats/server-files.md
+          - reference/file-formats/placement-file.md
+          - reference/file-formats/collection-info.md
+          - reference/file-formats/migration-state.md
   - Operations:
       - operations/docker.md
       - operations/gpus.md

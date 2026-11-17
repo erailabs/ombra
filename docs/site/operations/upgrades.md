@@ -44,7 +44,7 @@ Only what the tests above check: a client and a server that are one release apar
 
 ## Existing collections
 
-A collection keeps its preset, its dimension and its key tag for life. A new Ombra version reads it as long as the formats are at versions the new version still reads. The formats, with their versions, are listed on [File formats](../reference/file-formats.md).
+A collection keeps its preset, its dimension and its key tag for life. A new Ombra version reads it as long as the formats are at versions the new version still reads. The formats, with their versions, are listed on [File formats](../reference/file-formats/index.md).
 
 The client's key file has a version too, currently 1. A key file with a version the client does not know is refused with an error.
 

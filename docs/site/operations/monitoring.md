@@ -65,7 +65,7 @@ The same insert as JSON:
 | `ts` | UTC time with milliseconds (JSON only). |
 | `level` | `info`, `warn` or `error` (JSON only; in text, warnings and errors have a prefix). |
 | `msg` | What happened. |
-| `request_id` | The id of the call, see [Request ids](../reference/configuration.md#request-ids). Every line of one call has the same one. Lines that belong to no call have none. |
+| `request_id` | The id of the call, see [Request ids](../reference/configuration/server.md#request-ids). Every line of one call has the same one. Lines that belong to no call have none. |
 | `rpc` | The call name, for lines of a call. |
 | `key_id` | The first 8 hex characters of the API key's stored hash. It names the key without revealing it. Missing when the key was not accepted. |
 | `count`, `bytes`, `ms`, `reason`, `error` | Numbers and fixed reasons. `error` is the text of an internal error. |

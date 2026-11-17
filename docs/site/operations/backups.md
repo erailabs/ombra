@@ -4,7 +4,7 @@ Two things need a backup: the server's data directory, which holds the encrypted
 
 ## The key file
 
-Back up each collection's key file, and its passphrase, on the client side. Without the key file the data on the server cannot be decrypted by anyone, and there is no recovery. Keep the copy somewhere other than the server. The file is passphrase-protected, see the [key file format](../reference/file-formats.md#key-file), so store it like any other sensitive file. Server data without the key file is useless, and a key file without the server data has nothing to open.
+Back up each collection's key file, and its passphrase, on the client side. Without the key file the data on the server cannot be decrypted by anyone, and there is no recovery. Keep the copy somewhere other than the server. The file is passphrase-protected, see the [key file format](../reference/file-formats/key-file.md), so store it like any other sensitive file. Server data without the key file is useless, and a key file without the server data has nothing to open.
 
 ### Copy and check a key file
 
@@ -23,7 +23,7 @@ OMBRA_KEY_PASSPHRASE=... OMBRA_API_KEY=... \
 ombra-keys check /mnt/offsite/my.key.2026-01-15 --tag "$KEY_TAG"
 ```
 
-`check` opens the file, checks that the secret key and the public key in it work and have the same key tag, and prints `OK` with that tag. The key tag is not secret: the server stores it. The tool never prints a key or the passphrase. Run `check` on every backup after you make it, and after each restore test. The exit code is 0 for OK and 1 for a failed check. See the [Python API](../reference/python-api.md#ombra-keys) for the options.
+`check` opens the file, checks that the secret key and the public key in it work and have the same key tag, and prints `OK` with that tag. The key tag is not secret: the server stores it. The tool never prints a key or the passphrase. Run `check` on every backup after you make it, and after each restore test. The exit code is 0 for OK and 1 for a failed check. See the [`ombra-keys`](../reference/cli/ombra-keys.md) page for the options.
 
 ## The server data directory
 
@@ -53,7 +53,7 @@ docker run --rm -v ombra_ombra-data:/data -v "$PWD/backup":/backup \
     --data-dir /data --out /backup/ombra-2026-01-15
 ```
 
-Outside Docker: `ombra_backup --data-dir /var/lib/ombra --out /backups/ombra-2026-01-15`. The output directory must not exist or be empty, and must not lie inside the data directory. When it finishes it has checked every copied file, the same way [`ombra_verify`](../reference/cli.md#ombra_verify) does, and it fails if one is corrupt. A failed run leaves the output directory empty. The volume name has the compose project name as a prefix, `ombra_ombra-data` for the shipped file. Check yours with `docker volume ls`.
+Outside Docker: `ombra_backup --data-dir /var/lib/ombra --out /backups/ombra-2026-01-15`. The output directory must not exist or be empty, and must not lie inside the data directory. When it finishes it has checked every copied file, the same way [`ombra_verify`](../reference/cli/ombra-verify.md) does, and it fails if one is corrupt. A failed run leaves the output directory empty. The volume name has the compose project name as a prefix, `ombra_ombra-data` for the shipped file. Check yours with `docker volume ls`.
 
 The copy has `catalog.db`, `segments/`, `blobs/`, `keys/` and the API key file (`api_keys.v1` or `api_keys.v2`). It has no write-ahead log, no `tls/` and no `admin_api_key`. Copy those two from the volume if you want them, for example with the tar command below. Without `tls/` the image makes a new certificate on its first start, and clients need the new one. Without `admin_api_key` you cannot read the admin token again, see [Docker and compose](docker.md).
 
@@ -86,7 +86,7 @@ docker run --rm -v ombra_ombra-data:/data --entrypoint ombra_verify \
     ghcr.io/erailabs/ombra-server:0.1.0 --data-dir /data
 ```
 
-It exits 0 when clean, 1 when something is corrupt and 2 on a usage error, and prints counts and file names only. On a live directory a write in progress can show up as a warning. What it checks, and its limits, are on the [Command line tools](../reference/cli.md#ombra_verify) page. If it reports a corrupt file, restore from the last backup. A file that does not verify is not repaired by the server either: it refuses to read it.
+It exits 0 when clean, 1 when something is corrupt and 2 on a usage error, and prints counts and file names only. On a live directory a write in progress can show up as a warning. What it checks, and its limits, are on the [Command line tools](../reference/cli/ombra-verify.md) page. If it reports a corrupt file, restore from the last backup. A file that does not verify is not repaired by the server either: it refuses to read it.
 
 ### Disk full
 

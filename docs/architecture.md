@@ -95,7 +95,7 @@ client -> server: chosen clusters            (server reuses the expanded query)
 server -> client: encrypted cluster scores   (client decrypts, top-k, re-ranks)
 ```
 
-- **Contract:** `proto/ombra/v1/ombra.proto` (package `ombra.v1`). The methods and limits are on the [gRPC API](site/reference/grpc-api.md) page. Every stored message carries `api_version = 1`, and the server refuses another value. A breaking change is a new package, `ombra.v2`. Ciphertexts and keys travel inside the versioned envelope. Errors are an `Error{code, message}` in the response and never contain ids or ciphertext bytes. No message has a secret key field.
+- **Contract:** `proto/ombra/v1/ombra.proto` (package `ombra.v1`). The methods and limits are on the [gRPC API](site/reference/grpc/index.md) page. Every stored message carries `api_version = 1`, and the server refuses another value. A breaking change is a new package, `ombra.v2`. Ciphertexts and keys travel inside the versioned envelope. Errors are an `Error{code, message}` in the response and never contain ids or ciphertext bytes. No message has a secret key field.
 - **Filters in the API:** there is no filter message. A collection lists `filter_fields` (id and value count, no names). The query ciphertext carries d + sum(V) entries, the filter one-hots scaled by lambda = 4, and the client decodes the penalty from the decrypted scores.
 - **Security:** TLS for all traffic and API keys with scopes. The server refuses to start without TLS and an API key unless `--insecure` or `--no-auth` is given, and those only work on loopback addresses.
 
