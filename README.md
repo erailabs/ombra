@@ -57,7 +57,7 @@ At setup, your client groups similar vectors into clusters, so a search can skip
 6. **Fetch records.** The client decrypts the scores and fetches the encrypted records of the best candidates.
 7. **Re-rank.** The client decrypts those records and re-ranks them exactly on your machine. Encryption therefore changes no result. Like any clustered index, the clusters can miss a few neighbours; the [accuracy page](https://erailabs.github.io/ombra/how-it-works/accuracy/) has the numbers.
 
-The server never holds a key that can decrypt, and nothing it sends back can be read without your secret key. [How it works](https://erailabs.github.io/ombra/how-it-works/encoding/) in the docs goes through each step, with the math.
+[How it works](https://erailabs.github.io/ombra/how-it-works/encoding/) in the docs goes through each step.
 
 ## Quickstart
 
