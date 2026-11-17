@@ -4,7 +4,7 @@ Instructions for AI coding agents working in this repository. Read this first, e
 
 ## What this project is
 
-Ombra is a vector database with fully homomorphic encryption (FHE): vectors, queries, filters and scores stay encrypted, and the server only ever computes on ciphertexts. The Python client holds the secret key; the server runs encrypted search on GPUs.
+Ombra is a vector database with homomorphic encryption (HE; leveled CKKS, no bootstrapping): vectors, queries, filters and scores stay encrypted, and the server only ever computes on ciphertexts. The Python client holds the secret key; the server runs encrypted search on GPUs.
 
 Background, in this order:
 1. `docs/product-requirements.md`: what we build and why, design decisions for users
@@ -12,6 +12,10 @@ Background, in this order:
 3. `docs/site/`: the user documentation (MkDocs), including the roadmap
 
 **Maintainer folders, local only.** `docs/plan/` (milestones, tasks, results), `docs/decisions/` (one file per decision) and `docs/research/` (experiment logs) are kept by the maintainers on their own machines and are not in the public repository (`.gitignore` lists them). When they are present, read the current milestone in `docs/plan/` and the relevant decisions before you work. When they are absent, work from the public docs above and the code, and ask the maintainer for the task.
+
+**Agent files, local only.** This file, `AGENTS.md`, the `CLAUDE.md` in `core/`, `server/` and `client/`, and `.claude/` (agents, skills, hooks, settings) are also kept locally and are not tracked by git. They still apply in full. At the start of every session, read this file, the `CLAUDE.md` of the folder you work in, and the agent or skill file for your role in `.claude/`. Then look through `docs/plan/` and `docs/decisions/` for the current task and the decisions it touches before you change anything.
+
+**No internal references in tracked files.** Code comments, docstrings, help strings, tests and the public docs must not point to the local-only files: no "decision 0023", "see docs/plan/...", "research 0007" or task ids. State the reason in plain words, or link a page under `docs/site/`.
 
 **Current stage:** release preparation for 0.1.0.
 
