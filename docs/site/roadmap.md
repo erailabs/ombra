@@ -6,8 +6,6 @@ Items are in two groups. "Next" is work that has started or is small and agreed.
 
 ## Next
 
-**Checks on uploaded contexts before they are read.** The server rebuilds the encryption context from bytes the client sends. It checks the size and the file header first, then lets OpenFHE read the bytes, and only then checks the security floor and compares the context with the collection's preset. We plan to check the floor and the preset from the raw bytes, before OpenFHE reads them. Today: give API keys only to clients you trust.
-
 **Bucketing of filter value counts in the client.** The server sees how many fields a filter uses and how many distinct values each field has. The client does not yet round those counts up to a few sizes, so the exact counts leak. [What the server learns](security/what-the-server-learns.md) lists them as they are. Today: keep the number of values per field in mind when you design your fields.
 
 ## Later

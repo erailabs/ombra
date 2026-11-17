@@ -172,6 +172,13 @@ class StorageFullError(ResourceExhaustedError):
     work once space is freed, so it is retryable (the server also sends RESOURCE_EXHAUSTED)."""
 
 
+class NodeUnavailableError(ServerUnavailableError):
+    """ERROR_UNAVAILABLE: a router could not reach a node that holds a cluster this call needs.
+    Nothing partial was used. Retryable: the client replays the same requests."""
+
+    retryable = True
+
+
 # ---- classes kept for existing callers --------------------------------------------------------
 class AliasNotFoundError(NotFoundError):
     """No alias with this name."""
@@ -236,6 +243,7 @@ _PROTO_CLASSES: dict[int, type[OmbraError]] = {
     16: AliasNotFoundError,
     17: AliasExistsError,
     18: AliasConflictError,
+    19: NodeUnavailableError,
 }
 
 _combos: dict[tuple[type, type], type[OmbraError]] = {}

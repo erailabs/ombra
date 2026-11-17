@@ -52,6 +52,8 @@ enum ErrorCode {
   ERROR_ALIAS_EXISTS = 17;          // the alias name is a collection or an alias already
   ERROR_ALIAS_CONFLICT = 18;        // SwitchAlias: the alias does not point at expected_target; or
                                     // DropCollection: an alias points at the collection
+  ERROR_UNAVAILABLE = 19;           // router only: a node that holds a needed cluster did not answer;
+                                    // nothing partial was used; retryable (replay the same requests)
 }
 
 message Error {
@@ -214,7 +216,9 @@ message SearchScores {                // round 2 out: filtered scores and the id
   bool last = 4;                      // last message of the stream
   repeated uint32 block_sizes = 5;    // occupied slots of each score block, in block order;
                                       // they sum to the number of ids, so an answer
-                                      // describes itself (blocks may change between answers)
+                                      // describes itself (blocks may change between answers).
+                                      // Always set, also by a router, whose nodes may order
+                                      // blocks differently.
 }
 message SearchRequest {
   oneof step { SearchStart start = 1; SearchChosen chosen = 2; }

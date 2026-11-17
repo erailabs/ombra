@@ -50,6 +50,7 @@ from ombra.file_format import Kind, read_column_envelope, write_envelope
 from ombra.keyfile import DEFAULT_SCRYPT, KeyMaterial, export_key_file, import_key_file
 from ombra.params import make_ckks_params
 from ombra.probe import FIELDS_KEY, STATS_ID, ClusterStats, check_user_id
+from ombra.ranges import SCHEMA_ID, RangeSchema
 from ombra.repack import DEFAULT_THRESHOLD, BlockStat, plan_repack
 from ombra.retry import Replayable, retrying
 
@@ -353,8 +354,10 @@ class Collection:
         centers: np.ndarray,
         blobs: BlobStore | None = None,
         security_level: str = "fast",
+        schema: RangeSchema | None = None,
     ) -> None:
         self.pb, self.stub = pb, stub
+        self.schema = schema  # range fields (ombra.ranges); None: equality-only collection
         self.blobs: BlobStore = blobs if blobs is not None else GrpcBlobStore(stub, pb)
         self.security_level = security_level
         # blob associated data binds the base name, so blobs survive a re-clustering unchanged
@@ -402,6 +405,7 @@ class Collection:
         security_level: str = "fast",
         store_records: bool = True,
         blobs: BlobStore | None = None,
+        schema: RangeSchema | None = None,
     ) -> Collection:
         """Cluster, create the collection, upload the keys once, insert centers and data."""
         x = np.asarray(vectors, dtype=np.float64)
@@ -413,6 +417,8 @@ class Collection:
             raise ValueError("vectors must be normalized before they are encrypted")
         cards = tuple(cards)
         presets.check_filter_schema(derived, cards)  # Refuse above F_max
+        if schema is not None:
+            schema.check_headroom(derived, len(cards))
         if security_level not in _LEVELS:
             raise ValueError(f"security level must be one of {sorted(_LEVELS)}")
         f = _fields(fields, len(x), cards)
@@ -444,6 +450,7 @@ class Collection:
             centers=centers,
             blobs=blobs,
             security_level=security_level,
+            schema=schema,
         )
         spec = pb.CollectionSpec(
             api_version=API_VERSION,
@@ -467,6 +474,8 @@ class Collection:
                 self._put_records(x, ids, metadata, documents, f)
             self.stats = ClusterStats.build(clustering.labels, len(centers), f, cards)
             self._save_stats()
+            if schema is not None:
+                self.blobs.put(self.name, KIND_RECORD, SCHEMA_ID, schema.seal(self.codec))
         except Exception:
             stub.DropCollection(pb.DropCollectionRequest(name=self.name))
             raise
@@ -519,6 +528,12 @@ class Collection:
             )
         except (BlobStoreError, ValueError):
             self.stats = None  # an older collection or stats version: no filter-aware probing
+        try:
+            self.schema = RangeSchema.unseal(
+                self.codec, self.blobs.get(self.name, KIND_RECORD, SCHEMA_ID)
+            )
+        except (BlobStoreError, ValueError):
+            self.schema = None  # no range fields: equality-only
         return self
 
     def search(self, query: np.ndarray, k: int = 10, **options: Any) -> Any:
@@ -874,6 +889,7 @@ class Collection:
             security_level=self.security_level,
             store_records=False,  # the exact vectors are copied below, not re-derived
             blobs=self.blobs,
+            schema=self.schema,
         )
         try:
             self._copy_blobs(new.name, [*ids, INFO_ID])  # the info blob is not a vector's

@@ -48,6 +48,8 @@ const char* err_name(Err e) {
       return "ALIAS_EXISTS";
     case Err::AliasConflict:
       return "ALIAS_CONFLICT";
+    case Err::Unavailable:
+      return "UNAVAILABLE";
   }
   return "INTERNAL";
 }
@@ -70,6 +72,7 @@ int err_http_status(Err e) {
     case Err::AliasConflict:
       return 409;
     case Err::StorageFull:
+    case Err::Unavailable:
       return 503;  // gRPC: RESOURCE_EXHAUSTED, retryable
     case Err::Internal:
       return 500;

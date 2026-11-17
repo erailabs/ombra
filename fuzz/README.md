@@ -13,8 +13,14 @@ libFuzzer targets for the parsers of untrusted bytes that build on the CPU (no C
 | `api_keys` | API key file, `ApiKeyStore::load` and `reload` |
 | `http` | REST request parser and the `Authorization` check on its output |
 | `auth_header` | `authorize()` on raw header values, and the flag parsers of `limits.cpp` |
+| `proto` | `ParseFromArray` of every gRPC request message (first byte picks the type), a serialize and parse round trip, and `validate_spec` on a parsed `CreateCollectionRequest`. Needs gRPC (built when `ombra_proto` exists) |
+| `keys` | `prepare_collection_keys` (`server/search/src/key_prep.cpp`): the preflight and then OpenFHE on a fuzzed context, EvalMult key or automorphism key file. Needs OpenFHE and the CPU engine |
 
-Not covered here: gRPC messages and the OpenFHE context and key deserialization. The SQLite catalog is SQLite's own file format and is not fuzzed.
+`keys` modes (first byte): bits 0-1 pick the file the input replaces (0 context, 1 EvalMult, 2 automorphism, 3 none, a control that must be accepted). Bit 2 overwrites the start of a valid key file, bit 3 overwrites it from byte 840 on (structure: every change must be refused), bit 4 overwrites it from the first coefficient array on (the preflight accepts every such change, so OpenFHE parses damaged coefficients). With none of these bits set the input is the whole payload (the size check). Real key files are 1.5 MB or more, so the target makes a key set at start-up with a throw-away key (synthetic, in memory), and the corpus holds only 1-2 KiB slices of it (`OMBRA_FUZZ_DUMP_SEEDS=<dir>` writes them).
+
+**Regression input.** `fuzz/known/keys-oom-evalmult-body.bin` (35 bytes) once made OpenFHE (cereal) allocate more than 2 GB: an EvalMult key file with a valid size and header but damaged bytes after the first 840, where cereal reads a length prefix. The preflight now checks every structure byte of a key file against a template (`server/search/context_golden/`), so the input is refused before OpenFHE reads it. It is also a test in the normal C++ suite (`search_context_preflight`).
+
+Not covered here: the inline checks of the gRPC handlers in `server/grpc/src/service.cpp` (id length, id count, chunk size), which need a live server. The SQLite catalog is SQLite's own file format and is not fuzzed.
 
 ## Run
 

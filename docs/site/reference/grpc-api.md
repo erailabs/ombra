@@ -173,7 +173,7 @@ Blobs are opaque client ciphertexts. The server never parses them. A blob become
 | `ERROR_UNSUPPORTED_VERSION` | `api_version` or the envelope version is not understood. |
 | `ERROR_COLLECTION_NOT_FOUND` | No collection with that name. |
 | `ERROR_COLLECTION_EXISTS` | A collection with that name exists. |
-| `ERROR_INVALID_ARGUMENT` | Malformed message or an empty required field. |
+| `ERROR_INVALID_ARGUMENT` | Malformed message or an empty required field. A key upload is refused with this code when the context is not the collection's preset's context, or a key file has a size no key of the preset has. |
 | `ERROR_SIZE_LIMIT` | A limit above was exceeded, or a blob is not a bucket size. |
 | `ERROR_KEY_TAG_MISMATCH` | A ciphertext or key was made under another key than the collection's. |
 | `ERROR_PRESET_MISMATCH` | The envelope's preset differs from the collection's. |
@@ -188,3 +188,4 @@ Blobs are opaque client ciphertexts. The server never parses them. A blob become
 | `ERROR_ALIAS_NOT_FOUND` | No alias has this name. |
 | `ERROR_ALIAS_EXISTS` | The alias name is already a collection or an alias. |
 | `ERROR_ALIAS_CONFLICT` | `SwitchAlias`: the alias does not point at `expected_target`. `DropCollection`: an alias points at the collection. |
+| `ERROR_UNAVAILABLE` | Sent only by a router, and only on a `Search` stream: a node that holds a needed cluster did not answer. The answers of the round that were already sent are not used. The client opens a new stream and sends the same requests again, with the same decoys. Other calls that cannot reach a node fail with the gRPC status `UNAVAILABLE`. |
