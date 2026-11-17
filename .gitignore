@@ -120,3 +120,12 @@ crash-work/
 /docs/plan/
 /docs/decisions/
 /docs/research/
+
+# Agent instructions and tooling: kept by the maintainers locally, not published. CLAUDE.md tells
+# agents to read them at the start of every session.
+/CLAUDE.md
+/AGENTS.md
+/core/CLAUDE.md
+/server/CLAUDE.md
+/client/CLAUDE.md
+/.claude/
