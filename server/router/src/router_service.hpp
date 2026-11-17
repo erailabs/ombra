@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 OR LicenseRef-Ombra-Commercial
-// The router (decision 0029): speaks ombra.v1 to clients and splits every call over the nodes by
+// The router: speaks ombra.v1 to clients and splits every call over the nodes by
 // the placement map. It holds no key of any FHE scheme and never opens a ciphertext: score blocks
 // pass through as bytes. Logs carry counts, sizes and timings only.
 #pragma once

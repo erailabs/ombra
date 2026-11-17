@@ -51,7 +51,7 @@ if(APPLE)
 endif()
 install(TARGETS _native DESTINATION ombra)
 
-# Exactness test of the fast CPU operations against the reference (PERF-B); run by
+# Exactness test of the fast CPU operations against the reference; run by
 # tests/test_openfhe_native_exact.py. Not installed.
 find_package(OpenMP QUIET)
 add_executable(ombra_native_exact native/exact_test.cpp "${OMBRA_CORE_DIR}/src/security_floor.cpp")

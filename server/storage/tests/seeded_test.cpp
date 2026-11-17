@@ -79,7 +79,7 @@ int main() {
   }
   CHECK_THROWS(s.insert("docs", 0, {"x"}, {seeded_column(good, "m0_depth2")}));
 
-  // Header fields are compared with the collection at insert (audit A-71): key tag, ring
+  // Header fields are compared with the collection at insert: key tag, ring
   // dimension and slots (when the preset shape is known), level, noise degree, word range.
   {
     s.set_shape_provider([](const std::string&, std::uint32_t* ring, std::uint32_t* slots) {

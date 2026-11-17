@@ -92,7 +92,7 @@ def _create_on_server(pb: Any, stub: Any, spec: Any) -> None:
 
 
 def check_server_spec(derived: presets.Derived, cards: Sequence[int], cluster_count: int) -> None:
-    """Bound the sizes a server reports (audit A-23): they size allocations and key generation."""
+    """Bound the sizes a server reports: they size allocations and key generation."""
     presets.check_filter_schema(derived, cards)  # fields, cardinalities, d + sum(V) <= N/2
     if not 1 <= cluster_count <= derived.batch_size:  # the centers fit in one block
         raise CollectionError(0, "the server reports an invalid cluster count")

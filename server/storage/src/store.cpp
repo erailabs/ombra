@@ -27,7 +27,7 @@ namespace {
 namespace core = ombra::core;
 
 void make_dir(const std::string& p) {
-  // 0700: ciphertexts, keys, ids and collection names are not for other local users (audit A-22).
+  // 0700: ciphertexts, keys, ids and collection names are not for other local users.
   if (::mkdir(p.c_str(), 0700) != 0 && errno != EEXIST)
     throw std::runtime_error("cannot create directory " + p);
   ::chmod(p.c_str(), 0700);  // tighten a directory made by an older version; best effort
@@ -738,7 +738,7 @@ void Store::recover() {
   for (const auto& r : recs)
     if (r.type == WalType::InsertCommit) committed.insert(r.segment);
 
-  // Names from the log reach unlink(): accept only the names this store generates (audit A-56).
+  // Names from the log reach unlink(): accept only the names this store generates.
   for (const auto& r : recs)
     if (r.type != WalType::Delete && !is_valid_segment_name(r.segment))
       throw std::runtime_error("wal: record with an invalid segment name; refusing to start");

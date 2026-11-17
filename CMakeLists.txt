@@ -15,7 +15,7 @@ option(OMBRA_ENABLE_TEST_HOOKS "Compile test-only hooks (never in a release)" ON
 option(OMBRA_ENABLE_SANITIZERS "Build with AddressSanitizer and UBSan (CPU code)" OFF)
 
 if(OMBRA_ENABLE_CUDA)
-  # Decision 0024: Turing (T4), Ampere (A100, A10), Ada (L4, L40S), Hopper (H100, H200).
+  # Turing (T4), Ampere (A100, A10), Ada (L4, L40S), Hopper (H100, H200).
   if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
     set(CMAKE_CUDA_ARCHITECTURES 75 80 86 89 90)
   endif()

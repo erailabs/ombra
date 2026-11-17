@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 OR LicenseRef-Ombra-Commercial
-"""A test-only node that can search on the CPU (T0 of decision 0029).
+"""A test-only node that can search on the CPU.
 
 The C++ `ombra_server` of the CPU build cannot search (no GPU). For tests with a router this script
 serves the ombra.v1 gRPC API on top of local mode's `LocalServer` (client/ombra/_local.py), which

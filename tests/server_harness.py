@@ -215,7 +215,7 @@ class ServerProcess:
         self.kill()
 
 
-# ---- router and CPU nodes (decision 0029) ----
+# ---- router and CPU nodes ----
 DEFAULT_ROUTER = REPO_ROOT / "build-cpu" / "server" / "grpc" / "ombra_router"
 CPU_NODE_SCRIPT = REPO_ROOT / "tests" / "cpu_node.py"
 

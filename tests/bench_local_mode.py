@@ -5,7 +5,7 @@
 
 Run on Modal with `modal run modal_app.py::cpu_run --cmd "python tests/bench_local_mode.py --d 768"`
 (4 CPUs) or `::cpu_run8` (8 CPUs). Prints one JSON line; `data_bytes` is everything the local
-server wrote. OMBRA_SEEDED=0 stores plain column ciphertexts instead of seeded ones (0023).
+server wrote. OMBRA_SEEDED=0 stores plain column ciphertexts instead of seeded ones.
 Synthetic data only; nothing is logged
 about the vectors.
 """

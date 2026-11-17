@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 OR LicenseRef-Ombra-Commercial
-"""Sizes and counts a server reports are bounded; calls have deadlines (audit A-23)."""
+"""Sizes and counts a server reports are bounded; calls have deadlines."""
 
 from types import SimpleNamespace
 

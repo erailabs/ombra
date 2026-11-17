@@ -164,7 +164,7 @@ std::vector<WalRecord> Wal::recover(std::size_t* dropped) {
   if (pos < b.size()) {
     // A torn tail has nothing valid after it. A valid frame after a bad one means the middle of the
     // log is damaged: cutting there would silently lose acknowledged deletes and inserts, so refuse
-    // to start (audit A-52). The log is left untouched for inspection.
+    // to start. The log is left untouched for inspection.
     for (std::size_t q = pos + 1; q + 8 < b.size(); ++q)
       if (valid_frame_at(b, q))
         throw std::runtime_error(
@@ -186,7 +186,7 @@ void Wal::append(const WalRecord& r) {
   off_t end = ::lseek(fd_, 0, SEEK_END);
   if (end < 0) fail("seek", path_);
   // A failed write or fsync must not leave a partial frame in front of later records: cut the log
-  // back to where it was (audit A-52), then report the original error.
+  // back to where it was, then report the original error.
   try {
     write_all(fd_, frame.data(), frame.size(), path_);
     if (fs_fault_hit() || ::fsync(fd_) != 0) fail("fsync", path_);

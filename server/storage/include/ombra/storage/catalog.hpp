@@ -34,7 +34,7 @@ struct CollectionSpec {
   std::uint32_t cluster_count = 0;
 };
 
-// An alias is a name that points at one collection (decision 0028). `previous` is the target before
+// An alias is a name that points at one collection. `previous` is the target before
 // the last switch (empty if never switched); a key scoped to the alias may use both. Alias names
 // share the namespace of collection names.
 struct AliasRow {

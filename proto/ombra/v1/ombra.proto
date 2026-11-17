@@ -109,7 +109,7 @@ message ListCollectionsResponse { repeated CollectionInfo collections = 1; }
 message DropCollectionRequest { string name = 1; }
 message DropCollectionResponse { Error error = 1; }  // unset on success
 
-// Aliases (decision 0028). An alias is a name that points at one collection; it shares the namespace
+// Aliases. An alias is a name that points at one collection; it shares the namespace
 // of collection names. Only GetCollection resolves an alias (spec.name of the answer is the real
 // name). Data calls never do: a client opens the real name and keeps it.
 message AliasInfo {

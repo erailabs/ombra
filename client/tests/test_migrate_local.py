@@ -182,7 +182,7 @@ def test_cli_full_flow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) 
     assert json.loads(capsys.readouterr().out.splitlines()[-1])["phase"] == "finished"
 
 
-# ---- key rotation (decision 0031, option B) ------------------------------------------------
+# ---- key rotation ------------------------------------------------
 def _rotate(c: Client, root: Path, **kw) -> Migration:
     return Migration.plan(
         c,

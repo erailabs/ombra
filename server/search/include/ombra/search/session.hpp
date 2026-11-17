@@ -80,12 +80,12 @@ class GpuUnavailable : public SearchError {  // ERROR_INTERNAL with this message
 };
 
 struct EngineConfig {
-  // Device memory that all open sessions together may hold for their expanded queries (audit A-02).
+  // Device memory that all open sessions together may hold for their expanded queries.
   // 0: a quarter of gpu_budget_bytes. A session that does not fit is refused (ResourceExhausted).
   std::size_t session_budget_bytes = 0;
   // Optional: true if a context with this ring dimension, slot count, multiplicative depth, first
   // modulus bits and scaling bits is what the named preset defines. Called on every key upload,
-  // right after the security floor; a context that does not match is refused (audit A-16).
+  // right after the security floor; a context that does not match is refused.
   std::function<bool(const std::string& preset, std::size_t ring, std::size_t batch,
                      std::size_t depth, std::size_t first_bits, std::size_t scale_bits)>
       preset_check;
@@ -169,7 +169,7 @@ class SearchEngine {
                                               const std::vector<std::uint8_t>& query_envelope,
                                               std::uint32_t filter_leaves);
 
-  // Drops the collection's state: keys, GPU buffers, id caches (audit A-21). Open sessions keep
+  // Drops the collection's state: keys, GPU buffers, id caches. Open sessions keep
   // what they hold until they end. Unknown names are ignored.
   void forget_collection(const std::string& collection);
 

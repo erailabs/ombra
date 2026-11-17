@@ -123,7 +123,7 @@ def test_round_trip_matches_numpy(ofhe, setup):
 
 @pytest.mark.parametrize("preset", ["m0_depth2", "m0_compact_n8192"])
 def test_decryption_mode_is_pinned_and_decryptions_differ(ofhe, preset):
-    """Decision 0017 (audit A-10): data type and noise mode are set by name, and OpenFHE's
+    """data type and noise mode are set by name, and OpenFHE's
     fixed-noise decryption makes two decryptions of one ciphertext differ."""
     params, cc = ombra_params.make_context(preset)
     assert params.GetCKKSDataType() == ofhe.CKKSDataType.REAL

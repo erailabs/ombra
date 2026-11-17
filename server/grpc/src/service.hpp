@@ -24,7 +24,7 @@
 namespace ombra::server {
 
 // Runs when a call's initial metadata arrives, before gRPC reads any message body: a request
-// without a valid API key is refused without its body being buffered (audit A-03). Scope checks
+// without a valid API key is refused without its body being buffered. Scope checks
 // stay in the handlers (they need the method). Only effective with TLS credentials; the handlers
 // check again, so a plain-text (--insecure, loopback) server is still protected.
 class ApiKeyAuthProcessor final : public grpc::AuthMetadataProcessor {

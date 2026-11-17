@@ -54,7 +54,7 @@ void prepare_collection_keys(CollKeys& c, storage::Store& store, const EngineCon
     if (!c.cc) throw SearchError("cannot read the crypto context");
   }
   core::require_security_floor(c.cc);
-  // The uploaded context must be the collection's preset, not merely a secure one (audit A-16).
+  // The uploaded context must be the collection's preset, not merely a secure one.
   if (cfg.preset_check) {
     const auto rns = std::dynamic_pointer_cast<CryptoParametersRNS>(c.cc->GetCryptoParameters());
     if (!rns) throw SearchError("context is not an RNS scheme");

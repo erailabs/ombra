@@ -127,7 +127,7 @@ class Store {
   Store(std::string root, std::string openfhe_version);
 
   // Optional: resolves a preset name to its ring dimension and slot count, so that insert can
-  // compare a seeded column's header with the collection (audit A-71). Set before serving.
+  // compare a seeded column's header with the collection. Set before serving.
   using ShapeProvider =
       std::function<bool(const std::string& preset, std::uint32_t* ring_dim, std::uint32_t* slots)>;
   void set_shape_provider(ShapeProvider p) { shape_ = std::move(p); }

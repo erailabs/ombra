@@ -11,7 +11,7 @@ bounds the largest value the client can produce (score 1 plus the filter band an
 penalty, lambda * (F + 1)) by 2^(first_mod - scale - 4), a factor 8 below that limit, and
 tests/test_openfhe_decrypt.py checks the bound with real ciphertexts on both presets.
 
-Validation (audit A-11, A-70): the server controls everything in a returned ciphertext, so before a
+Validation: the server controls everything in a returned ciphertext, so before a
 decryption `check_ciphertext` compares it with the shapes this collection can legitimately produce
 (`ExpectedShapes`: key tag, two components, noise degree 1, level and scale of a stored column or
 of a rescaled score block, and the serialized size of the level, which is the real tower count:

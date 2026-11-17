@@ -42,7 +42,7 @@ class CollectionInfo:
 
 @dataclass(frozen=True)
 class AliasInfo:
-    """An alias: a name the server resolves to one collection (decision 0028). `previous` is the
+    """An alias: a name the server resolves to one collection. `previous` is the
     target before the last switch (empty if never switched); `switched_at` is unix seconds."""
 
     name: str

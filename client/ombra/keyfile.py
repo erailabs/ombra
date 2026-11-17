@@ -33,7 +33,7 @@ _HEADER_LEN = _HEADER.size + SALT_LEN + NONCE_LEN
 # OWASP-level scrypt (128 MiB); tests pass smaller values.
 DEFAULT_SCRYPT = (2**17, 8, 1)
 # Bounds on read and write. scrypt needs 128 * n * r bytes: a hostile file must not make us allocate
-# more than 1 GiB (audit A-41). Weak n is refused unless the environment variable below is set,
+# more than 1 GiB. Weak n is refused unless the environment variable below is set,
 # which only tests and throwaway-key tools do (a key file of a real collection is never weak).
 _MAX_N, _MAX_R, _MAX_P = 2**20, 32, 16
 _MAX_SCRYPT_BYTES = 1 << 30
@@ -141,7 +141,7 @@ def export_key_file(
 
     Refuses to replace an existing file unless ``overwrite`` is set: it may hold the only copy
     of a secret key. Without ``overwrite`` the file is put in place with a hard link, which fails
-    if the name exists, so a concurrent writer is never overwritten (audit A-46).
+    if the name exists, so a concurrent writer is never overwritten.
     """
     target = Path(path)
     if target.exists() and not overwrite:

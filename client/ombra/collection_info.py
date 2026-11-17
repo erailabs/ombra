@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 OR LicenseRef-Ombra-Commercial
-"""The "collection info" blob, version 1 (decision 0028).
+"""The "collection info" blob, version 1.
 
 A small encrypted record that tells the application which embedding model a collection was built
 for, so a client that follows an alias can check that its embedder matches. It is a record blob

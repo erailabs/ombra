@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 OR LicenseRef-Ombra-Commercial
-"""PERF-B: the fast CPU operations of local mode are bit-identical to the reference code.
+"""The fast CPU operations of local mode are bit-identical to the reference code.
 
 Runs the C++ test `ombra_native_exact` (client/native/exact_test.cpp) once per preset of
 core/params/ckks_presets.json, with the parameters read through ombra.params (never hard-coded).

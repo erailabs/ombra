@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 OR LicenseRef-Ombra-Commercial
-"""Integer range filters on top of the equality filter columns (decision 0030).
+"""Integer range filters on top of the equality filter columns.
 
 A range field is stored as ordinary filter fields; the server never sees a difference.
 

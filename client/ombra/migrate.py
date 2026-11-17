@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 OR LicenseRef-Ombra-Commercial
-"""Migrate a collection to a new one with no downtime (decision 0028): `ombra-migrate`.
+"""Migrate a collection to a new one with no downtime: `ombra-migrate`.
 
 Why a new collection. The server cannot transform vectors. A new embedding model changes the
 dimension or the meaning of every vector, and a new preset or OpenFHE version changes the
@@ -36,7 +36,7 @@ Steps, each resumable from the state file (`ombra-migrate.json`, no secrets):
 Blobs are not copied byte for byte: their associated data binds the collection name, and the
 target has its own name and its own document master key. Every record and document is opened with
 the source's keys and sealed again with the target's, which is also what a key change needs
-(decision 0031). The target therefore always gets a new HE key pair and a new master key.
+. The target therefore always gets a new HE key pair and a new master key.
 Nothing here prints or stores a vector, a document or a key.
 """
 
@@ -197,7 +197,7 @@ class Migration:
     `client` is an `ombra.Client` (or a `FakeClient` in tests). The source collection is opened
     with `source_passphrase`; the target gets its own key file `state.target_key_file`, written
     with `target_passphrase`. A new key kit is a parameter of the target only: rotating the keys
-    later (decision 0031) is a plan with `target_key_file` set to a fresh path.
+    later is a plan with `target_key_file` set to a fresh path.
     """
 
     def __init__(
@@ -255,7 +255,7 @@ class Migration:
         """Choose the target and write the state file. `embed` (or `embedder` as `pkg.mod:fn`)
         selects re-embed mode, otherwise the mode is rebuild. Nothing is created on the server.
 
-        `new_keys=True` is key rotation (decision 0031, option B): same preset and dimension,
+        `new_keys=True` is key rotation: same preset and dimension,
         rebuild mode, so the target gets a fresh OpenFHE key pair and a fresh master key (every
         target does) and every vector is encrypted again from its float32 copy. It is refused
         together with an embedder, a model label or another preset, and the target key file must

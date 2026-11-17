@@ -281,7 +281,7 @@ def test_cli_status_and_missing_state(tmp_path: Path, capsys: pytest.CaptureFixt
     assert out["phase"] == "planned" and out["target"] == "docs.m1"
 
 
-# ---- key rotation (decision 0031, option B): `plan(new_keys=True)` -------------------------------
+# ---- key rotation: `plan(new_keys=True)` -------------------------------
 def test_new_keys_is_a_same_model_same_preset_rebuild(tmp_path: Path) -> None:
     c = _client()
     with pytest.raises(MigrationError, match="keeps the model"):

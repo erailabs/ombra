@@ -41,7 +41,7 @@ def id_batches(ids, max_bytes: int = ID_BYTES_PER_REQUEST):
 
 # Largest message the client accepts from a server. Server answers are one ciphertext or blob chunk
 # (<= 4 MiB), one SearchScores (a few blocks and <= 100,000 ids of 256 bytes) or a ListBlocks
-# catalog (~50 bytes a block); 64 MiB covers all of them (audit A-23).
+# catalog (~50 bytes a block); 64 MiB covers all of them.
 MAX_RECEIVE_MESSAGE = 64 << 20
 # Default deadlines in seconds. `timeout` / `stream_timeout` of the constructor replace the two
 # general ones; `deadlines={"Search": 600}` replaces one call; a `timeout=` keyword on a single

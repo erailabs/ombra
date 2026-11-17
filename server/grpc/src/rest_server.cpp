@@ -163,7 +163,7 @@ void RestServer::serve(int fd) {
     ssl.reset(SSL_new(tls_->ctx.get()));
     if (!ssl) return;
     SSL_set_fd(ssl.get(), fd);
-    // The handshake runs under the same total deadline as the headers (audit A-17): non-blocking
+    // The handshake runs under the same total deadline as the headers: non-blocking
     // socket, poll between attempts. A plain-text or slow client is dropped without an answer.
     const int flags = ::fcntl(fd, F_GETFL, 0);
     if (flags < 0 || ::fcntl(fd, F_SETFL, flags | O_NONBLOCK) != 0) return;
