@@ -59,7 +59,7 @@ inline constexpr std::size_t kMaxClustersPerRound = 4096;
 // Not in the proto Limit enum: the catalog creates one row per cluster, so cap the count.
 inline constexpr std::uint32_t kMaxClusterCount = 1u << 20;
 inline constexpr std::size_t kMaxKeyTagBytes = 256;
-// Payload caps per envelope kind (audit A-16), applied before OpenFHE reads anything. A ciphertext
+// Payload caps per envelope kind, applied before OpenFHE reads anything. A ciphertext
 // of the largest preset is far below these; they only stop a hostile size.
 inline constexpr std::size_t kMaxContextBytes = std::size_t{64} << 20;  // kind 1, crypto context
 inline constexpr std::size_t kMaxQueryBytes = std::size_t{64} << 20;    // kind 2, search query

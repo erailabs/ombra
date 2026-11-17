@@ -4,7 +4,7 @@
 // over OpenSSL (TLS 1.2+) or, with --insecure, plain TCP. One request per connection, header cap 8
 // KiB, a request body of at most 64 KiB (Content-Length only), a total deadline per connection that
 // also covers the TLS handshake, a small worker pool so that one slow client cannot block /healthz,
-// and a cap on open connections (audit A-17). OpenSSL is already a dependency of gRPC.
+// and a cap on open connections. OpenSSL is already a dependency of gRPC.
 #pragma once
 
 #include <atomic>

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 OR LicenseRef-Ombra-Commercial
-// ombra_native_exact: exactness test of the fast CPU operations of local mode (PERF-B,
-// fast_cpu_ops.hpp) against the reference code. Synthetic data; keys are made in this process and
+// ombra_native_exact: exactness test of the fast CPU operations of local mode
+// (fast_cpu_ops.hpp) against the reference code. Synthetic data; keys are made in this process and
 // never written; the only output is pass/fail lines (no values).
 //
 // Usage: ombra_native_exact <ring_dim> <depth> <scaling_bits> <first_bits> <batch> <digits or 0>

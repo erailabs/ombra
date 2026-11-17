@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 OR LicenseRef-Ombra-Commercial
-"""Resource limits and hardening of `ombra_server` (pre-release audit A-02, A-03, A-18, A-22, A-54).
+"""Resource limits and hardening of `ombra_server`.
 
 Needs the server binary (it is built with CUDA), so the tests are marked gpu. They use
 synthetic data only: a stream that sends nothing, a large junk message, bad flag values. The logic

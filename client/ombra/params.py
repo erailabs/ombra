@@ -87,7 +87,7 @@ def make_ckks_params(preset: dict[str, Any]) -> Any:
     params.SetBatchSize(preset["batch_size"])
     params.SetScalingTechnique(getattr(ofhe.ScalingTechnique, preset["scaling_technique"]))
     params.SetKeySwitchTechnique(getattr(ofhe.KeySwitchTechnique, preset["key_switch_technique"]))
-    # Pinned explicitly (decision 0017, audit A-10): real-valued CKKS, OpenFHE's fixed-noise
+    # Pinned explicitly: real-valued CKKS, OpenFHE's fixed-noise
     # decryption (not noise flooding) and normal evaluation. These are OpenFHE's defaults today;
     # naming them keeps a library update from changing them silently. tests/test_ckks_baseline.py
     # checks both the values and that two decryptions of one ciphertext differ.

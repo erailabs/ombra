@@ -167,7 +167,7 @@ class ParallelTopk:
         expected: ExpectedShapes | None = None,
     ) -> list[np.ndarray]:
         """Decrypt every block in parallel; the first `counts[i]` slot values of block i.
-        With `expected`, a block of another shape is refused (audit A-11)."""
+        With `expected`, a block of another shape is refused."""
         tasks = [(str(f), c, slots, expected) for f, c in zip(files, counts, strict=True)]
         return list(self._pool.map(_values_task, tasks, chunksize=1))
 

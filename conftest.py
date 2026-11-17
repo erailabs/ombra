@@ -7,7 +7,7 @@ import os
 
 import pytest
 
-# Tests use cheap scrypt parameters; a real key file refuses them (ombra.keyfile, audit A-41).
+# Tests use cheap scrypt parameters; a real key file refuses them (ombra.keyfile).
 os.environ.setdefault("OMBRA_ALLOW_WEAK_SCRYPT", "1")
 
 

@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 OR LicenseRef-Ombra-Commercial
-"""The router with several nodes on one machine (decision 0029, tests T2 to T7).
+"""The router with several nodes on one machine .
 
 Nodes are `tests/cpu_node.py` processes (they search on the CPU through local mode's LocalServer);
 the router is the C++ `ombra_router`. One collection is built once through the router (client side
 encryption is slow); the tests then use the raw gRPC stub, so they can compare the exact bytes.
-Synthetic data only. T8 (moving a cluster) and T9 (GPU nodes) are not covered here.
+Synthetic data only. Moving a cluster and GPU nodes are not covered here.
 """
 
 from __future__ import annotations

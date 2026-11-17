@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 OR LicenseRef-Ombra-Commercial
-"""Collection aliases on the CPU-only `ombra_server` (decision 0028): the alias RPCs and their
+"""Collection aliases on the CPU-only `ombra_server`: the alias RPCs and their
 errors, resolving only in GetCollection, the catalog upgrade from schema 1 and 2, keys limited to
 an alias, and old data directories (catalog schema 1, api_keys v1) that still open.
 

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 OR LicenseRef-Ombra-Commercial
-"""Integer range filters (decision 0030): encodings, decoding with the real band code, exactness.
+"""Integer range filters: encodings, decoding with the real band code, exactness.
 
 The slot of a record is simulated as score + lambda * (query weights . one-hot columns), which is
 what the server's dot product gives; no OpenFHE needed. Synthetic data only.

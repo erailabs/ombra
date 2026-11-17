@@ -297,7 +297,7 @@ def run_search(
     seen: list[bytes] = []
     total = col.cluster_count
     # Decoys and the request order must be unpredictable. `_rng` is a private hook for tests only;
-    # Collection.search refuses it (audit A-42).
+    # Collection.search refuses it.
     rng = secrets.SystemRandom() if _rng is None else _rng
 
     start = pb.SearchStart(
@@ -322,7 +322,7 @@ def run_search(
             asked += rng.sample(left, min(pad_to - len(asked), len(left)))
         if pad_to is not None:
             # Decoy: real clusters (score order) and decoys are mixed, or the position of a request
-            # would tell the server which are real (audit A-13).
+            # would tell the server which are real.
             rng.shuffle(asked)
         asked_all.update(asked)
         rounds += 1

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 OR LicenseRef-Ombra-Commercial
-// Placement of clusters on nodes (decision 0029) and the `ombra-placement 1` map file.
+// Placement of clusters on nodes and the `ombra-placement 1` map file.
 //
 // A cluster lives on the node with the highest random weight for (cluster id, node id)
 // (rendezvous hashing). The weight depends on nothing else: not on the collection's data, not on

@@ -19,7 +19,7 @@
 namespace ombra::server {
 
 // All the caps of the service in one place; every field is a command-line flag of ombra_server with
-// this default (audit A-02, A-20). The values are sized for one GPU node, not for the largest
+// this default. The values are sized for one GPU node, not for the largest
 // possible deployment: raise them with the flag.
 struct ServiceLimits {
   std::size_t max_sessions = 8;            // open Search streams, all keys together
@@ -36,7 +36,7 @@ struct ServiceLimits {
   std::size_t max_concurrent_key_uploads = 2;
 };
 
-// ---- Concurrent search sessions: global cap and per-key cap (audit A-02) ----------------------
+// ---- Concurrent search sessions: global cap and per-key cap ----------------------
 class SessionLimiter {
  public:
   SessionLimiter(std::size_t max_total, std::size_t max_per_key)
@@ -83,7 +83,7 @@ class SessionLimiter {
   std::map<std::string, std::size_t> per_key_;
 };
 
-// ---- Stream deadlines (audit A-02) ------------------------------------------------------------
+// ---- Stream deadlines ------------------------------------------------------------
 // One background thread calls the registered cancel function (ServerContext::TryCancel in the
 // service) when a stream has been idle for too long or has lived too long. A Guard removes its
 // entry under the same mutex the thread holds while cancelling, so a cancel never runs after the
@@ -132,7 +132,7 @@ class Watchdog {
   std::thread thread_;
 };
 
-// ---- Log rate limit (audit A-53) ---------------------------------------------------------------
+// ---- Log rate limit ---------------------------------------------------------------
 // allow() is true at most once per interval; *suppressed receives how many calls were refused
 // since the last allowed one.
 class LogLimiter {
@@ -148,7 +148,7 @@ class LogLimiter {
   std::uint64_t suppressed_ = 0;
 };
 
-// ---- Flags (audit A-18, A-54) ------------------------------------------------------------------
+// ---- Flags ------------------------------------------------------------------
 // Whole string, decimal digits only, within [min, max]. No exceptions, no sign, no spaces.
 bool parse_uint(const std::string& s, std::uint64_t min, std::uint64_t max, std::uint64_t* out);
 // mb * 2^20 without overflow of size_t; false if it would overflow.

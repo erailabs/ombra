@@ -195,7 +195,7 @@ inline std::size_t expansion_peak_nodes(std::size_t d) {
   return peak;
 }
 
-// Expands the trees of several queries together (T0.7). The tree shape depends only on d, so node
+// Expands the trees of several queries together. The tree shape depends only on d, so node
 // k of every query is at the same level with the same residue: each level concatenates the nodes of
 // all queries (query-major) into one split_level call, which the GPU runs in batched launches with
 // the one Galois key and monomial of that level. Result: leaves[query][index], each exactly what

@@ -214,7 +214,7 @@ void OmbraService::ensure_loaded(const std::string& c) {
 void OmbraService::forget(const std::string& c) {
   std::lock_guard lk(load_mu_);
   loaded_.erase(c);
-  engine_.forget_collection(c);  // keys, GPU buffers and id caches (audit A-21)
+  engine_.forget_collection(c);  // keys, GPU buffers and id caches
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -226,7 +226,7 @@ void OmbraService::forget(const std::string& c) {
 // exists or not, so a scoped key cannot probe for other names. The key is verified again from the
 // call's metadata (a few hashes), which keeps the check stateless and closed: no key, no access.
 // A key scoped to a name may use that name; if the name is an alias, also the alias's target and
-// its previous target (decision 0028). The catalog is read only for a scoped key that names
+// its previous target. The catalog is read only for a scoped key that names
 // something else, and the caller's answer does not depend on whether `name` exists.
 bool OmbraService::key_allows(const Verified& who, std::string_view name) const {
   if (who.allows_collection(name)) return true;
@@ -373,7 +373,7 @@ void OmbraService::drop_collection_core(const std::string& name, v1::DropCollect
 }
 
 // ---------------------------------------------------------------------------------------------
-// Aliases (decision 0028). CreateAlias, SwitchAlias and DropAlias need the admin scope, which a
+// Aliases. CreateAlias, SwitchAlias and DropAlias need the admin scope, which a
 // collection-scoped key cannot have, so they need no collection check. ListAliases is read: a
 // scoped key sees only the alias it is scoped to.
 
@@ -493,7 +493,7 @@ grpc::Status OmbraService::run_UploadKeys(grpc::ServerContext* ctx,
     fill(resp->mutable_error(), err(c, m));
     return grpc::Status::OK;
   };
-  // Key files are staged in memory: bound the uploads in flight and the bytes of each (audit A-20).
+  // Key files are staged in memory: bound the uploads in flight and the bytes of each.
   struct UploadSlot {
     std::atomic<std::size_t>& n;
     bool ok;
@@ -743,7 +743,7 @@ grpc::Status OmbraService::run_Search(
     return grpc::Status::OK;
   };
 
-  // Deadlines (audit A-02): a stream the client leaves idle, or that lives too long, is cancelled
+  // Deadlines: a stream the client leaves idle, or that lives too long, is cancelled
   // from the watchdog thread; the blocking Read below then fails and the handler returns.
   const auto guard =
       watchdog_.watch([ctx] { ctx->TryCancel(); }, limits_.search_idle_ms, limits_.search_total_ms);

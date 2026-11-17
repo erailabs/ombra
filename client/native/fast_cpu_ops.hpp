@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 OR LicenseRef-Ombra-Commercial
-// Faster CPU operations of local mode (PERF-B, experiments 0003 and 0004). Bit-identical to the
+// Faster CPU operations of local mode. Bit-identical to the
 // reference code: core/src/openfhe_expand_ops.hpp (expansion split) and the EvalMultNoRelin /
 // EvalAdd loop (score). The reference stays untouched: it is what the GPU oracle tests compare
 // against. Header only; included by ombra_native.cpp and by the exactness test.
@@ -191,7 +191,7 @@ inline bool fused_applicable(const std::vector<Ct>& leaves, const std::vector<Ct
   return true;
 }
 
-// Fused Karatsuba pass (experiment 0003, fused<true>). out: [3][towers][N] standard residues of
+// Fused Karatsuba pass (fused<true>). out: [3][towers][N] standard residues of
 // the three components (s0 q0, s0 q1 + s1 q0, s1 q1) summed over the first d columns.
 inline std::vector<u64> fused_words(const std::vector<Ct>& leaves, const std::vector<Ct>& cols,
                                     std::size_t d) {

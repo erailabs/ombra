@@ -163,7 +163,7 @@ int main(int argc, char** argv) {
       return argv[++i];
     };
     // Numeric flag: the whole value must be a decimal number in range, else the process exits with
-    // a message (audit A-54). No exception can escape from here.
+    // a message. No exception can escape from here.
     const auto num = [&](std::uint64_t lo, std::uint64_t hi) -> std::uint64_t {
       const std::string v = next();
       std::uint64_t out = 0;
@@ -323,7 +323,7 @@ int main(int argc, char** argv) {
 #endif
   if (!tls) ombra::server::log::warn("--insecure: connections are NOT encrypted");
   if (no_auth) ombra::server::log::warn("--no-auth: anyone who can connect has full access");
-  // The REST port is checked on the host it really binds (audit A-18), and defaults to loopback.
+  // The REST port is checked on the host it really binds, and defaults to loopback.
   const std::string rhost = rest_host.empty() ? "127.0.0.1" : rest_host;
   if ((!tls || no_auth) && !is_loopback_listen(listen)) {
     std::fprintf(stderr,
@@ -358,7 +358,7 @@ int main(int argc, char** argv) {
 
   // A test hook of the security floor is never honoured by the server, whatever the build.
   ::unsetenv("OMBRA_TEST_LOG2QP_LIMIT");
-  ::umask(077);  // the data directory is private: files 0600, directories 0700 (audit A-22)
+  ::umask(077);  // the data directory is private: files 0600, directories 0700
   std::signal(SIGINT, on_signal);
   std::signal(SIGTERM, on_signal);
   std::signal(SIGHUP, on_hup);
@@ -396,7 +396,7 @@ int main(int argc, char** argv) {
       grpc::SslServerCredentialsOptions opts;
       opts.pem_key_cert_pairs.push_back({read_file(tls_key), read_file(tls_cert)});
       creds = grpc::SslServerCredentials(opts);
-      // Authenticate when the headers arrive, before gRPC reads a message body (audit A-03).
+      // Authenticate when the headers arrive, before gRPC reads a message body.
       if (keys) creds->SetAuthMetadataProcessor(auth_processor);
     } else {
       creds = grpc::InsecureServerCredentials();

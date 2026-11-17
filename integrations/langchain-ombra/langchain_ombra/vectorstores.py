@@ -65,7 +65,7 @@ class OmbraVectorStore(VectorStore):
         self._name = collection_name
         self._embedding = embedding
         self._key_file = Path(key_file)
-        # Held only until the key file has been read or written, then dropped (audit A-50).
+        # Held only until the key file has been read or written, then dropped.
         # Never part of repr or of any error message.
         self.__passphrase: str | None = passphrase
         self._filter_fields = dict(filter_fields or {})

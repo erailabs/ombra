@@ -370,7 +370,7 @@ std::unique_ptr<SearchSession> SearchEngine::open_session(
   sess->eng = &e;
   sess->coll = c;
   {
-    // Count the session's device bytes against a budget before allocating them (audit A-02).
+    // Count the session's device bytes against a budget before allocating them.
     const std::size_t budget =
         e.cfg.session_budget_bytes ? e.cfg.session_budget_bytes : e.cfg.gpu_budget_bytes / 4;
     if (leaves > SIZE_MAX / sizeof(u64) / std::max<std::size_t>(leaf_words, 1))

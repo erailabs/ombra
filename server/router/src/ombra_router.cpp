@@ -9,7 +9,7 @@
 // ombra_router --create-api-key --scope admin|read|write --data-dir D [--collection NAME]
 // ombra_router --version
 //
-// The router of decision 0029: it speaks ombra.v1 to clients and splits each call over the nodes
+// The router: it speaks ombra.v1 to clients and splits each call over the nodes
 // named in the placement file (format "ombra-placement 1"). It holds no FHE key and never opens a
 // ciphertext. Clients authenticate with API keys of the router's own key file (D/api_keys.v1 or
 // v2, made with --create-api-key); the router calls the nodes with one node API key (admin scope)

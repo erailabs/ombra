@@ -48,7 +48,7 @@ _FETCH_OPENFHE_PYTHON = (
     "tar xzf /tmp/ofp.tgz -C /opt/openfhe-python-src --strip-components=1",
 )
 
-# Decision 0024: Turing, Ampere, Ada, Hopper.
+# Turing, Ampere, Ada, Hopper.
 CUDA_ARCHS = "75;80;86;89;90"
 
 REPO_DIR = "/root/ombra"
@@ -130,7 +130,7 @@ def _run_no_skips(cmd: list[str]) -> None:
 
 def _build(build_type: str, targets: tuple[str, ...] = (), archs: str = CUDA_ARCHS) -> None:
     """Configure and build; `targets` limits the build to those CMake targets (default: all).
-    `archs` is the CUDA architecture list (default: the five architectures of decision 0024)."""
+    `archs` is the CUDA architecture list (default: the five architectures)."""
     _run(
         [
             "cmake",

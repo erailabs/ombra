@@ -141,7 +141,7 @@ def test_python_blake2b_matches_hashlib() -> None:
 
 
 def py_expand(seed: bytes, tower: int, q: int, n: int) -> list[int]:
-    """The specification of decision 0023, written independently of the C++ code."""
+    """The specification of seeded ciphertexts, written independently of the C++ code."""
     mask = (1 << q.bit_length()) - 1
     out: list[int] = []
     c = 0

@@ -55,7 +55,7 @@ int main() {
     CHECK(w.recover().size() == 2);
   }
   // Corruption in the middle (a valid record follows a damaged one) is refused, not cut away
-  // (audit A-52), and the file is left as it was.
+  //, and the file is left as it was.
   {
     Wal w(p);
     w.reset();
@@ -78,7 +78,7 @@ int main() {
     ::close(fd);
     CHECK(Wal(p).recover().size() == 3);
   }
-  // The log file is private (audit A-22).
+  // The log file is private.
   {
     struct stat st {};
     CHECK(::stat(p.c_str(), &st) == 0 && (st.st_mode & 077) == 0);
