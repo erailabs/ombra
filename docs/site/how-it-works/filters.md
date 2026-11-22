@@ -67,6 +67,8 @@ Example: cut points 10, 20, 30 give the buckets below 10, 10 to 19, 20 to 29 and
 
 **Fetch count.** Dropping edge candidates needs their records, and the number of records fetched must not tell the server how selective a filter is. In a collection with range fields every search fetches the same number of record blobs, {{ const("ombra.presets.RANGE_FETCH_FACTOR") }} times the usual $3k$, whatever the filter. If fewer candidates exist, the client fetches other ids it saw in the probed clusters and throws those records away, in random order. If fewer than $k$ verified matches remain, the result says `incomplete`.
 
+**Without re-ranking.** `rerank=False` fetches no record, so the client cannot read raw values. It allows a range filter only when the band alone is exact: for buckets, every bound sits on a cut point or is open; for two digits, the bounds sit on multiples of 64 and the range is the only filtered field. Any other range raises `ValueError` rather than return records outside the range.
+
 **What the server learns.** The same as for equality fields: the number of fields and their size. Every range field has 64 values (two fields of 64 for two digits), so its size does not stand out. It sees the fixed fetch count and, in Fast, the round count. It does not see the bounds, the cut points or the values.
 
 ## Choosing clusters for a filter

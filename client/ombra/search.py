@@ -8,10 +8,13 @@ client decrypts them and picks clusters. Each round's slot value is score + lamb
 number of fields the vector matches; the client decodes the band, keeps the vectors with c = F,
 and counts them. The number of rounds is fixed per security level (see `run_search`); fewer than
 k matches after them is reported as `incomplete`. The candidates are re-ranked with the
-exact vectors from their record blobs (only the best `rerank_factor * k` are fetched).
+exact vectors from their record blobs (only the best `rerank_factor * k` are fetched), unless the
+search runs with `rerank=False`: then the hits are the best k by decrypted approximate score and
+no blob is requested at all.
 
-What the server learns: the cluster choices (real, plus decoys at the Decoy level) and how many
-rounds were needed. No plaintext, score, secret key or filter value leaves the client.
+What the server learns: the cluster choices (real, plus decoys at the Decoy level), how many
+rounds were needed and, when re-ranking, which record blobs were fetched. No plaintext, score,
+secret key or filter value leaves the client.
 """
 
 from __future__ import annotations
@@ -53,8 +56,8 @@ LEVELS = ("fast", "decoy", "strict")
 @dataclass(frozen=True)
 class Hit:
     id: bytes
-    score: float = field(repr=False)  # exact cosine score from the record's vector
-    metadata: dict[str, Any] = field(repr=False, default_factory=dict)
+    score: float = field(repr=False)  # exact cosine score; the approximate one if not re-ranked
+    metadata: dict[str, Any] = field(repr=False, default_factory=dict)  # empty if not re-ranked
 
 
 @dataclass
@@ -67,6 +70,7 @@ class SearchResult:
     strict_fallback: bool  # expected selectivity < 0.5%: all clusters scanned in two rounds
     fetched: int = 0  # record blobs fetched (range collections: a fixed number per query)
     rejected: int = 0  # fetched candidates that failed the exact check (edge buckets, digits)
+    reranked: bool = True  # False: approximate scores, no record blob fetched
 
 
 class _Stream:
@@ -251,6 +255,7 @@ def run_search(
     n_probe: int | None = None,
     max_probe_factor: int = 8,
     rerank_factor: int = 3,
+    rerank: bool = True,
     workers: int = 1,
     range_plan: Any = None,
     _rng: random.Random | None = None,
@@ -262,6 +267,12 @@ def run_search(
     is the first round's cluster count (default ceil(sqrt(clusters))); a filtered query starts
     with at least that many. `rerank_factor * k` record blobs are fetched for re-ranking
     (default 3, the 2-3x k of the requirements).
+
+    `rerank=False` skips that fetch: the hits are the best k candidates by decrypted approximate
+    score, with empty metadata, and the search sends no blob request. On a collection with range
+    fields this is only allowed when the band alone is exact (see `RangePlan.band_exact`: every
+    bound on a cut point, and a digit field only when it is the sole filtered field); any other
+    range filter raises ValueError rather than return values outside the range.
 
     Round count is fixed so the server cannot tell filtered from unfiltered queries by it:
     * Strict: every query scans all clusters in two rounds (halves by cluster id).
@@ -288,6 +299,11 @@ def run_search(
     if abs(float(np.linalg.norm(q)) - 1.0) > 1e-6:
         raise ValueError("query must be normalized to unit length before encryption")
     n_fields = len(col.cards)
+    if not rerank and range_plan is not None and not range_plan.band_exact(len(filter or {})):
+        raise ValueError(
+            "rerank=False needs a range filter whose bounds sit on the field's cut points: "
+            "other ranges let in edge-bucket values that only the records can remove"
+        )
     plan_filter = dict(filter or {})
     if range_plan is not None:
         plan_filter.update(range_plan.planner)  # range fields as value lists, for the statistics
@@ -402,6 +418,17 @@ def run_search(
     finally:
         stream.close()
 
+    if not rerank:
+        top = sorted(cand.items(), key=lambda kv: (-kv[1], kv[0]))[:k]
+        return SearchResult(
+            hits=[Hit(ident, score) for ident, score in top],
+            incomplete=len(cand) < k,
+            probed=probed,
+            rounds=rounds,
+            matches=len(cand),
+            strict_fallback=fell_back,
+            reranked=False,
+        )
     if is_range:
         return _finish_range(
             col, q, k, cand, seen, rerank_factor, filter, range_plan, rng, probed, rounds, fell_back

@@ -169,3 +169,39 @@ def test_server_center_count_and_cluster_ids_are_checked():
     col.stub.Search = lying_cluster
     with pytest.raises(RuntimeError, match="not asked"):
         search.run_search(col, np.array([1.0, 0, 0, 0]), 3, level="fast")
+
+
+@pytest.mark.parametrize("level", ["fast", "decoy", "strict"])
+def test_no_rerank_fetches_nothing_and_keeps_the_rounds(level, monkeypatch):
+    """rerank=False: no blob request at all, and the same rounds and clusters as a re-ranked
+    search, so the server sees the same search stream either way."""
+    q = np.array([1.0, 0, 0, 0])
+
+    def boom(*a, **kw):
+        raise AssertionError("a record blob was requested")
+
+    plain_req: list[list[int]] = []
+    plain = search.run_search(
+        _fake(level, 5, plain_req),
+        q,
+        3,
+        filter={0: 1},
+        level=level,
+        _rng=random.Random(2),  # noqa: S311
+    )
+    monkeypatch.setattr(search, "_rerank", boom)
+    col = _fake(level, 5, req := [])
+    col.blobs = _ns(get=boom)
+    res = search.run_search(
+        col,
+        q,
+        3,
+        filter={0: 1},
+        level=level,
+        rerank=False,
+        _rng=random.Random(2),  # noqa: S311
+    )
+    assert req == plain_req and res.rounds == plain.rounds
+    assert not res.reranked and len(res.hits) == 3 and not res.incomplete
+    assert all(h.metadata == {} for h in res.hits)
+    assert all(abs(h.score - 0.1) < 1e-9 for h in res.hits)  # decoded approximate score

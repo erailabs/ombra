@@ -396,10 +396,12 @@ class Client:
         *,
         level: str | None = None,
         n_probe: int | None = None,
+        rerank: bool = True,
     ) -> list[SearchHit]:
         """Find the k nearest vectors (unit-length query) that pass `filter`, best first.
 
-        Scores are exact cosine scores from the re-ranking records. If fewer than k vectors match
+        Scores are exact cosine scores from the re-ranking records (approximate ones with
+        `rerank=False`). If fewer than k vectors match
         after the search rounds, fewer hits are returned; the list is never padded.
 
         Args:
@@ -413,15 +415,22 @@ class Client:
                 collection's level.
             n_probe: Cluster count of the first round. Default is the square root of the
                 cluster count, rounded up.
+            rerank: Fetch the record blobs of the best candidates and rank them by exact score
+                (the default). With False, no blob is requested, so the server does not learn
+                which records were candidates; scores are the decrypted approximate ones and
+                metadata is empty.
 
         Returns:
             Up to k `SearchHit`, best first.
 
         Raises:
             KeyError: The collection is not open in this client.
-            ValueError: A filter field is unknown or `level` is not a security level.
+            ValueError: A filter field is unknown, `level` is not a security level, or
+                `rerank=False` with a range filter whose bounds are not on cut points.
         """
-        return self._core.search(collection, query, k, filter, level=level, n_probe=n_probe)
+        return self._core.search(
+            collection, query, k, filter, level=level, n_probe=n_probe, rerank=rerank
+        )
 
     def close(self) -> None:
         """Close every open collection, stop the decrypt workers and close the connection.
@@ -719,10 +728,12 @@ class AsyncClient:
         *,
         level: str | None = None,
         n_probe: int | None = None,
+        rerank: bool = True,
     ) -> list[SearchHit]:
         """Find the k nearest vectors (unit-length query) that pass `filter`, best first.
 
-        Scores are exact cosine scores from the re-ranking records. If fewer than k vectors match
+        Scores are exact cosine scores from the re-ranking records (approximate ones with
+        `rerank=False`). If fewer than k vectors match
         after the search rounds, fewer hits are returned; the list is never padded.
 
         Args:
@@ -736,15 +747,22 @@ class AsyncClient:
                 collection's level.
             n_probe: Cluster count of the first round. Default is the square root of the
                 cluster count, rounded up.
+            rerank: Fetch the record blobs of the best candidates and rank them by exact score
+                (the default). With False, no blob is requested, so the server does not learn
+                which records were candidates; scores are the decrypted approximate ones and
+                metadata is empty.
 
         Returns:
             Up to k `SearchHit`, best first.
 
         Raises:
             KeyError: The collection is not open in this client.
-            ValueError: A filter field is unknown or `level` is not a security level.
+            ValueError: A filter field is unknown, `level` is not a security level, or
+                `rerank=False` with a range filter whose bounds are not on cut points.
         """
-        return self._core.search(collection, query, k, filter, level=level, n_probe=n_probe)
+        return self._core.search(
+            collection, query, k, filter, level=level, n_probe=n_probe, rerank=rerank
+        )
 
     async def close(self) -> None:
         """Close every open collection and the connection (see `Client.close`)."""

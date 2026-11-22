@@ -120,6 +120,21 @@ class RangePlan:
     planner: dict[int, list[int]]  # field index -> values, for the cluster statistics
     checks: tuple[tuple[str, int, int], ...]  # (name, lo, hi) exact checks on the raw value
     d_fields: int  # two_digit fields in the filter
+    aligned: bool = False  # every bound sits on a cut point (or is open)
+
+    def band_exact(self, other_filtered: int) -> bool:
+        """True if the decoded band alone gives the exact answer, with no record to check.
+
+        Bucket fields: exact when each bound sits on a cut point, so no edge bucket holds a value
+        outside the range. Digit fields: the bounds must sit on multiples of 64, and the digit
+        field must be the only filtered field, since its extra unit for interior values can make
+        up for a missed unit on another field. `other_filtered` counts the equality fields in the
+        filter.
+        """
+        if not self.aligned:
+            return False
+        alone = other_filtered == 0 and len(self.checks) == 1
+        return self.d_fields == 0 or (self.d_fields == 1 and alone)
 
     def accept(self, n_fields: int) -> tuple[int, int]:
         """Allowed decoded totals: F for equality and bucket fields, F..F+m with m digit pairs."""
@@ -207,7 +222,7 @@ class RangeSchema:
     def plan(self, wants: Mapping[str, Any]) -> RangePlan:
         weights: dict[int, np.ndarray] = {}
         planner: dict[int, list[int]] = {}
-        checks, d_fields = [], 0
+        checks, d_fields, aligned = [], 0, True
         for name, want in wants.items():
             f = self.get(name)
             if f is None:
@@ -219,15 +234,18 @@ class RangeSchema:
                 w[b_lo : b_hi + 1] = 1.0
                 weights[f.index] = w
                 planner[f.index] = list(range(b_lo, b_hi + 1))
+                cuts = set(f.edges)
+                aligned &= (lo == -_BIG or lo in cuts) and (hi == _BIG or hi + 1 in cuts)
             else:
                 lo, hi = max(lo, 0), min(hi, D_DOMAIN - 1)
                 if lo > hi:
                     raise ValueError("the range is outside the domain 0..4095")
                 weights[f.index], weights[f.index + 1] = _digit_weights(lo, hi)
+                aligned &= lo % DIGIT == 0 and (hi + 1) % DIGIT == 0
                 planner[f.index] = list(range(lo // DIGIT, hi // DIGIT + 1))
                 d_fields += 1
             checks.append((name, lo, hi))
-        return RangePlan(weights, planner, tuple(checks), d_fields)
+        return RangePlan(weights, planner, tuple(checks), d_fields, aligned)
 
     # ---- persistence ---------------------------------------------------------------------
     def to_bytes(self) -> bytes:

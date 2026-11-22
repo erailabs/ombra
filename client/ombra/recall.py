@@ -3,6 +3,7 @@
 
     python -m ombra.recall vectors.npy [--filter-field f.npy] [--queries q.npy | --n-queries 100]
                            [--preset fast] [--security-level fast] [--k 10] [--n-probe N]
+                           [--no-rerank]
 
 Builds a local-mode collection (ombra.Client.local, OpenFHE on the CPU) in a temporary directory,
 runs the encrypted search, and for the same clusters the encrypted query chose it scores the
@@ -16,7 +17,8 @@ queries. The rule asks for two datasets for a preset to pass; this tool judges y
 so PASS here means "within tolerance on this corpus with enough queries". NOT ELIGIBLE: within
 tolerance but fewer than 1,000 queries. Recall is measured as the search returns it, with the
 client re-ranking its candidates, against the exact top-k; the plaintext figure scans exactly the
-clusters the encrypted search probed.
+clusters the encrypted search probed. With --no-rerank the search returns its candidates by
+decrypted approximate score and fetches no record.
 """
 
 from __future__ import annotations
@@ -68,6 +70,7 @@ def measure(
     k: int = 10,
     n_probe: int | None = None,
     seed: int = 0,
+    rerank: bool = True,
 ) -> dict[str, Any]:
     """Run both searches; return aggregates only."""
     from ombra import Client
@@ -104,7 +107,9 @@ def measure(
                     allowed = np.nonzero(fields == want)[0]
                     flt = {0: want}
                 truth = _exact_top(scores, allowed, k)
-                res = col.search(np.asarray(q, dtype=np.float64), k, filter=flt, n_probe=n_probe)
+                res = col.search(
+                    np.asarray(q, dtype=np.float64), k, filter=flt, n_probe=n_probe, rerank=rerank
+                )
                 found = [int(h.id) for h in res.hits]
                 incomplete += bool(res.incomplete)
                 in_probed = allowed[np.isin(labels[allowed], res.probed)]
@@ -120,6 +125,7 @@ def measure(
         "preset": preset,
         "security_level": security_level,
         "filtered": fields is not None,
+        "reranked": rerank,
         "incomplete_queries": incomplete,
         "encrypted_recall": e,
         "plaintext_recall": p,
@@ -132,7 +138,8 @@ def format_report(r: dict[str, Any]) -> str:
     return "\n".join(
         [
             f"vectors={r['n_vectors']} queries={r['n_queries']} k={r['k']} preset={r['preset']} "
-            f"security_level={r['security_level']} filtered={r['filtered']}",
+            f"security_level={r['security_level']} filtered={r['filtered']} "
+            f"reranked={r.get('reranked', True)}",
             f"plaintext recall@{r['k']} (same clusters): {r['plaintext_recall']:.4f}",
             f"encrypted recall@{r['k']}:                 {r['encrypted_recall']:.4f}",
             f"gap (encrypted - plaintext):              {r['gap']:+.4f}",
@@ -155,6 +162,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--k", type=int, default=10)
     p.add_argument("--n-probe", type=int, default=None)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument(
+        "--no-rerank",
+        action="store_true",
+        help="rank by decrypted approximate score and fetch no record",
+    )
     return p
 
 
@@ -193,6 +205,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         k=a.k,
         n_probe=a.n_probe,
         seed=a.seed,
+        rerank=not a.no_rerank,
     )
     print(format_report(r))
     return 1 if r["verdict"] == FAIL else 0

@@ -33,6 +33,17 @@ The measurements agree. On `balanced`, encrypted recall@10 equalled plaintext re
 
 Client re-ranking removes even that. The server returns candidates ranked by encrypted score. The client fetches the encrypted record of each of the best $3k$ candidates, decrypts the exact vectors, recomputes the scores in full precision and sorts again. The default is `rerank_factor = 3`, so a search for $k = 10$ re-ranks 30 candidates. The final order no longer depends on the noisy scores, only the candidate list does. With re-ranking of 30 candidates, full-scan recall was 1.000 on all three datasets at `fast`. The record blobs it reads are described on the [documents and blobs](documents.md) page, and the code is `_rerank` in [`client/ombra/search.py`](https://github.com/erailabs/ombra/blob/main/client/ombra/search.py).
 
+**Without re-ranking.** `search(..., rerank=False)` skips the fetch, so the hits are ranked by their decrypted approximate scores. At Strict on 20,000 vectors and 1,000 queries (k = 10), recall@10 without re-ranking was within 0.0001 of recall@10 with it:
+
+| Dataset | Preset | With re-ranking | Without |
+| --- | --- | --- | --- |
+| wiki-simple, MiniLM, d = 384 | `fast` | 1.0000 | 0.9999 |
+| wiki-simple, MiniLM, d = 384 | `balanced` | 1.0000 | 1.0000 |
+| wiki-simple, Cohere, d = 768 | `fast` | 1.0000 | 0.9999 |
+| wiki-simple, Cohere, d = 768 | `balanced` | 1.0000 | 1.0000 |
+
+At the Fast level on d = 384 the two were equal (0.9764 at `fast`, 1.0000 at `balanced`). The d = 1536 dataset is not measured yet. Run the same check on your own data with `ombra-recall --no-rerank`.
+
 Re-ranking cannot bring back a vector missing from the candidate list. On `balanced` it changed nothing in our run.
 
 ## Where recall is lost: clustering

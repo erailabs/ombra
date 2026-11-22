@@ -86,3 +86,41 @@ def test_reopen_reads_the_schema(built):
     hits = c3.search("c", x[0], k=3, filter={"year": {"gte": 2000, "lte": 2004}})
     assert all(2000 <= h.metadata["year"] <= 2004 for h in hits)
     c3.close()
+
+
+def test_no_rerank_on_cut_points_fetches_nothing(built):
+    """rerank=False: exact match set when the bounds sit on cut points, no record blob read,
+    and a refusal (not a wrong answer) for any other range."""
+    tmp, client, x, meta = built
+    col, _ = client._core._get("c")
+    calls = []
+    real_get = col.blobs.get
+    col.blobs.get = lambda *a, **kw: calls.append(a) or real_get(*a, **kw)
+    try:
+        rng = np.random.default_rng(2)
+        q = x[int(rng.integers(0, N))] + 0.05 * rng.standard_normal(D)
+        q /= np.linalg.norm(q)
+        cases = [
+            ({"year": {"gte": 2000, "lt": 2010}}, lambda m: 2000 <= m["year"] < 2010),
+            ({"year": {"gte": 2020}, "lang": 1}, lambda m: m["year"] >= 2020 and m["lang"] == 1),
+            ({"price": {"gte": 128, "lt": 2048}}, lambda m: 128 <= m["price"] < 2048),
+            ({"lang": [0, 2]}, lambda m: m["lang"] != 1),
+            (None, lambda m: True),
+        ]
+        for flt, keep in cases:
+            hits = client.search("c", q, k=5, filter=flt, rerank=False)
+            truth = _truth(x, meta, q, 5, keep)
+            assert {h.id for h in hits} == set(truth), flt
+            assert all(h.metadata == {} for h in hits)
+            for h in hits:
+                assert abs(h.score - float(x[int(h.id[1:])] @ q)) < 1e-3
+        for flt in (
+            {"year": {"gte": 2003, "lt": 2018}},
+            {"year": 2007},
+            {"price": {"gte": 128, "lt": 2048}, "lang": 1},
+        ):
+            with pytest.raises(ValueError, match="cut points"):
+                client.search("c", q, k=5, filter=flt, rerank=False)
+        assert calls == []
+    finally:
+        col.blobs.get = real_get
