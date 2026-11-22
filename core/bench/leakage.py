@@ -417,7 +417,7 @@ class View:
 def _slots(target: Any) -> list[tuple[Any, str, Any]]:
     """(object, attribute, current stub) for every place the client keeps a stub."""
     found: list[tuple[Any, str, Any]] = []
-    seen: set[int] = set()
+    seen: set[tuple[int, str]] = set()
 
     def add(obj: Any, attr: str) -> None:
         stub = getattr(obj, attr, None)
@@ -691,7 +691,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=int,
         nargs="+",
         default=[1, 5, 10],
-        help="related-query counts of the Decoy intersection attack (paper sizes: 1 10 100 1000)",
+        help="related-query counts of the Decoy intersection attack (for example 1 10 100 1000)",
     )
     p.add_argument("--attack-trials", type=int, default=2, help="repeats averaged per count")
     p.add_argument("--noise", type=float, default=0.05, help="relative noise of related queries")
