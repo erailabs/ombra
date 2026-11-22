@@ -1,0 +1,129 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 OR LicenseRef-Ombra-Commercial
+"""Server side of private retrieval, as a pure-Python CPU reference on OpenFHE.
+
+This is what later C++ and GPU code is checked against: same inputs (context, evaluation keys,
+record column, query ciphertexts as bytes), and the answers must decrypt to the same bytes.
+It lives in the client package, next to `ombra.pir` which it shares the layout with, because the
+tests already import that package; it moves nowhere else until a server needs it.
+
+It takes only public material: the serialized context, the serialized evaluation keys, the column
+and the serialized queries. It never imports key generation or decryption, and a test checks the
+source for that. The secret key cannot reach it.
+
+Expansion: L levels of x -> x^(N/2^j + 1). The odd branch is multiplied by +x^(N-2^j) and then
+negated, because a -1 would be encoded as t - 1 and cost about 20 bits of noise per level.
+Answer per bucket: sum_b sel2_b * (sum_a sel1_a * pt[a, b]), the tensor products summed before one
+relinearization, then Compress to one tower.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import Any
+
+from ombra.pir import PirError, PirShape, bytes_to_coeffs, make_shape, parse_column
+
+
+class PirServerReference:
+    def __init__(
+        self,
+        context: bytes,
+        mult_key: bytes,
+        automorphism_key: bytes,
+        column: bytes,
+        m: int,
+        seed: bytes,
+    ) -> None:
+        import openfhe as ofhe
+
+        self._ofhe = ofhe
+        self.cc = ofhe.DeserializeCryptoContextString(context, ofhe.BINARY)
+        self._mult_key, self._auto_key = bytes(mult_key), bytes(automorphism_key)
+        col = parse_column(column)
+        self.shape: PirShape = make_shape(col.n_rows, m, col.row_size, seed)
+        self._db = self._build_database(col.body)
+
+    def _load_keys(self) -> None:
+        """OpenFHE keeps evaluation keys in process-global caches. Empty them and load exactly the
+        bytes this server was given, so nothing else is used (also when a client or another server
+        lives in the same process, as in tests)."""
+        ofhe = self._ofhe
+        ofhe.ClearEvalMultKeys()
+        ofhe.CryptoContext.ClearEvalAutomorphismKeys()
+        ofhe.DeserializeEvalMultKeyString(self._mult_key, ofhe.BINARY)
+        if self._auto_key:
+            ofhe.DeserializeEvalAutomorphismKeyString(self._auto_key, ofhe.BINARY)
+
+    # -- database ------------------------------------------------------------------------
+
+    def _plain(self, values: Sequence[int]) -> Any:
+        t = self.shape.pp.plain_modulus
+        return self.cc.MakeCoefPackedPlaintext(
+            [int(v) - t if v > t // 2 else int(v) for v in values]
+        )
+
+    def _build_database(self, body: bytes) -> list[list[list[Any]]]:
+        """db[bucket][a][b]: the plaintext of grid cell (a, b); missing cells are zero."""
+        s = self.shape
+        zero = self._plain([0] * s.pp.ring_dim)
+        db = []
+        for rows in s.contents:
+            cells: list[Any] = []
+            for p in range(s.r1 * s.r2):
+                chunk = rows[p * s.rows_per_pt : (p + 1) * s.rows_per_pt]
+                if chunk:
+                    data = b"".join(body[i * s.row_size : (i + 1) * s.row_size] for i in chunk)
+                    cells.append(self._plain(bytes_to_coeffs(data, s.pp)))
+                else:
+                    cells.append(zero)
+            db.append([[cells[a * s.r2 + b] for b in range(s.r2)] for a in range(s.r1)])
+        return db
+
+    # -- expansion -----------------------------------------------------------------------
+
+    def _expand(self, ct: Any, need: int) -> dict[int, Any]:
+        """Selectors 0..need-1: selector p encrypts coefficient p of the query (times 2^L)."""
+        cc, s = self.cc, self.shape
+        n = s.pp.ring_dim
+        keys = cc.GetEvalAutomorphismKeyMap(ct.GetKeyTag()) if s.levels else None
+        nodes: dict[int, Any] = {0: ct}
+        for j in range(s.levels):
+            shift = [0] * n
+            shift[n - (1 << j)] = 1  # +x^(N-2^j); negated below
+            mono = self._plain(shift)
+            nxt: dict[int, Any] = {}
+            for r, c in nodes.items():
+                tau = cc.EvalAutomorphism(c, n // (1 << j) + 1, keys)
+                nxt[r] = cc.EvalAdd(c, tau)
+                if r + (1 << j) < need:
+                    nxt[r + (1 << j)] = cc.EvalNegate(cc.EvalMult(cc.EvalSub(c, tau), mono))
+            nodes = {r: c for r, c in nxt.items() if r < need}
+        return nodes
+
+    # -- answer --------------------------------------------------------------------------
+
+    def answer(self, queries: Sequence[bytes]) -> list[bytes]:
+        """One compressed answer per bucket, in bucket order."""
+        cc, ofhe, s = self.cc, self._ofhe, self.shape
+        if len(queries) != s.n_cts:
+            raise PirError("wrong number of query ciphertexts")
+        self._load_keys()
+        out: list[bytes] = []
+        for c, raw in enumerate(queries):
+            ct = ofhe.DeserializeCiphertextString(raw, ofhe.BINARY)
+            nb = s.buckets_in_ct(c)
+            sel = self._expand(ct, nb * s.coeffs_per_bucket)
+            for slot in range(nb):
+                base = slot * s.coeffs_per_bucket
+                cells = self._db[c * s.per_ct + slot]
+                total = None
+                for b in range(s.r2):
+                    inner = None
+                    for a in range(s.r1):
+                        term = cc.EvalMult(sel[base + a], cells[a][b])
+                        inner = term if inner is None else cc.EvalAdd(inner, term)
+                    prod = cc.EvalMultNoRelin(sel[base + s.r1 + b], inner)
+                    total = prod if total is None else cc.EvalAdd(total, prod)
+                ans = cc.Compress(cc.Relinearize(total), 1)
+                out.append(ofhe.Serialize(ans, ofhe.BINARY))
+        return out
