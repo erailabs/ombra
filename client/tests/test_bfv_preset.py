@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 OR LicenseRef-Ombra-Commercial
-"""The scheme field of the preset file and the BFV preset for exact retrieval (decision 0033)."""
+"""The scheme field of the preset file and the BFV preset for exact retrieval."""
 
 from __future__ import annotations
 
