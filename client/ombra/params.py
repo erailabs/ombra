@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 OR LicenseRef-Ombra-Commercial
-"""Load CKKS parameter presets from core/params/ckks_presets.json.
+"""Load parameter presets from core/params/ckks_presets.json (CKKS, and BFV for exact retrieval).
 
 All parameter numbers live in that JSON file; this module only reads them. A preset below
 128-bit security is refused before any OpenFHE object is created.
@@ -15,7 +15,9 @@ PRESETS_PATH = Path(__file__).resolve().parents[2] / "core" / "params" / "ckks_p
 # An installed package has no repository next to it: it carries a copy (a test checks that the
 # copy equals core/params/ckks_presets.json, which stays the only place parameters are defined).
 PACKAGED_PRESETS_PATH = Path(__file__).resolve().parent / "resources" / "ckks_presets.json"
-SUPPORTED_FORMAT_VERSION = 1
+SUPPORTED_FORMAT_VERSION = 2
+SCHEMES = ("CKKS", "BFV")
+DEFAULT_SCHEME = "CKKS"  # a preset without a "scheme" key is CKKS
 
 # Names of OpenFHE security levels that are at least 128-bit. Anything else (HEStd_NotSet, a
 # missing key, a typo) is refused.
@@ -30,34 +32,65 @@ ACCEPTED_SECURITY_LEVELS = frozenset(
     }
 )
 
-_REQUIRED_KEYS = (
-    "security_level",
-    "ring_dim",
-    "multiplicative_depth",
-    "scaling_mod_size",
-    "first_mod_size",
-    "batch_size",
-    "scaling_technique",
-    "key_switch_technique",
-)
+_REQUIRED_KEYS_BY_SCHEME = {
+    "CKKS": (
+        "security_level",
+        "ring_dim",
+        "multiplicative_depth",
+        "scaling_mod_size",
+        "first_mod_size",
+        "batch_size",
+        "scaling_technique",
+        "key_switch_technique",
+    ),
+    "BFV": (
+        "security_level",
+        "ring_dim",
+        "multiplicative_depth",
+        "plaintext_modulus",
+        "key_switch_technique",
+    ),
+}
 
 
 class ParamsError(ValueError):
     """The preset is missing, malformed or below the security floor."""
 
 
-def load_presets(path: Path | None = None) -> dict[str, dict[str, Any]]:
-    """Read the preset file and check its format version."""
+def preset_scheme(preset: dict[str, Any]) -> str:
+    """The scheme of a preset: CKKS when the key is absent. Unknown schemes are refused."""
+    scheme = preset.get("scheme", DEFAULT_SCHEME)
+    if scheme not in SCHEMES:
+        raise ParamsError(f"unknown scheme {scheme!r}")
+    return scheme
+
+
+def load_presets(
+    path: Path | None = None, scheme: str | None = DEFAULT_SCHEME
+) -> dict[str, dict[str, Any]]:
+    """Read the preset file, check its format version and every preset's scheme.
+
+    Returns only the presets of `scheme` (CKKS by default, so collections never see a BFV
+    preset); pass scheme=None for all of them.
+    """
     chosen = path or (PRESETS_PATH if PRESETS_PATH.is_file() else PACKAGED_PRESETS_PATH)
     data = json.loads(chosen.read_text(encoding="utf-8"))
     if data.get("version") != SUPPORTED_FORMAT_VERSION:
         raise ParamsError(f"unsupported preset file version: {data.get('version')!r}")
-    return data["presets"]
+    if scheme is not None and scheme not in SCHEMES:
+        raise ParamsError(f"unknown scheme {scheme!r}")
+    kept = {}
+    for name, preset in data["presets"].items():
+        # preset_scheme also refuses an unknown scheme anywhere in the file.
+        if scheme is None or preset_scheme(preset) == scheme:
+            kept[name] = preset
+    return kept
 
 
 def validate_preset(preset: dict[str, Any]) -> None:
     """Raise ParamsError unless the preset is complete and at least 128-bit secure."""
-    missing = [k for k in _REQUIRED_KEYS if k not in preset]
+    required = _REQUIRED_KEYS_BY_SCHEME[preset_scheme(preset)]
+    missing = [k for k in required if k not in preset]
     if missing:
         raise ParamsError(f"preset is missing keys: {missing}")
     if preset["security_level"] not in ACCEPTED_SECURITY_LEVELS:
@@ -66,16 +99,18 @@ def validate_preset(preset: dict[str, Any]) -> None:
         )
 
 
-def get_preset(name: str, path: Path | None = None) -> dict[str, Any]:
-    presets = load_presets(path)
+def get_preset(name: str, path: Path | None = None, scheme: str = DEFAULT_SCHEME) -> dict[str, Any]:
+    presets = load_presets(path, scheme)
     if name not in presets:
-        raise ParamsError(f"unknown preset {name!r}")
+        raise ParamsError(f"unknown {scheme} preset {name!r}")
     return presets[name]
 
 
 def make_ckks_params(preset: dict[str, Any]) -> Any:
     """Validate a preset dict and return a configured openfhe CCParamsCKKSRNS."""
     validate_preset(preset)
+    if preset_scheme(preset) != "CKKS":
+        raise ParamsError("make_ckks_params needs a CKKS preset")
     import openfhe as ofhe
 
     params = ofhe.CCParamsCKKSRNS()
@@ -106,6 +141,39 @@ def make_context(name: str, path: Path | None = None) -> tuple[Any, Any]:
     import openfhe as ofhe
 
     params = make_ckks_params(get_preset(name, path))
+    cc = ofhe.GenCryptoContext(params)
+    for feature in (
+        ofhe.PKESchemeFeature.PKE,
+        ofhe.PKESchemeFeature.KEYSWITCH,
+        ofhe.PKESchemeFeature.LEVELEDSHE,
+    ):
+        cc.Enable(feature)
+    return params, cc
+
+
+def make_bfv_params(preset: dict[str, Any]) -> Any:
+    """Validate a BFV preset dict and return a configured openfhe CCParamsBFVRNS."""
+    validate_preset(preset)
+    if preset_scheme(preset) != "BFV":
+        raise ParamsError("make_bfv_params needs a BFV preset")
+    import openfhe as ofhe
+
+    params = ofhe.CCParamsBFVRNS()
+    params.SetSecurityLevel(getattr(ofhe.SecurityLevel, preset["security_level"]))
+    params.SetRingDim(preset["ring_dim"])
+    params.SetPlaintextModulus(preset["plaintext_modulus"])
+    params.SetMultiplicativeDepth(preset["multiplicative_depth"])
+    params.SetKeySwitchTechnique(getattr(ofhe.KeySwitchTechnique, preset["key_switch_technique"]))
+    if "digit_size" in preset:
+        params.SetDigitSize(preset["digit_size"])
+    return params
+
+
+def make_bfv_context(name: str, path: Path | None = None) -> tuple[Any, Any]:
+    """Return (params, crypto_context) for a BFV preset, with PKE, KEYSWITCH and LEVELEDSHE."""
+    import openfhe as ofhe
+
+    params = make_bfv_params(get_preset(name, path, "BFV"))
     cc = ofhe.GenCryptoContext(params)
     for feature in (
         ofhe.PKESchemeFeature.PKE,
