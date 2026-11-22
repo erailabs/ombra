@@ -28,8 +28,11 @@ Expect small differences. The same kernel took up to 26% longer in one run than 
 | Local mode search and create time | `python tests/bench_local_mode.py --d <d>`, pinned with `taskset -c <cpus>` | a Ryzen 5 5600H laptop |
 | Filtered recall and latency on real text | `core/bench/filtered_recall.py`, `modal run modal_app.py::filtered_recall` | A100 |
 | Recall of a preset against plaintext | `modal run modal_app.py::recall --preset <preset>` | A100 |
+| What the server sees of a search (calls, sizes, ids, requested clusters, intersection attack) | `python core/bench/leakage.py --n 200 --d 384`, local mode on a CPU, synthetic data | any CPU with OpenFHE 1.6.1 |
 
 `m0_depth2` is the Balanced preset and `m0_compact_n8192` is Fast; the benchmark scripts use these names, which come from `core/params/ckks_presets.json`. The Python client has its own recall check, `ombra-recall`, which compares plaintext and encrypted recall on your own data.
+
+`core/bench/leakage.py` records what the server sees while the client searches: for every call the method, the serialized size of each message, a summary of each request in which a `bytes` field is only a length, and a coarse timing class. It wraps the client's stub from the outside, so it works in local mode and over gRPC. It prints aggregates only: calls and bytes per search, whether any record id appears in a request, whether the views of different queries are identical at each level, and how often an attacker who intersects the clusters requested by related Decoy searches finds the real ones. The counts are flags (`--queries`, `--attack-ns 1 10 100 1000`, `--attack-trials`); the defaults are small because every search runs under encryption on a CPU.
 
 Each run writes its raw JSON. Keep it together with a short note that gives the command, the commit, the GPU, the CUDA and OpenFHE versions and the parameters used.
 
