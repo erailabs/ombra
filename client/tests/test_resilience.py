@@ -467,7 +467,7 @@ class _Msg(SimpleNamespace):
         return self.kind
 
 
-def _fake_search(break_after, in_band=False):
+def _fake_search(break_after, in_band=False, group_size=1):
     """A collection whose first Search stream dies (UNAVAILABLE) at `break_after`: "start" (while
     the server reads the query), or "round1" / "round2" (after it read that round's request).
     Records every stream's start query and chosen lists. With `in_band` the first stream ends with
@@ -521,8 +521,19 @@ def _fake_search(break_after, in_band=False):
             fn, rpc=rpc, policy=RetryPolicy(), clock=clock, sleep=clock.sleep
         ),
     )
+    stats = None
+    if group_size > 1:
+        from ombra.decoy_groups import GroupInfo, build_groups
+        from ombra.probe import ClusterStats
+
+        salt = b"s" * 16
+        stats = ClusterStats.empty(C, ())
+        stats.groups = GroupInfo(
+            group_size, "random", salt, build_groups(b"k" * 32, salt, C, group_size)
+        )
     kit = _ns(
         key_tag="t",
+        master_key=b"k" * 32,
         encrypt_query=enc,
         decrypt_column=lambda env: np.frombuffer(env, dtype=np.float64),
     )
@@ -535,7 +546,7 @@ def _fake_search(break_after, in_band=False):
         derived=_ns(dimension=4),
         cards=(),
         cluster_count=C,
-        stats=None,
+        stats=stats,
     )
     return col, streams, encrypted
 
@@ -566,6 +577,19 @@ def test_search_reconnect_resends_same_query_and_same_cluster_choice(break_after
     assert len(second["chosen"]) == 2
     flat = [c for r in second["chosen"] for c in r]
     assert len(flat) == len(set(flat))  # no cluster twice on one stream, even across the reconnect
+
+
+@pytest.mark.parametrize("break_after", ["start", "round1", "round2"])
+def test_grouped_search_reconnect_replays_identical_requests(break_after):
+    col, streams, encrypted = _fake_search(break_after, group_size=4)
+    res = _search(col)
+    assert res.rounds == 2 and len(streams) == 2 and len(encrypted) == 1
+    first, second = streams
+    sent = len(first["chosen"])
+    assert second["chosen"][:sent] == first["chosen"]  # identical bytes after ERROR_UNAVAILABLE
+    assert [len(r) for r in second["chosen"]] == [12, 24]  # multiples of g, query-independent
+    flat = [c for r in second["chosen"] for c in r]
+    assert len(flat) == len(set(flat))
 
 
 def test_a_fresh_search_draws_other_decoys():
