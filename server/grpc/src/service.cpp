@@ -1481,7 +1481,7 @@ grpc::Status OmbraService::run_RetrieveRecords(
 
     std::vector<std::uint32_t> clusters(start.cluster_ids().begin(), start.cluster_ids().end());
     scope = store_.read_record_columns(start.collection(), clusters, start.all_clusters());
-    if (scope.n_rows == 0) return send_error({Err::InvalidArgument, "the scope has no records"});
+    if (scope.n_rows == 0) return send_error({Err::InvalidArgument, kEmptyScopeMessage});
     shape = pir::make_shape(
         scope.n_rows, start.m(), scope.row_size,
         std::vector<std::uint8_t>(start.hash_seed().begin(), start.hash_seed().end()),

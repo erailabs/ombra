@@ -12,6 +12,10 @@
 
 namespace ombra::server {
 
+// The refusal of a scope without records. The router matches it to leave out a node whose part of
+// the scope is empty, so the node and the router share this text.
+inline constexpr const char* kEmptyScopeMessage = "the scope has no records";
+
 // Checks one RetrieveRecordsStart: names, scope (exactly one of a cluster list or all clusters;
 // distinct ids, each below cluster_count when it is non-zero), m, the 16-byte seed, the query
 // count.

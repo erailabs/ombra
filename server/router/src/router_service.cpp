@@ -816,7 +816,7 @@ grpc::Status RouterService::RetrieveRecords(
   for (std::size_t i = 0; i < ns.size(); ++i) {
     if (first[i].has_error()) {
       const auto& e = first[i].error();
-      if (e.code() == v1::ERROR_INVALID_ARGUMENT && e.message() == "the scope has no records") {
+      if (e.code() == v1::ERROR_INVALID_ARGUMENT && e.message() == server::kEmptyScopeMessage) {
         ns[i]->stop();
         continue;
       }
