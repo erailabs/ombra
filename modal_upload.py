@@ -18,6 +18,7 @@ ALLOWED_TOP_LEVEL = (
     "server",
     "proto",
     "tests",
+    "fuzz",  # the server tests replay the committed fuzz corpora without libFuzzer
     "CMakeLists.txt",
     "pyproject.toml",
     "conftest.py",
@@ -74,6 +75,7 @@ ALLOWED_BINARY = (
     # The CUDA configure step refuses to run without these public context fixtures.
     "server/search/context_golden/m0_compact_n8192.bin",
     "server/search/context_golden/m0_depth2.bin",
+    "fuzz/known/keys-oom-evalmult-body.bin",
 )
 
 
