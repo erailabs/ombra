@@ -189,3 +189,15 @@ def test_stats_blob_with_a_broken_grouping_is_refused():
     bad_code[-(32 + 21)] = 9  # the method code byte of the trailer
     with pytest.raises(ValueError):
         ClusterStats.from_bytes(bytes(bad_code))
+
+
+def test_default_grouping_is_neighbours_and_groups_are_off():
+    import inspect
+
+    from ombra.client import Client
+    from ombra.collection import Collection
+
+    for fn in (Client.create_collection, Collection.create):
+        params = inspect.signature(fn).parameters
+        assert params["decoy_group_size"].default == 1
+        assert params["decoy_grouping"].default == "neighbours"

@@ -162,7 +162,7 @@ class ClientCore:
         security_level: str = "fast",
         n_clusters: int | None = None,
         decoy_group_size: int = 1,
-        decoy_grouping: str = "random",
+        decoy_grouping: str = "neighbours",
         scrypt_params: tuple[int, int, int] | None = None,
     ) -> str:
         preset = preset or getattr(self._t, "default_preset", presets.DEFAULT_PRESET)

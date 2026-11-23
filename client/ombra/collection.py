@@ -413,14 +413,14 @@ class Collection:
         blobs: BlobStore | None = None,
         schema: RangeSchema | None = None,
         decoy_group_size: int = 1,
-        decoy_grouping: str = "random",
+        decoy_grouping: str = "neighbours",
     ) -> Collection:
         """Cluster, create the collection, upload the keys once, insert centers and data.
 
         `decoy_group_size` g > 1 turns on fixed decoy groups for Decoy searches;
-        the cluster count is then rounded down to a multiple of g. `decoy_grouping` is "random"
-        or "neighbours" (clusters with close centers share a group). g = 1 (the default) keeps
-        per-query random decoys."""
+        the cluster count is then rounded down to a multiple of g. `decoy_grouping` is
+        "neighbours" (the default: clusters with close centers share a group) or "random".
+        g = 1 (the default) keeps per-query random decoys."""
         x = np.asarray(vectors, dtype=np.float64)
         # Parameters come only from the presets, which enforce the 128-bit floor.
         derived = presets.derive(preset, x.shape[1])

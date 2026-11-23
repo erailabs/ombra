@@ -131,7 +131,7 @@ class Client:
         security_level: str = "fast",
         n_clusters: int | None = None,
         decoy_group_size: int = 1,
-        decoy_grouping: str = "random",
+        decoy_grouping: str = "neighbours",
         scrypt_params: tuple[int, int, int] | None = None,
     ) -> str:
         """Cluster and encrypt `vectors` (unit length), write the key file, create the collection.
@@ -161,8 +161,9 @@ class Client:
             decoy_group_size: Size g of fixed decoy groups for Decoy searches; 1 (the default) is
                 off and keeps per-query random decoys. With g > 1 the cluster count is rounded
                 down to a multiple of g, and a Decoy search asks for whole groups.
-            decoy_grouping: "random" (a keyed random partition) or "neighbours" (clusters with
-                close centers share a group). Only used when `decoy_group_size` > 1.
+            decoy_grouping: "neighbours" (the default: clusters with close centers share a group,
+                which costs the least recall) or "random" (a keyed random partition). Only used
+                when `decoy_group_size` > 1.
             scrypt_params: Key derivation cost `(n, r, p)` of the key file. Library default if
                 omitted.
 
@@ -528,7 +529,7 @@ class AsyncClient:
         security_level: str = "fast",
         n_clusters: int | None = None,
         decoy_group_size: int = 1,
-        decoy_grouping: str = "random",
+        decoy_grouping: str = "neighbours",
         scrypt_params: tuple[int, int, int] | None = None,
     ) -> str:
         """Cluster and encrypt `vectors` (unit length), write the key file, create the collection.
@@ -558,8 +559,9 @@ class AsyncClient:
             decoy_group_size: Size g of fixed decoy groups for Decoy searches; 1 (the default) is
                 off and keeps per-query random decoys. With g > 1 the cluster count is rounded
                 down to a multiple of g, and a Decoy search asks for whole groups.
-            decoy_grouping: "random" (a keyed random partition) or "neighbours" (clusters with
-                close centers share a group). Only used when `decoy_group_size` > 1.
+            decoy_grouping: "neighbours" (the default: clusters with close centers share a group,
+                which costs the least recall) or "random" (a keyed random partition). Only used
+                when `decoy_group_size` > 1.
             scrypt_params: Key derivation cost `(n, r, p)` of the key file. Library default if
                 omitted.
 
