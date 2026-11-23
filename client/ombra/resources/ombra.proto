@@ -307,10 +307,25 @@ message ReplaceBlockResponse {
 // (collection, pir_key_tag); ERROR_KEYS_MISSING if none are stored, ERROR_KEY_TAG_MISMATCH if the
 // stored ones carry another tag.
 //
-// Stream in: one RetrieveRecordsStart, then exactly `n_queries` messages with `query` (one
-// serialized ciphertext each, at most LIMIT_MAX_CHUNK_BYTES). Stream out: one RetrieveRecordsInfo,
-// then one RecordAnswer per bucket in bucket order, or an Error and the end. The server stores
-// nothing of the call.
+// Order of the stream (it is bidirectional, so the answer starts before the queries are sent):
+//   1. in:  one RetrieveRecordsStart.
+//   2. out: after the checks of the start (keys, scope, record columns), one RetrieveRecordsInfo,
+//           or an Error and the end. The client builds its queries from the Info: the shape of the
+//           call depends on n_rows, and the row index of a candidate is span.first_row + slot.
+//   3. in:  exactly shape.n_cts messages with `query` (one serialized ciphertext each, at most
+//           LIMIT_MAX_CHUNK_BYTES), the shape being the one the Info describes. A non-zero
+//           n_queries in the start must equal shape.n_cts, else ERROR_INVALID_ARGUMENT; a client
+//           sends 0. An extra query is ERROR_BAD_SEQUENCE, a short stream is ERROR_BAD_SEQUENCE.
+//   4. out: one RecordAnswer per bucket in bucket order, or an Error and the end.
+// The server stores nothing of the call. A scope with no row (no block, or only empty blocks) is
+// refused with ERROR_INVALID_ARGUMENT before the Info: there is nothing to retrieve.
+//
+// Several nodes. A router whose scope spans several nodes sends one RetrieveRecordsInfo per node
+// (part = 0 .. n_parts-1, in ascending node order; each part describes the rows of its node only,
+// so its shape, n_rows and spans are the node's). The client then sends the queries of part 0,
+// then of part 1, and so on, the count of each part being that part's shape.n_cts. The answers
+// come part by part in the same order, in bucket order inside each part, each tagged with its part.
+// A single node always sends one Info with part 0 and n_parts 1 and its answers carry part 0.
 message RetrieveRecordsStart {
   string collection = 1;
   string key_tag = 2;             // checked against the collection's, like SearchStart
@@ -319,7 +334,8 @@ message RetrieveRecordsStart {
   bool all_clusters = 5;          // ... or all data clusters. Exactly one of the two is used.
   uint32 m = 6;                   // rows wanted per call, 1 .. LIMIT_MAX_RETRIEVE_M; buckets = ceil(1.5 m)
   bytes hash_seed = 7;            // exactly 16 bytes; public; keys the cuckoo hashing of the call
-  uint32 n_queries = 8;           // query messages that follow, 1 .. LIMIT_MAX_RETRIEVE_QUERIES
+  uint32 n_queries = 8;           // 0: as many as the shape needs (clients send 0); else it must equal
+                                  // shape.n_cts of the Info. At most LIMIT_MAX_RETRIEVE_QUERIES
 }
 message RetrieveRecordsRequest {
   uint32 api_version = 1;         // must be 1
@@ -339,10 +355,13 @@ message RetrieveRecordsInfo {
   uint32 row_size = 2;            // bytes per row (a multiple of 64)
   uint32 n_buckets = 3;           // answers that follow
   repeated RecordSpan spans = 4;  // block layout of the database, in database order
+  uint32 part = 5;                // 0 .. n_parts-1: which node's database this describes
+  uint32 n_parts = 6;             // Infos of the call: 1 on a node, one per node behind a router
 }
 message RecordAnswer {
   uint32 bucket = 1;              // 0 .. n_buckets-1, in order
   bytes answer = 2;               // one serialized compressed ciphertext (about 132 KB)
+  uint32 part = 3;                // the part (node) this answer belongs to; 0 on a single node
 }
 message RetrieveRecordsResponse {
   uint32 api_version = 1;

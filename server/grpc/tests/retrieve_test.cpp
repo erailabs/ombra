@@ -68,8 +68,7 @@ int main() {
                     +[](v1::RetrieveRecordsStart& s) { s.clear_pir_key_tag(); },
                     +[](v1::RetrieveRecordsStart& s) { s.set_m(0); },
                     +[](v1::RetrieveRecordsStart& s) { s.set_hash_seed("short"); },
-                    +[](v1::RetrieveRecordsStart& s) { s.set_hash_seed(std::string(17, 'x')); },
-                    +[](v1::RetrieveRecordsStart& s) { s.set_n_queries(0); }}) {
+                    +[](v1::RetrieveRecordsStart& s) { s.set_hash_seed(std::string(17, 'x')); }}) {
     auto s = good();
     edit(s);
     CHECK(validate_retrieve_start(s).code == Err::InvalidArgument);
@@ -83,6 +82,29 @@ int main() {
     s = good();
     s.set_n_queries(kMaxRetrieveQueries + 1);
     CHECK(validate_retrieve_start(s).code == Err::SizeLimit);
+  }
+  {  // n_queries 0 is valid: the shape decides
+    auto s = good();
+    s.set_n_queries(0);
+    CHECK(validate_retrieve_start(s).ok());
+    RetrieveValidator v;
+    CHECK(v.accept(start_msg(s)).ok());
+    CHECK(v.finish().code == Err::BadSequence);  // the count is not known yet
+    CHECK(v.expect_queries(0).code == Err::InvalidArgument);
+    CHECK(v.expect_queries(3).ok());
+    CHECK(v.accept(query_msg()).ok() && v.accept(query_msg()).ok());
+    CHECK(v.finish().code == Err::BadSequence);  // short
+    CHECK(v.accept(query_msg()).ok());
+    CHECK(v.finish().ok());
+    CHECK(v.accept(query_msg()).code == Err::BadSequence);  // an extra one
+  }
+  {  // a non-zero n_queries must equal the shape's
+    RetrieveValidator v;
+    CHECK(v.expect_queries(2).code == Err::BadSequence);  // no start yet
+    CHECK(v.accept(start_msg(good())).ok());              // n_queries 2
+    CHECK(v.expect_queries(3).code == Err::InvalidArgument);
+    CHECK(v.expect_queries(2).ok());
+    CHECK(v.accept(query_msg()).ok() && v.accept(query_msg()).ok() && v.finish().ok());
   }
   {  // a whole good stream
     RetrieveValidator v;

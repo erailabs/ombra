@@ -12,6 +12,7 @@
 #include "key/key-ser.h"
 #include "ombra/core/security_floor_context.hpp"
 #include "ombra/pir/preset.hpp"
+#include "ombra/pir/retrieval.hpp"
 #include "openfhe.h"
 #include "scheme/bfvrns/bfvrns-ser.h"
 
@@ -333,6 +334,29 @@ void answer_queries(const PirContext& cc, const PirKeys& keys, const PirShape& s
       sink(bucket, a.answer_bucket(sel, slot * shape.coeffs_per_bucket(), bucket));
     }
   }
+}
+
+}  // namespace ombra::pir
+
+namespace ombra::pir {
+
+PirParams retrieval_params() { return preset_params(); }
+
+void check_retrieval_keys(const PirKeyFiles& files, const std::string& key_tag,
+                          const PirShape& shape) {
+  const PirContext cc = read_pir_context(files.context);
+  PirKeys keys(cc, files.eval_mult, files.automorphism, key_tag, shape);
+}
+
+std::vector<std::string> answer_call(const PirKeyFiles& files, const std::string& key_tag,
+                                     const PirShape& shape, const std::uint8_t* column_body,
+                                     const std::vector<std::string>& queries) {
+  const PirContext cc = read_pir_context(files.context);
+  PirKeys keys(cc, files.eval_mult, files.automorphism, key_tag, shape);
+  std::vector<std::string> out(shape.buckets);
+  answer_queries(cc, keys, shape, column_body, queries,
+                 [&](std::size_t b, std::string&& a) { out.at(b) = std::move(a); });
+  return out;
 }
 
 }  // namespace ombra::pir

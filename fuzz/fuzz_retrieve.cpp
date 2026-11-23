@@ -37,8 +37,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* d, std::size_t n) {
   if (check.finish().ok()) {
     const auto* s = check.start();
     if (s == nullptr || s->m() == 0 || s->m() > srv::kMaxRetrieveM ||
-        s->hash_seed().size() != srv::kPirSeedBytes || s->n_queries() == 0 ||
-        s->n_queries() > srv::kMaxRetrieveQueries)
+        s->hash_seed().size() != srv::kPirSeedBytes || s->n_queries() > srv::kMaxRetrieveQueries)
       std::abort();
   }
   return 0;
