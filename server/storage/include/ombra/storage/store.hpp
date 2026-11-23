@@ -127,6 +127,19 @@ inline constexpr const char* kKeyContext = "context";
 inline constexpr const char* kKeyEvalMult = "eval_mult";
 inline constexpr const char* kKeyAutomorphism = "automorphism";
 
+// Private-retrieval (BFV) public keys of a collection, stored like the CKKS keys but checked
+// against the fixed retrieval preset kPirPreset (128-bit security, BFV N=8192) instead of the
+// collection's own preset. The same envelope kinds apply: pir_context is a Context, the other two
+// are PublicEvalKey. The server only stores them; it never loads them into the search engine.
+inline constexpr const char* kKeyPirContext = "pir_context";
+inline constexpr const char* kKeyPirEvalMult = "pir_eval_mult";
+inline constexpr const char* kKeyPirAutomorphism = "pir_automorphism";
+inline constexpr const char* kPirPreset = "pir_bfv_n8192";
+
+inline bool is_pir_key_kind(const std::string& kind) {
+  return kind == kKeyPirContext || kind == kKeyPirEvalMult || kind == kKeyPirAutomorphism;
+}
+
 class Store {
  public:
   // Opens (creating if empty) and runs recovery. openfhe_version is what column envelopes must

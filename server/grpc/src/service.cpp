@@ -191,8 +191,35 @@ const char* kind_name(int kind) {
       return storage::kKeyEvalMult;
     case v1::KEY_KIND_AUTOMORPHISM:
       return storage::kKeyAutomorphism;
+    case v1::KEY_KIND_PIR_CONTEXT:
+      return storage::kKeyPirContext;
+    case v1::KEY_KIND_PIR_EVAL_MULT:
+      return storage::kKeyPirEvalMult;
+    case v1::KEY_KIND_PIR_AUTOMORPHISM:
+      return storage::kKeyPirAutomorphism;
     default:
       return nullptr;
+  }
+}
+
+bool is_pir_kind(int kind) {
+  return kind == v1::KEY_KIND_PIR_CONTEXT || kind == v1::KEY_KIND_PIR_EVAL_MULT ||
+         kind == v1::KEY_KIND_PIR_AUTOMORPHISM;
+}
+
+// Per-file byte cap of an uploaded key kind, checked before the bytes are kept.
+std::size_t key_kind_limit(int kind) {
+  switch (kind) {
+    case v1::KEY_KIND_CONTEXT:
+      return kMaxContextBytes;
+    case v1::KEY_KIND_PIR_CONTEXT:
+      return kMaxPirContextBytes;
+    case v1::KEY_KIND_PIR_EVAL_MULT:
+      return kMaxPirEvalMultBytes;
+    case v1::KEY_KIND_PIR_AUTOMORPHISM:
+      return kMaxPirAutomorphismBytes;
+    default:
+      return kMaxEvalKeyBytes;
   }
 }
 
@@ -486,10 +513,13 @@ grpc::Status OmbraService::ListAliases(grpc::ServerContext* ctx, const v1::ListA
 // ---------------------------------------------------------------------------------------------
 // UploadKeys
 
-// All three key kinds must arrive in one stream. They are collected in memory, checked as a unit
-// against the collection (envelopes, key tag, security floor, layout: SearchEngine::prepare_keys),
-// and only then stored (one catalog transaction) and installed. A refused upload leaves no key
-// file, no catalog row and the collection's loaded keys as they were.
+// One stream carries exactly one complete key set: the three search kinds, or the three private
+// retrieval (PIR) kinds. Mixing the two, or a partial set of either, is INVALID_ARGUMENT. A
+// retrieval set is only checked (envelope against the retrieval preset) and stored; it never goes
+// to the search engine and does not change which collections are loaded. A search set is collected
+// in memory, checked as a unit against the collection (envelopes, key tag, security floor, layout:
+// SearchEngine::prepare_keys), and only then stored (one catalog transaction) and installed. A
+// refused upload leaves no key file, no catalog row and the collection's loaded keys as they were.
 grpc::Status OmbraService::run_UploadKeys(grpc::ServerContext* ctx,
                                           grpc::ServerReader<v1::UploadKeysChunk>* in,
                                           v1::UploadKeysResponse* resp) {
@@ -515,7 +545,8 @@ grpc::Status OmbraService::run_UploadKeys(grpc::ServerContext* ctx,
   if (!slot.ok)
     return grpc::Status(grpc::StatusCode::RESOURCE_EXHAUSTED, "too many key uploads in progress");
   std::string coll;
-  int cur_kind = 0;  // kind of the file being assembled, 0 if none
+  int cur_kind = 0;    // kind of the file being assembled, 0 if none
+  int first_kind = 0;  // kind of the first chunk: decides the family (search or retrieval)
   std::vector<std::uint8_t> buf;
   std::map<std::string, std::vector<std::uint8_t>> staged;  // kind name -> complete file
   std::size_t chunks = 0, total = 0;
@@ -538,6 +569,13 @@ grpc::Status OmbraService::run_UploadKeys(grpc::ServerContext* ctx,
       }
       const int kind = static_cast<int>(c.kind());
       if (!kind_name(kind)) return fail(Err::InvalidArgument, "unknown key kind");
+      // One upload is one key set: CKKS kinds or PIR kinds, never both.
+      if (!staged.empty() || cur_kind != 0) {
+        const int first = cur_kind != 0 ? cur_kind : first_kind;
+        if (is_pir_kind(first) != is_pir_kind(kind))
+          return fail(Err::InvalidArgument, "an upload cannot mix search and retrieval key kinds");
+      }
+      if (first_kind == 0) first_kind = kind;
       if (cur_kind != 0 && kind != cur_kind)
         return fail(Err::BadSequence, "key kind changed before last");
       if (cur_kind == 0) {
@@ -552,8 +590,7 @@ grpc::Status OmbraService::run_UploadKeys(grpc::ServerContext* ctx,
         return fail(Err::BadSequence, "chunk offset does not follow the previous chunk");
       if (c.data().size() > kMaxChunkBytes)
         return fail(Err::SizeLimit, "chunk is larger than the limit");
-      if (buf.size() + c.data().size() >
-          (cur_kind == v1::KEY_KIND_CONTEXT ? kMaxContextBytes : kMaxEvalKeyBytes))
+      if (buf.size() + c.data().size() > key_kind_limit(cur_kind))
         return fail(Err::SizeLimit, "key file is too large");
       if (total + c.data().size() > limits_.max_key_upload_bytes)
         return fail(Err::SizeLimit, "key upload is too large");
@@ -569,6 +606,21 @@ grpc::Status OmbraService::run_UploadKeys(grpc::ServerContext* ctx,
     if (chunks == 0) return fail(Err::BadSequence, "no chunks");
     if (cur_kind != 0)
       return fail(Err::BadSequence, "stream ended before the last chunk of a key file");
+    if (is_pir_kind(first_kind)) {
+      // Retrieval keys: only stored (each envelope is checked against the retrieval preset by
+      // the store). They never reach the search engine, so what is loaded for search is untouched.
+      for (const char* k :
+           {storage::kKeyPirContext, storage::kKeyPirEvalMult, storage::kKeyPirAutomorphism})
+        if (!staged.count(k))
+          return fail(Err::InvalidArgument, "an upload must contain all three retrieval key kinds");
+      std::lock_guard lk(load_mu_);
+      store_.put_key_files(
+          coll, {{storage::kKeyPirContext, std::move(staged[storage::kKeyPirContext])},
+                 {storage::kKeyPirEvalMult, std::move(staged[storage::kKeyPirEvalMult])},
+                 {storage::kKeyPirAutomorphism, std::move(staged[storage::kKeyPirAutomorphism])}});
+      log_line("upload_pir_keys", staged.size(), total, ms_since(t0));
+      return grpc::Status::OK;
+    }
     for (const char* k : {storage::kKeyContext, storage::kKeyEvalMult, storage::kKeyAutomorphism})
       if (!staged.count(k))
         return fail(Err::InvalidArgument, "an upload must contain all three key kinds");

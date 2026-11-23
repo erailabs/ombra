@@ -145,8 +145,8 @@ enum KeyKind {
   // Keys of the private record retrieval (BFV, its own preset and its own key): the serialized
   // context, relinearization key and automorphism keys of the client's retrieval key, uploaded once
   // with this same call and stored per collection, replacing the previous set. RetrieveRecords refers
-  // to them by (collection, pir_key_tag). A server that does not store them yet refuses these kinds
-  // with ERROR_INVALID_ARGUMENT.
+  // to them by (collection, pir_key_tag). One upload carries one complete key set: the three search
+  // kinds or the three retrieval kinds; mixing them, or a partial set, is ERROR_INVALID_ARGUMENT.
   KEY_KIND_PIR_CONTEXT = 4;
   KEY_KIND_PIR_EVAL_MULT = 5;
   KEY_KIND_PIR_AUTOMORPHISM = 6;

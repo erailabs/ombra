@@ -615,13 +615,17 @@ void Store::put_key_files(
       throw std::runtime_error("unknown collection");
     for (const auto& [kind, envelope] : files) {
       core::EnvelopeKind k;
-      if (kind == kKeyContext)
+      if (kind == kKeyContext || kind == kKeyPirContext)
         k = core::EnvelopeKind::Context;
-      else if (kind == kKeyEvalMult || kind == kKeyAutomorphism)
+      else if (kind == kKeyEvalMult || kind == kKeyAutomorphism || kind == kKeyPirEvalMult ||
+               kind == kKeyPirAutomorphism)
         k = core::EnvelopeKind::PublicEvalKey;
       else
         throw std::runtime_error("unknown key file kind");
-      core::read_envelope(envelope, k, spec.preset, ofhe_);  // also refuses unknown versions
+      // PIR keys carry the retrieval preset, whatever the collection's CKKS preset is.
+      core::read_envelope(envelope, k,
+                          is_pir_key_kind(kind) ? std::string(kPirPreset) : spec.preset,
+                          ofhe_);  // also refuses unknown versions
     }
     for (std::size_t i = 0; i < files.size(); ++i)
       names.push_back(hex_name('k', catalog_->next_segment_id(), ".env"));

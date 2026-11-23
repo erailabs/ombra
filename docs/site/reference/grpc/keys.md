@@ -4,9 +4,9 @@ Upload the public evaluation keys of a collection. There is no kind for a secret
 
 ## KeyKind
 
-`KEY_KIND_CONTEXT`, `KEY_KIND_EVAL_MULT` and `KEY_KIND_AUTOMORPHISM` (and `KEY_KIND_UNSPECIFIED`, which is 0).
+`KEY_KIND_CONTEXT`, `KEY_KIND_EVAL_MULT` and `KEY_KIND_AUTOMORPHISM` for search, and `KEY_KIND_PIR_CONTEXT`, `KEY_KIND_PIR_EVAL_MULT` and `KEY_KIND_PIR_AUTOMORPHISM` for private record retrieval (and `KEY_KIND_UNSPECIFIED`, which is 0).
 
-The values 4 to 6 are `KEY_KIND_PIR_CONTEXT`, `KEY_KIND_PIR_EVAL_MULT` and `KEY_KIND_PIR_AUTOMORPHISM`. They are the public evaluation keys of the client's retrieval key, for [`RetrieveRecords`](retrieve.md). They will be uploaded with this same call, not with a separate method. The server does not store them yet and refuses them with `ERROR_INVALID_ARGUMENT`.
+The values 4 to 6 are `KEY_KIND_PIR_CONTEXT`, `KEY_KIND_PIR_EVAL_MULT` and `KEY_KIND_PIR_AUTOMORPHISM`. They are the public evaluation keys of the client's retrieval key, for [`RetrieveRecords`](retrieve.md). They are uploaded with this same call, not with a separate method, and stored per collection.
 
 ## UploadKeys
 
@@ -37,4 +37,4 @@ Scope: `write`.
 
 Errors: `ERROR_COLLECTION_NOT_FOUND`, `ERROR_INVALID_ARGUMENT` (the context is not the collection's preset's context, or a key file has a size no key of the preset has), `ERROR_KEY_TAG_MISMATCH`, `ERROR_UNSUPPORTED_VERSION`, `ERROR_SIZE_LIMIT`, `ERROR_BAD_SEQUENCE`, `ERROR_STORAGE_FULL`.
 
-Notes: chunks are at most 4 MiB. Insert and search fail with `ERROR_KEYS_MISSING` until the keys are uploaded.
+Notes: one upload carries exactly one complete key set: the three search kinds, or the three retrieval kinds. Mixing the two, or sending a partial set, is refused with `ERROR_INVALID_ARGUMENT` and stores nothing. Retrieval files are enveloped with the preset `pir_bfv_n8192` (not the collection's preset), are stored beside the search keys and replace the previous retrieval set. Per-file size limits for retrieval keys: context 1 MiB, EvalMult key 16 MiB, automorphism keys 256 MiB (`ERROR_SIZE_LIMIT`). Chunks are at most 4 MiB. Insert and search fail with `ERROR_KEYS_MISSING` until the keys are uploaded.
