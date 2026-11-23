@@ -29,7 +29,7 @@
       "multiplicative_depth": 1,
       "plaintext_modulus": 786433,
       "key_switch_technique": "BV",
-      "digit_size": 20
+      "digit_size": 10
     }
   }
 }

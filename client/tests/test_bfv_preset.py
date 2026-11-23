@@ -133,3 +133,17 @@ def test_bfv_context_security_and_round_trip(tmp_path: Path) -> None:
     pt = cc.Decrypt(ct, keys.secretKey)
     pt.SetLength(ring)
     assert list(pt.GetCoefPackedValue()) == values
+
+
+def test_bfv_preset_digit_size_is_10() -> None:
+    p = params.get_preset(BFV, scheme="BFV")
+    assert p["digit_size"] == 10
+    assert p["key_switch_technique"] == "BV"
+
+
+@pytest.mark.openfhe
+def test_bfv_context_has_digit_size_10_at_128_bits() -> None:
+    ofhe = pytest.importorskip("openfhe")
+    prm, _cc = params.make_bfv_context(BFV)
+    assert prm.GetDigitSize() == 10
+    assert prm.GetSecurityLevel() == ofhe.SecurityLevel.HEStd_128_classic
