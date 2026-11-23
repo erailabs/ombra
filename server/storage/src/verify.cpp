@@ -17,6 +17,7 @@
 #include "ombra/storage/blob.hpp"
 #include "ombra/storage/catalog.hpp"
 #include "ombra/storage/fsutil.hpp"
+#include "ombra/storage/record_column.hpp"
 #include "ombra/storage/segment.hpp"
 #include "ombra/storage/store.hpp"
 #include "ombra/storage/wal.hpp"
@@ -292,6 +293,26 @@ void verify_data_dir(const std::string& root, VerifyReport& r, const VerifyOptio
     }
   }
 
+  // ---- Record columns: optional, one per block at most, named after the block's segment ----
+  std::set<std::string> record_known;
+  for (const auto& s : segs) {
+    if (!is_valid_segment_name(s.file)) continue;
+    const std::string rname = record_file_name(s.file);
+    record_known.insert(rname);
+    const std::string path = root + "/records/" + rname;
+    if (!exists(path)) continue;  // a block without a record column
+    try {
+      const auto col = read_record_file(path);
+      if (parse_record_column(col).n_rows != s.n_vectors)
+        throw RecordColumnError("record column has " +
+                                std::to_string(parse_record_column(col).n_rows) +
+                                " rows, the block has " + std::to_string(s.n_vectors) + " slots");
+      ++r.record_files;
+    } catch (const std::exception& e) {
+      if (!is_missing_error(e)) add(r, Severity::Corrupt, "record", rname, e.what());
+    }
+  }
+
   // ---- Blobs ----
   for (const auto& b : blobs) {
     blob_known.insert(b.file);
@@ -344,6 +365,9 @@ void verify_data_dir(const std::string& root, VerifyReport& r, const VerifyOptio
         if (!known->count(n))
           add(r, Severity::Warning, "orphan", n,
               std::string("file in ") + label + "/ has no catalog row");
+    for (const auto& n : list_dir_names(root + "/records"))
+      if (!record_known.count(n))
+        add(r, Severity::Warning, "orphan", n, "file in records/ belongs to no block");
   }
 
   // ---- Write-ahead log (scanned, never truncated) ----

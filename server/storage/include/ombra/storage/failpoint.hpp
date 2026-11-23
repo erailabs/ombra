@@ -46,6 +46,9 @@ enum class CrashPoint : int {
   BlobAfterRename,         // blob file durable under its final name, catalog untouched
   BlobAfterCatalog,        // catalog switched, a replaced old file still on disk
   BlobDeleteAfterCatalog,  // rows gone, files still on disk
+  // Record columns, in order of the write: the record file is durable before the segment is.
+  InsertAfterRecordFile,   // insert: record file durable, segment not yet written
+  ReplaceAfterRecordFile,  // replacement: record file durable, segment not yet written
 };
 
 inline constexpr int kCrashExitCode = 42;
@@ -88,6 +91,8 @@ inline int crash_point_from_env() {
       {"BlobAfterRename", CrashPoint::BlobAfterRename},
       {"BlobAfterCatalog", CrashPoint::BlobAfterCatalog},
       {"BlobDeleteAfterCatalog", CrashPoint::BlobDeleteAfterCatalog},
+      {"InsertAfterRecordFile", CrashPoint::InsertAfterRecordFile},
+      {"ReplaceAfterRecordFile", CrashPoint::ReplaceAfterRecordFile},
   };
   for (const auto& e : kNames)
     if (std::strcmp(env, e.name) == 0) return static_cast<int>(e.point);

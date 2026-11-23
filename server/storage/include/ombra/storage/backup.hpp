@@ -25,6 +25,10 @@
 //   5. The result is verified (verify_data_dir) before success is reported: every copied file's
 //      CRC, header and catalog cross-references. A corrupt source file (disk rot) fails the run.
 //
+// Also copied: the record column of every block that has one (records/<segment stem>.orec). It is
+// not in the catalog; its name follows from the segment's, and it is written before the segment and
+// never changes, so it either exists at T or never will for that block.
+//
 // Also copied when present: api_keys.v1 (written atomically by the server). Not copied: wal.log,
 // tls/, admin_api_key (the Docker volume holds these; see docs/site/operations/backups.md).
 // The output directory must not exist or be empty and must not lie inside the source.
@@ -38,6 +42,7 @@ namespace ombra::storage {
 
 struct BackupReport {
   std::size_t segments = 0, blobs = 0, key_files = 0;
+  std::size_t records = 0;  // record columns of blocks (records/), copied next to their segments
   std::uint64_t bytes = 0;  // bytes copied, files only
   int attempts = 0;         // 1 unless a file vanished and the run restarted
   bool api_keys = false;

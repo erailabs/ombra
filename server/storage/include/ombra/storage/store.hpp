@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 OR LicenseRef-Ombra-Commercial
 // Storage engine: segments + write-ahead log + catalog, with crash recovery.
 //
-// Layout under root: catalog.db, wal.log, segments/<name>.oseg, keys/<name>, blobs/<name>.oblob.
+// Layout under root: catalog.db, wal.log, segments/<name>.oseg, keys/<name>, blobs/<name>.oblob,
+// records/<name>.orec (the optional record column of a block, named after its segment; see
+// record_column.hpp). A record file is written durably BEFORE its segment, so every segment in the
+// catalog (or rolled forward from the log) finds its record file; a record file whose segment is
+// not in the catalog is an unreferenced leftover and recovery sweeps it. It is removed wherever its
+// segment is (replacement, dead-block drop, collection drop), also when the removal is deferred
+// because a search pins the segment.
 //
 // Guarantee: an acknowledged write (insert() or remove() returned) survives a crash or power
 // loss. A write that was not acknowledged is either fully there (segment, all its ids, catalog
@@ -46,6 +52,7 @@
 
 #include "ombra/storage/blob.hpp"
 #include "ombra/storage/catalog.hpp"
+#include "ombra/storage/record_column.hpp"
 #include "ombra/storage/segment.hpp"
 #include "ombra/storage/wal.hpp"
 
@@ -141,10 +148,15 @@ class Store {
   // collection or cluster, or a column envelope that does not match the collection's preset.
   // *replayed (optional) is set to true when the block repeated a stored one (nothing was written;
   // the stored block's name is returned).
+  // record_column (optional): the block's ORCL record column. Refused (RecordColumnError) unless it
+  // is well formed and has exactly one row per id; refused on a center block. A repeat of a stored
+  // block must carry the same column bytes (or none, when the stored block has none), else it is a
+  // duplicate.
   std::string insert(const std::string& collection, std::uint32_t cluster,
                      const std::vector<std::string>& ids,
                      const std::vector<std::vector<std::uint8_t>>& column_envelopes,
-                     bool* replayed = nullptr);
+                     bool* replayed = nullptr,
+                     const std::vector<std::uint8_t>* record_column = nullptr);
   // Names of all collections, sorted.
   std::vector<std::string> list_collections() const;
   // Removes a collection with all its rows, segment files and key files. Returns false if it does
@@ -213,9 +225,26 @@ class Store {
   // vectors and tombstones removed, old rows removed); unlink the old files (deferred while a
   // search pins them). Atomic: after a crash either the old set or the new block is in the
   // catalog, and the other files are swept. Returns the new segment name.
+  // record_column (optional): the new block's record column, one row per id of `neu` in its slot
+  // order. The old blocks' record files go with them; without one the new block has none.
   std::string replace_segments(const std::string& collection,
-                               const std::vector<std::string>& old_segments,
-                               const SegmentData& neu);
+                               const std::vector<std::string>& old_segments, const SegmentData& neu,
+                               const std::vector<std::uint8_t>* record_column = nullptr);
+
+  // ---- Record columns (private record retrieval) ------------------------------------------------
+  // The record column of one block (false if the block has none or is not in the collection).
+  bool get_record_column(const std::string& collection, const std::string& segment,
+                         std::vector<std::uint8_t>* out) const;
+  // The record columns of a scope, joined in a fixed order (ascending cluster id, then segment
+  // name), with the span of every block. Scope: `clusters` (distinct data cluster ids), or every
+  // data cluster when all_clusters. Center blocks are never included. The blocks are pinned while
+  // they are read, so a concurrent replacement cannot remove a file under it. Throws
+  // std::runtime_error ("unknown collection", "cluster out of range", "duplicate cluster") on a bad
+  // scope; RecordColumnMissing if a block in scope has no record column or the row sizes differ;
+  // RecordColumnError on a damaged file. A scope with no block gives an empty column (0 rows).
+  RecordScopeColumns read_record_columns(const std::string& collection,
+                                         const std::vector<std::uint32_t>& clusters,
+                                         bool all_clusters) const;
 
   // ---- Blobs: opaque encrypted bytes keyed by (collection, kind, id) --------------------
   // put_blob: payload size must be a bucket size (BlobSizeError) and kind a known kind
@@ -254,6 +283,12 @@ class Store {
   void unlink_or_defer(const std::string& file);
   void unpin(const std::vector<std::string>& files) const;
   std::string blob_dir() const { return root_ + "/blobs"; }
+  std::string record_dir() const { return root_ + "/records"; }
+  std::string record_path(const std::string& segment_name) const {
+    return record_dir() + "/" + record_file_name(segment_name);
+  }
+  // Unlinks a segment file and its record file (if any).
+  void unlink_segment_files(const std::string& segment_name) const;
   std::string key_dir() const { return root_ + "/keys"; }
   ColumnExpect expect_for(const CollectionSpec& spec) const;
   std::string root_, ofhe_;
