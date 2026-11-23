@@ -60,6 +60,9 @@ class RouterService final : public v1::Ombra::Service {
                           v1::ListBlocksResponse*) override;
   grpc::Status GetBlock(grpc::ServerContext*, const v1::GetBlockRequest*,
                         grpc::ServerWriter<v1::GetBlockResponse>*) override;
+  grpc::Status RetrieveRecords(
+      grpc::ServerContext*,
+      grpc::ServerReaderWriter<v1::RetrieveRecordsResponse, v1::RetrieveRecordsRequest>*) override;
   grpc::Status ReplaceBlock(grpc::ServerContext*, grpc::ServerReader<v1::ReplaceBlockRequest>*,
                             v1::ReplaceBlockResponse*) override;
   grpc::Status PutBlob(grpc::ServerContext*, grpc::ServerReader<v1::PutBlobRequest>*,

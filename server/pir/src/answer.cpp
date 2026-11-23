@@ -340,8 +340,6 @@ void answer_queries(const PirContext& cc, const PirKeys& keys, const PirShape& s
 
 namespace ombra::pir {
 
-PirParams retrieval_params() { return preset_params(); }
-
 void check_retrieval_keys(const PirKeyFiles& files, const std::string& key_tag,
                           const PirShape& shape) {
   const PirContext cc = read_pir_context(files.context);

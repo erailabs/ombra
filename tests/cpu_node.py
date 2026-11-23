@@ -11,7 +11,8 @@ has no TLS, one optional token, no aliases and no limits.
 
 It prints "ombra_server listening on HOST:PORT" once ready. With --search-log it appends one line
 per SearchChosen with the cluster ids asked (synthetic cluster numbers only), so a test can check
-which clusters a node was asked for. Needs ombra._native (OpenFHE 1.6.1).
+which clusters a node was asked for; the scope of every RetrieveRecords start goes to
+FILE.retrieve the same way. Needs ombra._native (OpenFHE 1.6.1).
 """
 
 from __future__ import annotations
@@ -73,6 +74,20 @@ class Node(pbg.OmbraServicer):
                 yield r
 
         yield from self.srv.Search(logged())
+
+    def RetrieveRecords(self, request_iterator, context):
+        self._auth(context)
+
+        def logged():
+            for r in request_iterator:
+                if self.search_log and r.WhichOneof("part") == "start":
+                    st = r.start  # the scope only: synthetic cluster numbers
+                    ids = "all" if st.all_clusters else " ".join(str(c) for c in st.cluster_ids)
+                    with open(self.search_log + ".retrieve", "a") as f:
+                        f.write(ids + "\n")
+                yield r
+
+        yield from self.srv.RetrieveRecords(logged())
 
 
 for _n in (

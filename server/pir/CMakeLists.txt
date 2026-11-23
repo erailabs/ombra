@@ -43,7 +43,7 @@ inline constexpr std::uint32_t kDigitSize = ${_digit};
 ")
 file(COPY_FILE ${_gen}/ombra/pir/preset.hpp.tmp ${_gen}/ombra/pir/preset.hpp ONLY_IF_DIFFERENT)
 
-add_library(ombra_pir_layout STATIC src/blake2b.cpp src/layout.cpp)
+add_library(ombra_pir_layout STATIC src/blake2b.cpp src/layout.cpp src/params.cpp)
 target_include_directories(ombra_pir_layout PUBLIC include ${_gen})
 
 add_executable(pir_layout_test tests/layout_test.cpp)

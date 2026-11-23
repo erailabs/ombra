@@ -10,6 +10,7 @@ Synthetic data only. Moving a cluster and GPU nodes are not covered here.
 from __future__ import annotations
 
 import queue
+from pathlib import Path
 
 import pytest
 
@@ -623,3 +624,211 @@ def test_blobs_are_placed_by_the_hash_of_the_id(cluster, data):
         timeout=30,
     )
     assert d.deleted == 12
+
+
+# ---- private record retrieval through the router ----
+PN = 30
+PM = 16
+SEED = bytes(range(16))
+
+
+class PData:
+    pass
+
+
+@pytest.fixture(scope="module")
+def pdata(cluster, tmp_path_factory):
+    import ombra
+
+    root = tmp_path_factory.mktemp("pclient")
+    rng = np.random.default_rng(23)
+    x = _unit(rng.standard_normal((PN, D)))
+    ids = [f"p{i}" for i in range(PN)]
+    client = ombra.Client(cluster.router.address, insecure=True)
+    client.create_collection(
+        "p",
+        x,
+        ids,
+        key_file=root / "k.key",
+        passphrase="pw",  # noqa: S106
+        preset="fast",
+        n_clusters=CLUSTERS,
+        scrypt_params=(2**4, 8, 1),
+        private_retrieval=True,
+    )
+    d = PData()
+    d.client, d.x, d.ids = client, x, ids
+    d.col = client._core._get("p")[0]
+    d.owner = {}
+    d.layout = {}  # (cluster, block index) -> ids in slot order
+    per: dict[int, int] = {}
+    for b in list_blocks(cluster.stub, "p"):
+        if b.cluster_id >= CLUSTERS:
+            continue
+        d.owner[b.cluster_id] = b.segment.split("/")[0]
+        h, _cols = fetch_block(cluster.stub, "p", b.segment)
+        bi = per.get(b.cluster_id, 0)
+        per[b.cluster_id] = bi + 1
+        d.layout[(b.cluster_id, bi)] = [bytes(i) for i in h.ids]
+    d.expect = {i.encode(): v for i, v in zip(ids, x, strict=True)}
+    yield d
+    client.close()
+
+
+def _retrieve(pdata, scope):
+    import random
+
+    from ombra import private_retrieval as pr
+
+    in_scope = {c for c in pdata.owner if scope is None or c in scope}
+    wanted = [
+        pr.Wanted(ident, c, b, slot)
+        for (c, b), block_ids in pdata.layout.items()
+        for slot, ident in enumerate(block_ids)
+        if c in in_scope
+    ][::2]
+    out = pr.retrieve(
+        pdata.col,
+        wanted,
+        lambda c, b: pdata.layout.get((c, b)),
+        scope=None if scope is None else sorted(scope),
+        m=PM,
+        rng=random.Random(3),  # noqa: S311  # a fixed fill for a repeatable test
+    )
+    return wanted, out
+
+
+def _check_rows(pdata, wanted, out, scope, n_parts):
+    assert len(_nodes_of(pdata, scope)) == n_parts
+    per_node: dict[str, int] = {}  # rows of the scope on each node
+    for (c, _b), block_ids in pdata.layout.items():
+        if scope is None or c in scope:
+            per_node[pdata.owner[c]] = per_node.get(pdata.owner[c], 0) + len(block_ids)
+    # every part asks for m rows (all its rows when it has fewer): wanted ones, then fillers
+    assert out.asked == sum(min(PM, n) for n in per_node.values())
+    assert (out.stale, out.bad_rows) == (0, 0)
+    got = {w.ident for w in wanted} & set(out.rows)
+    assert len(got) + out.dropped == len(wanted)
+    assert out.asked - out.filled == len(got) + out.dropped
+    assert len(got) >= 1
+    for ident, (vec, _ints) in out.rows.items():
+        assert np.allclose(vec, pdata.expect[ident], atol=1e-6)
+
+
+def _nodes_of(pdata, scope):
+    return sorted({n for c, n in pdata.owner.items() if scope is None or c in scope})
+
+
+def test_retrieval_over_several_nodes_opens_the_inserted_rows(cluster, pdata):
+    assert len(set(pdata.owner.values())) >= 2
+    wanted, out = _retrieve(pdata, None)  # all clusters
+    _check_rows(pdata, wanted, out, None, len(_nodes_of(pdata, None)))
+    by_node: dict[str, int] = {}  # a scope of two clusters on two different nodes
+    for c, n in sorted(pdata.owner.items()):
+        by_node.setdefault(n, c)
+    two = set(list(by_node.values())[:2])
+    wanted, out = _retrieve(pdata, two)
+    _check_rows(pdata, wanted, out, two, 2)
+
+
+def test_retrieval_scope_on_one_node_is_one_part(cluster, pdata):
+    node = next(iter(pdata.owner.values()))
+    scope = {c for c, n in pdata.owner.items() if n == node}
+    wanted, out = _retrieve(pdata, scope)
+    _check_rows(pdata, wanted, out, scope, 1)
+
+
+def test_nodes_are_asked_only_for_their_own_clusters(cluster, pdata):
+    def clear():
+        for n in cluster.nodes:
+            Path(str(n.search_log) + ".retrieve").unlink(missing_ok=True)
+
+    nodes = _nodes_of(pdata, None)
+    clear()
+    _retrieve(pdata, None)  # all_clusters at the router: explicit lists at the nodes
+    for i, n in enumerate(cluster.nodes):
+        mine = sorted(c for c, o in pdata.owner.items() if o == f"n{i}")
+        assert n.retrieved_scopes() == ([mine] if f"n{i}" in nodes else [])
+    one = min(pdata.owner)  # a scope of one cluster reaches only its owner
+    clear()
+    _retrieve(pdata, {one})
+    for i, n in enumerate(cluster.nodes):
+        assert n.retrieved_scopes() == ([[one]] if pdata.owner[one] == f"n{i}" else [])
+
+
+def _start(pdata, scope, seed=SEED):
+    kw = {"all_clusters": True} if scope is None else {"cluster_ids": sorted(scope)}
+    return pb.RetrieveRecordsRequest(
+        api_version=1,
+        start=pb.RetrieveRecordsStart(
+            collection="p",
+            key_tag=pdata.col.kit.key_tag,
+            pir_key_tag=pdata.col.kit.pir.key_tag,
+            m=PM,
+            hash_seed=seed,
+            **kw,
+        ),
+    )
+
+
+def _raw(cluster, pdata, scope, extra):
+    """Drive the stream by hand: read the infos, then send n_cts queries plus `extra` more.
+    Returns the infos and the messages after them."""
+    from ombra import pir
+
+    sizes = queue.Queue()
+
+    def gen():
+        yield _start(pdata, scope)
+        for _ in range(sizes.get(timeout=120)):
+            yield pb.RetrieveRecordsRequest(api_version=1, query=b"q")
+
+    call = cluster.stub.RetrieveRecords(gen(), timeout=240)
+    first = next(call)
+    assert first.WhichOneof("part") == "info", first
+    infos = [first.info]
+    while len(infos) < infos[0].n_parts:
+        infos.append(next(call).info)
+    total = sum(pir.make_shape(i.n_rows, PM, i.row_size, SEED).n_cts for i in infos)
+    sizes.put(total + extra)
+    return infos, list(call)
+
+
+def test_retrieval_infos_describe_each_nodes_own_clusters(cluster, pdata):
+    infos, rest = _raw(cluster, pdata, None, -1)  # one query short: BAD_SEQUENCE
+    nodes = _nodes_of(pdata, None)
+    assert [i.n_parts for i in infos] == [len(nodes)] * len(nodes)
+    assert [i.part for i in infos] == list(range(len(nodes)))
+    for info, node in zip(infos, nodes, strict=True):  # ascending node order
+        mine = {c for c, n in pdata.owner.items() if n == node}
+        assert {s.cluster_id for s in info.spans} <= mine
+        assert {s.cluster_id for s in info.spans}
+    assert len(rest) == 1 and rest[0].error.code == pb.ERROR_BAD_SEQUENCE
+
+
+def test_retrieval_extra_query_is_bad_sequence(cluster, pdata):
+    _infos, rest = _raw(cluster, pdata, None, 1)
+    assert len(rest) == 1 and rest[0].error.code == pb.ERROR_BAD_SEQUENCE
+
+
+def test_retrieval_refuses_a_bad_start(cluster, pdata):
+    def first(req):
+        return next(cluster.stub.RetrieveRecords(iter([req]), timeout=60))
+
+    assert (
+        first(pb.RetrieveRecordsRequest(api_version=1, query=b"q")).error.code
+        == pb.ERROR_BAD_SEQUENCE
+    )
+    assert first(_start(pdata, {CLUSTERS})).error.code == pb.ERROR_INVALID_ARGUMENT
+    assert first(_start(pdata, None, seed=b"short")).error.code == pb.ERROR_INVALID_ARGUMENT
+    req = _start(pdata, None)
+    req.start.m = 0
+    assert first(req).error.code == pb.ERROR_INVALID_ARGUMENT
+    req.start.m = 3001
+    assert first(req).error.code == pb.ERROR_SIZE_LIMIT
+    req = _start(pdata, {0})
+    req.start.all_clusters = True
+    assert first(req).error.code == pb.ERROR_INVALID_ARGUMENT
+    req = _start(pdata, None)
+    req.start.collection = "nope"
+    assert first(req).error.code == pb.ERROR_COLLECTION_NOT_FOUND

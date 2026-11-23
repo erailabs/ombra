@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "ombra/pir/blake2b.hpp"
+#include "ombra/pir/retrieval.hpp"
 
 using namespace ombra::pir;
 
@@ -194,7 +195,16 @@ void layout_errors() {
 
 }  // namespace
 
+// The retrieval preset's numbers are available without OpenFHE and are the ones the golden file
+// uses.
+static void preset_numbers() {
+  const PirParams pp = retrieval_params();
+  CHECK(pp.ring_dim == 8192);
+  CHECK(pp.coeff_bits() == 19 && pp.plaintext_bytes() == 19456);
+}
+
 int main() {
+  preset_numbers();
   blake2b_vectors();
   layout_golden();
   layout_errors();

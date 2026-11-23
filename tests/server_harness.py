@@ -393,6 +393,19 @@ class CpuNodeProcess(_ListeningProcess):
             return []
         return [[int(x) for x in ln.split()] for ln in self.search_log.read_text().splitlines()]
 
+    def retrieved_scopes(self) -> list[list[int] | str]:
+        """The scope of every RetrieveRecords start this node has received: its cluster ids, or
+        "all" (needs search_log=True)."""
+        if not self.search_log:
+            return []
+        path = Path(str(self.search_log) + ".retrieve")
+        if not path.exists():
+            return []
+        return [
+            "all" if ln == "all" else [int(x) for x in ln.split()]
+            for ln in path.read_text().splitlines()
+        ]
+
 
 class RouterProcess(_ListeningProcess):
     """`ombra_router` on loopback with a placement file written from the nodes' addresses.

@@ -1302,7 +1302,7 @@ class LocalServer:
                 spans.append((cl, seg, len(rows), col.n_rows))
                 rows += [col.row(i) for i in range(col.n_rows)]
         if not rows:
-            raise Refuse(pb.ERROR_INVALID_ARGUMENT, "the scope holds no rows")
+            raise Refuse(pb.ERROR_INVALID_ARGUMENT, "the scope has no records")
         from ombra.pir import PIR_PRESET
 
         def payload(name: str, kind: Kind) -> bytes:
