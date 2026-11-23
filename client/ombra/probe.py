@@ -33,7 +33,7 @@ from typing import Any
 
 import numpy as np
 
-from ombra.decoy_groups import SALT_LEN, GroupInfo, members_of
+from ombra.decoy_groups import GroupInfo, members_of
 
 RESERVED_PREFIX = b"\x00ombra/"
 STATS_ID = RESERVED_PREFIX + b"stats"
@@ -114,7 +114,9 @@ class ClusterStats:
 
     # ---- persistence: sealed by the caller's DocumentCodec, never stored in plaintext --------
     def to_bytes(self) -> bytes:
-        head = struct.pack("<4sHIH", _MAGIC, _VERSION, self.n_clusters, len(self.cards))
+        # Without groups the blob stays version 3, so older clients keep reading it.
+        version = 3 if self.groups is None else _VERSION
+        head = struct.pack("<4sHIH", _MAGIC, version, self.n_clusters, len(self.cards))
         head += struct.pack(f"<{len(self.cards)}I", *self.cards)
         body = self.sizes.astype("<i8").tobytes()
         body += b"".join(c.astype("<i8").tobytes() for c in self.counts)
@@ -122,7 +124,7 @@ class ClusterStats:
         out = head + struct.pack("<I", len(packed)) + packed
         g = self.groups
         if g is None:
-            return out + _TRAILER.pack(0, 0, bytes(SALT_LEN))
+            return out
         out += _TRAILER.pack(_METHOD_CODE[g.method], g.size, g.salt)
         return out + g.group_of.astype("<u4").tobytes()
 

@@ -144,13 +144,14 @@ def _stats(groups):
     return s
 
 
-def test_stats_blob_version_4_round_trips_groups_and_no_groups():
+def test_stats_blob_round_trips_groups_as_v4_and_no_groups_as_v3():
     info = GroupInfo(2, "neighbours", SALT, build_groups(KEY, SALT, 8, 2))
     codec = DocumentCodec(KEY, "col")
     store = InMemoryBlobStore()
     for groups in (None, info):
         s = _stats(groups)
-        assert int.from_bytes(s.to_bytes()[4:6], "little") == 4
+        want = 3 if groups is None else 4
+        assert int.from_bytes(s.to_bytes()[4:6], "little") == want
         store.put("col", KIND_RECORD, STATS_ID, s.seal(codec))
         back = ClusterStats.unseal(codec, store.get("col", KIND_RECORD, STATS_ID))
         assert np.array_equal(back.sizes, s.sizes)
@@ -163,12 +164,15 @@ def test_stats_blob_version_4_round_trips_groups_and_no_groups():
 
 
 def test_stats_blob_version_3_is_still_read_without_groups():
-    raw = _stats(None).to_bytes()
-    v3 = raw[:-21]  # the v4 trailer without groups is 1 + 4 + 16 bytes
-    v3 = v3[:4] + (3).to_bytes(2, "little") + v3[6:]
+    v3 = _stats(None).to_bytes()
+    assert int.from_bytes(v3[4:6], "little") == 3
     back = ClusterStats.from_bytes(v3)
     assert back.groups is None and back.sizes.tolist() == [5] * 8
     assert np.array_equal(back.counts[0][:, 1], [2] * 8)
+    # a v4 blob whose trailer says "no groups" (method code 0) reads the same
+    v4 = v3[:4] + (4).to_bytes(2, "little") + v3[6:] + bytes(21)
+    back4 = ClusterStats.from_bytes(v4)
+    assert back4.groups is None and back4.sizes.tolist() == [5] * 8
     old = bytearray(v3)
     old[4:6] = (2).to_bytes(2, "little")
     with pytest.raises(ValueError):
