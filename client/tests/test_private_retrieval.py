@@ -41,6 +41,26 @@ def test_key_file_with_retrieval_key_is_version_2_and_round_trips() -> None:
         keyfile.import_key_bytes(blob, "wrong passphrase")
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        bytes(32) + b"\x01\x00",  # shorter than the length field
+        bytes(32) + (400).to_bytes(4, "little") + bytes(300),  # length past the end
+        bytes(32) + (300).to_bytes(4, "little") + bytes(300),  # no retrieval key pair
+    ],
+)
+def test_key_file_version_2_with_a_malformed_body_is_refused(body: bytes) -> None:
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    n, r, p = FAST
+    salt, nonce = os.urandom(keyfile.SALT_LEN), os.urandom(keyfile.NONCE_LEN)
+    header = keyfile._HEADER.pack(keyfile.MAGIC, 2, keyfile.KDF_SCRYPT, n, r, p) + salt + nonce
+    key = keyfile._derive(PASS, salt, n, r, p)
+    blob = header + AESGCM(key).encrypt(nonce, body, header)
+    with pytest.raises(KeyFileError):
+        keyfile.import_key_bytes(blob, PASS)
+
+
 def test_rows_of_a_block_open_only_where_they_belong() -> None:
     codec = pir.RowCodec(bytes(range(32)), "coll", 6, 0)
     ids = [b"id-%02d-synthetic" % i for i in range(4)]
