@@ -114,11 +114,11 @@ def test_known_fixtures_included(path: str) -> None:
     assert not is_excluded(path)
 
 
-def test_every_tracked_binary_the_build_reads_is_uploaded() -> None:
+def test_every_tracked_file_of_an_uploaded_folder_is_uploaded() -> None:
     import subprocess
 
     tracked = subprocess.run(  # noqa: S603
-        ["git", "ls-files", "*.bin"],  # noqa: S607
+        ["git", "ls-files"],  # noqa: S607
         cwd=ROOT,
         capture_output=True,
         text=True,
