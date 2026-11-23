@@ -13,6 +13,8 @@ libFuzzer targets for the parsers of untrusted bytes that build on the CPU (no C
 | `api_keys` | API key file, `ApiKeyStore::load` and `reload` |
 | `http` | REST request parser and the `Authorization` check on its output |
 | `auth_header` | `authorize()` on raw header values, and the flag parsers of `limits.cpp` |
+| `record_column` | record column parser (`ORCL`) and record file container (`OREC`), `server/storage/src/record_column.cpp` |
+| `retrieve` | `RetrieveRecords` request stream validation, `server/grpc/src/retrieve.cpp`. Input: cluster count byte, then u16-length-prefixed messages. Needs gRPC (built when `ombra_server_retrieve` exists) |
 | `proto` | `ParseFromArray` of every gRPC request message (first byte picks the type), a serialize and parse round trip, and `validate_spec` on a parsed `CreateCollectionRequest`. Needs gRPC (built when `ombra_proto` exists) |
 | `keys` | `prepare_collection_keys` (`server/search/src/key_prep.cpp`): the preflight and then OpenFHE on a fuzzed context, EvalMult key or automorphism key file. Needs OpenFHE and the CPU engine |
 
@@ -21,6 +23,8 @@ libFuzzer targets for the parsers of untrusted bytes that build on the CPU (no C
 **Regression input.** `fuzz/known/keys-oom-evalmult-body.bin` (35 bytes) once made OpenFHE (cereal) allocate more than 2 GB: an EvalMult key file with a valid size and header but damaged bytes after the first 840, where cereal reads a length prefix. The preflight now checks every structure byte of a key file against a template (`server/search/context_golden/`), so the input is refused before OpenFHE reads it. It is also a test in the normal C++ suite (`search_context_preflight`).
 
 Not covered here: the inline checks of the gRPC handlers in `server/grpc/src/service.cpp` (id length, id count, chunk size), which need a live server. The SQLite catalog is SQLite's own file format and is not fuzzed.
+
+`record_column` and `retrieve` also run over their committed corpus in the normal test run (`make test`, ctest names `storage_record_column_corpus` and `server_retrieve_corpus`), with `fuzz/corpus_driver.cpp` instead of libFuzzer. The `retrieve` corpus is written by hand (like `proto`), not by `make fuzz-corpus`.
 
 ## Run
 

@@ -205,6 +205,8 @@ const char* rpc_name(Rpc r) {
       return "DropAlias";
     case Rpc::ListAliases:
       return "ListAliases";
+    case Rpc::RetrieveRecords:
+      return "RetrieveRecords";
     case Rpc::kCount:
       break;
   }
@@ -220,6 +222,7 @@ Scope required_scope(Rpc r) {
     case Rpc::GetBlob:
     case Rpc::Search:
     case Rpc::ListAliases:
+    case Rpc::RetrieveRecords:
       return Scope::Read;
     case Rpc::CreateCollection:
     case Rpc::UploadKeys:

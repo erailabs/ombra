@@ -48,6 +48,7 @@ enum class Rpc : int {
   SwitchAlias,
   DropAlias,
   ListAliases,
+  RetrieveRecords,
   kCount
 };
 inline constexpr std::size_t kRpcCount = static_cast<std::size_t>(Rpc::kCount);

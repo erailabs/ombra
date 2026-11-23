@@ -39,6 +39,12 @@ foreach(t segment wal catalog recovery blob seeded record_column verify backup d
   target_link_libraries(ombra_storage_${t}_test PRIVATE ombra_storage)
   add_test(NAME storage_${t} COMMAND ombra_storage_${t}_test)
 endforeach()
+# The record column fuzz entry point over its committed corpus, without libFuzzer.
+add_executable(ombra_storage_record_column_corpus ../../fuzz/fuzz_record_column.cpp
+                                                  ../../fuzz/corpus_driver.cpp)
+target_link_libraries(ombra_storage_record_column_corpus PRIVATE ombra_storage)
+add_test(NAME storage_record_column_corpus
+         COMMAND ombra_storage_record_column_corpus ${CMAKE_CURRENT_SOURCE_DIR}/../../fuzz/corpus/record_column)
 # The CLI tests run the real binaries.
 add_dependencies(ombra_storage_verify_test ombra_verify)
 target_compile_definitions(ombra_storage_verify_test PRIVATE

@@ -18,6 +18,7 @@
 #include "ombra/core/seeded_ciphertext.hpp"
 #include "ombra/server/auth.hpp"
 #include "ombra/storage/blob.hpp"
+#include "ombra/storage/record_column.hpp"
 #include "ombra/storage/fsutil.hpp"
 #include "ombra/storage/segment.hpp"
 #include "ombra/storage/wal.hpp"
@@ -106,6 +107,18 @@ int main(int argc, char** argv) {
   // A bare envelope, for the insert-time check that runs on the same bytes.
   emit("segment", "bare_seeded_m0",
        with_mode(0, envelope(core::EnvelopeKind::SeededCiphertext, sp)));
+
+  // record column: mode 0 a bare column (and as a file), mode 1 wrapped in a valid container.
+  {
+    Bytes col{'O', 'R', 'C', 'L'};
+    st::put_le(col, st::kRecordColumnVersion, 2);
+    st::put_le(col, 0, 2);
+    st::put_le(col, 64, 4);
+    st::put_le(col, 2, 4);
+    col.insert(col.end(), 128, 7);
+    emit("record_column", "good_64x2", with_mode(0, col));
+    emit("record_column", "wrapped_good", with_mode(1, col));
+  }
 
   // blob: mode 0/1 file bytes (a small payload is refused as not a bucket size); mode 2 and 6 build
   // a valid blob around the rest of the input.

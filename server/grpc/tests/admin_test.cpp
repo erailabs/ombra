@@ -79,6 +79,7 @@ static void test_scopes() {
   CHECK(required_scope(Rpc::SwitchAlias) == Scope::Admin);
   CHECK(required_scope(Rpc::DropAlias) == Scope::Admin);
   CHECK(required_scope(Rpc::ListAliases) == Scope::Read);
+  CHECK(required_scope(Rpc::RetrieveRecords) == Scope::Read);
   CHECK(scope_allows(Scope::Admin, Scope::Write) && scope_allows(Scope::Write, Scope::Read));
   CHECK(!scope_allows(Scope::Read, Scope::Write) && !scope_allows(Scope::Write, Scope::Admin));
   for (std::size_t i = 0; i < kRpcCount; ++i)

@@ -120,6 +120,21 @@ add_library(ombra_proto STATIC ${_pb_srcs})
 target_include_directories(ombra_proto SYSTEM PUBLIC ${_pb_dir})
 target_link_libraries(ombra_proto PUBLIC ${_grpc_libs} protobuf::libprotobuf Threads::Threads)
 
+# RetrieveRecords request validation: plain C++ over the generated messages.
+add_library(ombra_server_retrieve STATIC src/retrieve.cpp)
+target_include_directories(ombra_server_retrieve PUBLIC include)
+target_link_libraries(ombra_server_retrieve PUBLIC ombra_proto ombra_server_policy)
+
+add_executable(server_retrieve_test tests/retrieve_test.cpp)
+target_link_libraries(server_retrieve_test PRIVATE ombra_server_retrieve)
+add_test(NAME server_retrieve COMMAND server_retrieve_test)
+
+# The retrieval validation fuzz entry point over its committed corpus, without libFuzzer.
+add_executable(server_retrieve_corpus ../../fuzz/fuzz_retrieve.cpp ../../fuzz/corpus_driver.cpp)
+target_link_libraries(server_retrieve_corpus PRIVATE ombra_server_retrieve)
+add_test(NAME server_retrieve_corpus
+         COMMAND server_retrieve_corpus ${CMAKE_CURRENT_SOURCE_DIR}/../../fuzz/corpus/retrieve)
+
 # cudaMemGetInfo for /metrics. CMake 3.22 has no CUDA20 dialect, so CUDA_STANDARD 17 as elsewhere.
 if(OMBRA_ENABLE_CUDA)
   add_library(ombra_gpu_info STATIC src/gpu_info.cu)
@@ -136,7 +151,7 @@ find_package(OpenSSL REQUIRED)
 add_executable(ombra_server src/ombra_server.cpp src/service.cpp src/rest_server.cpp
                src/rest_admin.cpp)
 target_include_directories(ombra_server PRIVATE src)
-target_link_libraries(ombra_server PRIVATE ombra_server_policy ombra_server_rest ombra_server_admin ombra_gpu_info
+target_link_libraries(ombra_server PRIVATE ombra_server_policy ombra_server_retrieve ombra_server_rest ombra_server_admin ombra_gpu_info
                                            ombra_search ombra_proto OpenSSL::SSL OpenSSL::Crypto)
 target_compile_definitions(ombra_server PRIVATE OMBRA_VERSION="${PROJECT_VERSION}")
 if(NOT OMBRA_ENABLE_CUDA)

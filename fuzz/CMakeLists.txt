@@ -4,7 +4,7 @@
 # Every target links ombra_storage / ombra_server_admin, which the root builds with the same
 # sanitizer flags (-fsanitize=fuzzer-no-link,address,undefined).
 
-set(OMBRA_FUZZ_TARGETS envelope seeded segment blob wal recovery api_keys http auth_header)
+set(OMBRA_FUZZ_TARGETS envelope seeded segment blob wal recovery api_keys http auth_header record_column)
 
 add_custom_target(ombra_fuzzers)
 foreach(t ${OMBRA_FUZZ_TARGETS})
@@ -28,6 +28,12 @@ if(TARGET ombra_proto AND TARGET ombra_server_policy)
   target_link_libraries(ombra_fuzz_proto PRIVATE ombra_proto ombra_server_policy)
   target_link_options(ombra_fuzz_proto PRIVATE -fsanitize=fuzzer)
   add_dependencies(ombra_fuzzers ombra_fuzz_proto)
+endif()
+if(TARGET ombra_server_retrieve)
+  add_executable(ombra_fuzz_retrieve fuzz_retrieve.cpp)
+  target_link_libraries(ombra_fuzz_retrieve PRIVATE ombra_server_retrieve)
+  target_link_options(ombra_fuzz_retrieve PRIVATE -fsanitize=fuzzer)
+  add_dependencies(ombra_fuzzers ombra_fuzz_retrieve)
 endif()
 
 # OpenFHE context and key deserialization behind the preflight (CPU-only engine of server/search).
