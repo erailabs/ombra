@@ -138,9 +138,10 @@ def make_ckks_params(preset: dict[str, Any]) -> Any:
 
 def make_context(name: str, path: Path | None = None) -> tuple[Any, Any]:
     """Return (params, crypto_context) for the named preset, with PKE, KEYSWITCH and LEVELEDSHE."""
+    preset = get_preset(name, path)  # refuse an unknown name before needing OpenFHE
     import openfhe as ofhe
 
-    params = make_ckks_params(get_preset(name, path))
+    params = make_ckks_params(preset)
     cc = ofhe.GenCryptoContext(params)
     for feature in (
         ofhe.PKESchemeFeature.PKE,
