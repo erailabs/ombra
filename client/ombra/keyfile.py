@@ -3,10 +3,14 @@
 
 The file envelope deliberately has no kind for a secret key, so this file has its own magic
 "OMBK" and version, laid out like the envelope (little-endian):
-  magic "OMBK" | u16 version (1) | u8 kdf (1 = scrypt) | u32 n | u32 r | u32 p | salt (16) |
+  magic "OMBK" | u16 version (1 or 2) | u8 kdf (1 = scrypt) | u32 n | u32 r | u32 p | salt (16) |
   nonce (12) | AES-256-GCM ciphertext+tag
+Version 2 is written only when the file also holds the key pair of private record retrieval; a
+file without it stays version 1, byte for byte as before. Both versions are read.
 The whole header (everything before the ciphertext, so the KDF parameters and salt too) is the
-GCM associated data. Plaintext: master key (32 bytes) | secret key blob. Key bytes and the
+GCM associated data. Plaintext of version 1: master key (32 bytes) | secret key blob. Plaintext
+of version 2: master key (32) | u32 length of the secret key blob | secret key blob | blob of the
+retrieval key pair (non-empty). Key bytes and the
 passphrase never appear in errors or reprs. No OpenFHE dependency.
 """
 
@@ -24,6 +28,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 MAGIC = b"OMBK"
 KEYFILE_VERSION = 1
+KEYFILE_VERSION_PIR = 2  # the file also holds the private-retrieval key pair
+_LEN = struct.Struct("<I")
 KDF_SCRYPT = 1
 MASTER_KEY_LEN = 32
 SALT_LEN = 16
@@ -63,6 +69,7 @@ class KeyMaterial:
 
     secret_key: bytes = b""
     master_key: bytes = b""
+    pir_key: bytes = b""  # key pair of private record retrieval (BFV); empty: none
 
     def __post_init__(self) -> None:
         if len(self.master_key) != MASTER_KEY_LEN:
@@ -71,7 +78,8 @@ class KeyMaterial:
             raise KeyFileError("secret key is empty")
 
     def __repr__(self) -> str:
-        return f"KeyMaterial(secret_key=<{len(self.secret_key)} bytes>, master_key=<redacted>)"
+        pir = f", pir_key=<{len(self.pir_key)} bytes>" if self.pir_key else ""
+        return f"KeyMaterial(secret_key=<{len(self.secret_key)} bytes>, master_key=<redacted>{pir})"
 
     __str__ = __repr__
 
@@ -101,9 +109,19 @@ def export_key_bytes(
     n, r, p = scrypt_params
     _check_kdf_params(n, r, p)
     salt, nonce = os.urandom(SALT_LEN), os.urandom(NONCE_LEN)
-    header = _HEADER.pack(MAGIC, KEYFILE_VERSION, KDF_SCRYPT, n, r, p) + salt + nonce
+    version = KEYFILE_VERSION_PIR if material.pir_key else KEYFILE_VERSION
+    header = _HEADER.pack(MAGIC, version, KDF_SCRYPT, n, r, p) + salt + nonce
     key = _derive(passphrase, salt, n, r, p)
-    ct = AESGCM(key).encrypt(nonce, material.master_key + material.secret_key, header)
+    if material.pir_key:
+        body = (
+            material.master_key
+            + _LEN.pack(len(material.secret_key))
+            + material.secret_key
+            + material.pir_key
+        )
+    else:
+        body = material.master_key + material.secret_key
+    ct = AESGCM(key).encrypt(nonce, body, header)
     return header + ct
 
 
@@ -113,7 +131,7 @@ def import_key_bytes(data: bytes, passphrase: str) -> KeyMaterial:
     magic, version, kdf, n, r, p = _HEADER.unpack_from(data)
     if magic != MAGIC:
         raise KeyFileError("bad magic, not an Ombra key file")
-    if version != KEYFILE_VERSION:
+    if version not in (KEYFILE_VERSION, KEYFILE_VERSION_PIR):
         raise KeyFileError(f"unknown key file version {version}")
     if kdf != KDF_SCRYPT:
         raise KeyFileError(f"unknown key derivation {kdf}")
@@ -126,7 +144,16 @@ def import_key_bytes(data: bytes, passphrase: str) -> KeyMaterial:
         plain = AESGCM(key).decrypt(nonce, data[_HEADER_LEN:], header)
     except InvalidTag:
         raise KeyFileError("wrong passphrase or corrupted key file") from None
-    return KeyMaterial(plain[MASTER_KEY_LEN:], plain[:MASTER_KEY_LEN])
+    master, rest = plain[:MASTER_KEY_LEN], plain[MASTER_KEY_LEN:]
+    if version == KEYFILE_VERSION:
+        return KeyMaterial(rest, master)
+    if len(rest) < _LEN.size:
+        raise KeyFileError("truncated key file")
+    (n_sk,) = _LEN.unpack_from(rest)
+    sk, pir = rest[_LEN.size : _LEN.size + n_sk], rest[_LEN.size + n_sk :]
+    if len(sk) != n_sk or not pir:
+        raise KeyFileError("malformed key file content")
+    return KeyMaterial(sk, master, pir)
 
 
 def export_key_file(
@@ -202,7 +229,7 @@ def _check_structure(data: bytes) -> int:
     magic, version, kdf, n, r, p = _HEADER.unpack_from(data)
     if magic != MAGIC:
         raise KeyFileError("bad magic, not an Ombra key file")
-    if version != KEYFILE_VERSION:
+    if version not in (KEYFILE_VERSION, KEYFILE_VERSION_PIR):
         raise KeyFileError(f"unknown key file version {version}")
     if kdf != KDF_SCRYPT:
         raise KeyFileError(f"unknown key derivation {kdf}")
