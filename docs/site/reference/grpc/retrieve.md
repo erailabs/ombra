@@ -18,7 +18,7 @@ The stream is bidirectional, and its order matters, because the shape of a call 
 
 1. The client sends one `RetrieveRecordsStart`.
 2. The server checks the start, the keys and the scope, and answers with one `RetrieveRecordsInfo`, or with an `Error` and the end. The client builds its queries from the Info: it knows `n_rows` and the block layout, and the row index of a candidate is `span.first_row` plus its slot in the block.
-3. The client sends exactly as many messages with a `query` as the shape needs (`shape.n_cts`, computed from the Info the same way the server does). An extra query is `ERROR_BAD_SEQUENCE`, and so is a stream that ends early.
+3. The client sends exactly as many messages with a `query` as the shape needs (`shape.n_cts`, computed from the Info the same way the server does). Then it closes its side of the stream (a half-close): the server computes the answers only after that. An extra query is `ERROR_BAD_SEQUENCE`, and so is a stream that ends early.
 4. The server sends one `RecordAnswer` per bucket, in bucket order, or an `Error` and the end.
 
 The server stores nothing of the call, and logs only counts.
