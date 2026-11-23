@@ -2,7 +2,7 @@
 
 Private fetch of the re-rank rows of a client's candidates, so that the server does not learn which rows. The rows are the [record columns](insert-and-delete.md#record-column) stored with the blocks. `Error` is on the [Messages](messages.md) page.
 
-The server answers on OpenFHE (BFV, preset `pir_bfv_n8192`), on the CPU. The answers decrypt, on the client, to the rows of the database that the client asked for; the server does not learn which.
+The server answers on OpenFHE (BFV, preset `pir_bfv_n8192`). In the CUDA build, the products of the query with the stored rows run on the GPU, and they give the same bytes as OpenFHE. Without a usable GPU, everything runs on the CPU. The answers decrypt, on the client, to the rows of the database that the client asked for; the server does not learn which.
 
 ## RetrieveRecords
 

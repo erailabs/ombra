@@ -31,7 +31,7 @@ The server sees the scope of the call: the clusters the search requested (decoys
 
 - **Download.** About 132 KB per bucket, and a call has 1.5 buckets per row asked for. With `k = 10` and the default factor 3, m is 30 and the answer is about 6 MB per search. A collection with range fields asks for 4 times as many.
 - **Upload.** About 41 MB of public keys once per collection, and the query ciphertexts of each call.
-- **Server work.** The server computes over every row in scope, so a Strict search is the most expensive.
+- **Server work.** The server computes over every row in scope, so a Strict search is the most expensive. On a GPU server, the first and largest step (each query ciphertext times every stored row) runs on the GPU, and the remaining steps run on the CPU. The GPU gives the same answer bytes as the CPU, which tests check for each build. A server built without CUDA, or running on a machine without a usable GPU, answers entirely on the CPU.
 - **Storage.** One row of about 3 KB per vector at 768 dimensions, next to the vector's ciphertext columns.
 - **Through a router.** When the scope spans several nodes the call is made in parts, one per node, each with the full row count. The cost grows with the number of parts.
 
