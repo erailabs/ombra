@@ -44,6 +44,14 @@ The client shuffles the cluster ids of each request before sending them, so the 
 
 Decoys protect one query at a time. Over many queries on the same topic the real clusters repeat and the decoys do not, see [Out of scope](out-of-scope.md).
 
+### Decoy groups (optional, off by default)
+
+A collection created with `decoy_group_size` of 2 or more groups its clusters with a keyed permutation. A Decoy query then asks for whole groups, and its extra groups are a keyed function of its real groups and the round number, so the same real groups always produce the same request. This changes what the server can learn:
+
+- **What it hides.** Which cluster of a group is the one the query wanted. Repeating a search, or intersecting the requests of many similar searches, can narrow the request down to the real groups at best, never to a single cluster inside a group. The server does not know which clusters share a group.
+- **What it does not hide.** The real groups themselves, the fixed counts, the full scan for a rare filter, the candidate ids fetched for re-ranking, and the fact that related queries ask for the same set. Queries that differ slightly can still ask for different real groups, and then their decoys differ, so many noisy variants of one topic can still narrow the set down to the real groups.
+- **Cost.** The scoring work is unchanged, but the clusters that fill a group are not the ones nearest the query, so recall can fall. Grouping stays off unless you ask for it.
+
 ## Strict
 
 Strict asks for every cluster in two rounds: the first half of the cluster ids, then the second half, in a fixed order that does not depend on the query. A filtered query looks the same as an unfiltered one, and so does a rare-filter query, because the full scan is already the normal plan.
