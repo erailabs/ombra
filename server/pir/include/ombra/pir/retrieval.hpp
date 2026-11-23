@@ -32,11 +32,20 @@ PirParams retrieval_params();
 void check_retrieval_keys(const PirKeyFiles& files, const std::string& key_tag,
                           const PirShape& shape);
 
+// Where the first-dimension inner sums run. kGpu uses the GPU backend if the build registered one
+// (see answer.hpp) and OpenFHE on the CPU otherwise; the answers are byte-identical either way.
+enum class PirBackend { kCpu, kGpu };
+
+// CUDA build only (library ombra_pir_gpu, gpu_inner.hpp): makes PirBackend::kGpu use the GPU
+// inner sums. Call once at start-up, only on a machine with a usable GPU.
+void register_gpu_inner_sums();
+
 // Loads the keys, answers every query, unloads. `column_body` points at n_rows * row_size bytes.
 // Returns one serialized answer per bucket, in bucket order. Throws PirContextError,
 // PirKeyTagMismatch, PirQueryError, PirError.
 std::vector<std::string> answer_call(const PirKeyFiles& files, const std::string& key_tag,
                                      const PirShape& shape, const std::uint8_t* column_body,
-                                     const std::vector<std::string>& queries);
+                                     const std::vector<std::string>& queries,
+                                     PirBackend backend = PirBackend::kCpu);
 
 }  // namespace ombra::pir

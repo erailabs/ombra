@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 OR LicenseRef-Ombra-Commercial
 #include "ombra/pir/answer.hpp"
 
+#include <algorithm>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -268,10 +269,11 @@ class Answerer {
     return nodes;
   }
 
-  // The plaintext of grid cell p of a bucket; missing cells are zero.
-  Plaintext cell(const std::vector<std::uint64_t>& rows, std::size_t p) const {
+  // The coefficients ([0, t)) of grid cell p of a bucket; empty for a missing cell.
+  std::vector<std::int64_t> cell_coeffs(const std::vector<std::uint64_t>& rows,
+                                        std::size_t p) const {
     const std::size_t lo = p * s_.rows_per_pt;
-    if (lo >= rows.size()) return zero_;
+    if (lo >= rows.size()) return {};
     const std::size_t hi = std::min(rows.size(), lo + s_.rows_per_pt);
     std::vector<std::uint8_t> data;
     data.reserve((hi - lo) * s_.row_size);
@@ -279,21 +281,55 @@ class Answerer {
       const std::uint8_t* r = body_ + rows[k] * s_.row_size;
       data.insert(data.end(), r, r + s_.row_size);
     }
-    return plain(bytes_to_coeffs(data.data(), data.size(), s_.pp));
+    return bytes_to_coeffs(data.data(), data.size(), s_.pp);
+  }
+
+  // The plaintext of grid cell p of a bucket; missing cells are zero.
+  Plaintext cell(const std::vector<std::uint64_t>& rows, std::size_t p) const {
+    const auto c = cell_coeffs(rows, p);
+    return c.empty() ? zero_ : plain(c);
+  }
+
+  // The inner sums through the hook: selectors and flat [0, t) cells in, r2 ciphertexts out.
+  std::vector<Ciphertext<DCRTPoly>> hooked_inner(
+      const InnerSums& hook, const std::map<std::size_t, Ciphertext<DCRTPoly>>& sel,
+      std::size_t base, const std::vector<std::uint64_t>& rows) const {
+    const std::size_t n = s_.pp.ring_dim;
+    std::vector<Ciphertext<DCRTPoly>> selectors;
+    selectors.reserve(s_.r1);
+    for (std::size_t a = 0; a < s_.r1; ++a) selectors.push_back(sel.at(base + a));
+    std::vector<std::int64_t> cells(s_.r1 * s_.r2 * n, 0);
+    for (std::size_t p = 0; p < s_.r1 * s_.r2; ++p) {
+      const auto c = cell_coeffs(rows, p);
+      if (!c.empty()) std::copy(c.begin(), c.end(), cells.begin() + p * n);
+    }
+    auto inner = hook(cc_, selectors, cells, s_.r1, s_.r2);
+    if (inner.size() != s_.r2) throw PirError("the inner sums hook returned a wrong count");
+    return inner;
   }
 
   std::string answer_bucket(const std::map<std::size_t, Ciphertext<DCRTPoly>>& sel,
-                            std::size_t base, std::size_t bucket) const {
+                            std::size_t base, std::size_t bucket,
+                            const InnerSums& hook = nullptr) const {
     const auto& rows = s_.contents[bucket];
+    std::vector<Ciphertext<DCRTPoly>> hooked;
     std::vector<Plaintext> cells;
-    cells.reserve(s_.r1 * s_.r2);
-    for (std::size_t p = 0; p < s_.r1 * s_.r2; ++p) cells.push_back(cell(rows, p));
+    if (hook) {
+      hooked = hooked_inner(hook, sel, base, rows);
+    } else {
+      cells.reserve(s_.r1 * s_.r2);
+      for (std::size_t p = 0; p < s_.r1 * s_.r2; ++p) cells.push_back(cell(rows, p));
+    }
     Ciphertext<DCRTPoly> total;
     for (std::size_t b = 0; b < s_.r2; ++b) {
       Ciphertext<DCRTPoly> inner;
-      for (std::size_t a = 0; a < s_.r1; ++a) {
-        const auto term = cc_->EvalMult(sel.at(base + a), cells[a * s_.r2 + b]);
-        inner = inner ? cc_->EvalAdd(inner, term) : term;
+      if (hook) {
+        inner = hooked[b];
+      } else {
+        for (std::size_t a = 0; a < s_.r1; ++a) {
+          const auto term = cc_->EvalMult(sel.at(base + a), cells[a * s_.r2 + b]);
+          inner = inner ? cc_->EvalAdd(inner, term) : term;
+        }
       }
       const auto prod = cc_->EvalMultNoRelin(sel.at(base + s_.r1 + b), inner);
       total = total ? cc_->EvalAdd(total, prod) : prod;
@@ -317,7 +353,7 @@ class Answerer {
 
 void answer_queries(const PirContext& cc, const PirKeys& keys, const PirShape& shape,
                     const std::uint8_t* column_body, const std::vector<std::string>& queries,
-                    const AnswerSink& sink) {
+                    const AnswerSink& sink, const InnerSums& inner_sums) {
   if (queries.size() != shape.n_cts) throw PirError("wrong number of query ciphertexts");
   if (keys.tag().empty()) throw PirKeyTagMismatch("no retrieval keys are loaded");
   Answerer a(cc, shape, column_body, keys.tag());
@@ -331,7 +367,7 @@ void answer_queries(const PirContext& cc, const PirKeys& keys, const PirShape& s
     const auto sel = a.expand(ct, nb * shape.coeffs_per_bucket());
     for (std::size_t slot = 0; slot < nb; ++slot) {
       const std::size_t bucket = c * shape.per_ct + slot;
-      sink(bucket, a.answer_bucket(sel, slot * shape.coeffs_per_bucket(), bucket));
+      sink(bucket, a.answer_bucket(sel, slot * shape.coeffs_per_bucket(), bucket, inner_sums));
     }
   }
 }
@@ -348,15 +384,45 @@ void check_retrieval_keys(const PirKeyFiles& files, const std::string& key_tag,
   PirKeys keys(cc, files.eval_mult, files.automorphism, key_tag, shape);
 }
 
-std::vector<std::string> answer_call(const PirKeyFiles& files, const std::string& key_tag,
-                                     const PirShape& shape, const std::uint8_t* column_body,
-                                     const std::vector<std::string>& queries) {
+namespace {
+
+std::mutex g_factory_mu;
+InnerSumsFactory g_factory;
+
+}  // namespace
+
+void set_gpu_inner_sums_factory(InnerSumsFactory factory) {
+  std::lock_guard lk(g_factory_mu);
+  g_factory = std::move(factory);
+}
+
+std::vector<std::string> answer_call_with_hook(const PirKeyFiles& files, const std::string& key_tag,
+                                               const PirShape& shape,
+                                               const std::uint8_t* column_body,
+                                               const std::vector<std::string>& queries,
+                                               const InnerSums& inner_sums) {
   const PirContext cc = read_pir_context(files.context);
   PirKeys keys(cc, files.eval_mult, files.automorphism, key_tag, shape);
   std::vector<std::string> out(shape.buckets);
-  answer_queries(cc, keys, shape, column_body, queries,
-                 [&](std::size_t b, std::string&& a) { out.at(b) = std::move(a); });
+  answer_queries(
+      cc, keys, shape, column_body, queries,
+      [&](std::size_t b, std::string&& a) { out.at(b) = std::move(a); }, inner_sums);
   return out;
+}
+
+std::vector<std::string> answer_call(const PirKeyFiles& files, const std::string& key_tag,
+                                     const PirShape& shape, const std::uint8_t* column_body,
+                                     const std::vector<std::string>& queries, PirBackend backend) {
+  InnerSums hook;
+  if (backend == PirBackend::kGpu) {
+    InnerSumsFactory f;
+    {
+      std::lock_guard lk(g_factory_mu);
+      f = g_factory;
+    }
+    if (f) hook = f();
+  }
+  return answer_call_with_hook(files, key_tag, shape, column_body, queries, hook);
 }
 
 }  // namespace ombra::pir
