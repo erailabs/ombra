@@ -76,12 +76,15 @@ class FakeClient:
         range_fields: Mapping[str, Any] | None = None,
         security_level: str = "fast",
         n_clusters: int | None = None,
+        decoy_group_size: int = 1,
+        decoy_grouping: str = "neighbours",
         scrypt_params: tuple[int, int, int] | None = None,
     ) -> str:
         """Create an in-memory collection and insert the vectors.
 
         Vectors are normalized to unit length. `key_file`, `passphrase`, `n_clusters`,
-        `range_fields` and `scrypt_params` are accepted and ignored; no key file is written.
+        `range_fields`, `decoy_group_size`, `decoy_grouping` and `scrypt_params` are accepted and
+        ignored; no key file is written.
 
         Returns:
             The collection name.

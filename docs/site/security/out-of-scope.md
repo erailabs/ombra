@@ -27,7 +27,7 @@ Timing, cache, power and memory-access side channels, on the server or the clien
 
 ## Repeated queries
 
-Decoys hide the real clusters of one query, and the client shuffles each request so the order gives nothing away. A server that watches many queries can compare them: the real clusters of related queries repeat while the random decoys change, so over time the real ones stand out. We have not measured how fast. Strict is the only level without this weakness, at the cost of scanning every cluster.
+Decoys hide the real clusters of one query, and the client shuffles each request so the order gives nothing away. A server that watches many queries can compare them: the real clusters of related queries repeat while the random decoys change, so over time the real ones stand out. We have not measured how fast. Strict is the only level without this weakness, at the cost of scanning every cluster. The optional decoy groups (off by default, see [What the server learns](what-the-server-learns.md)) make repeated identical requests for the same topic and hide which cluster inside a group was wanted, but an observer can still narrow the requests of many varied queries down to the real groups.
 
 ## Compromised clients and keys
 

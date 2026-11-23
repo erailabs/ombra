@@ -130,6 +130,8 @@ class Client:
         range_fields: Mapping[str, Any] | None = None,
         security_level: str = "fast",
         n_clusters: int | None = None,
+        decoy_group_size: int = 1,
+        decoy_grouping: str = "neighbours",
         scrypt_params: tuple[int, int, int] | None = None,
     ) -> str:
         """Cluster and encrypt `vectors` (unit length), write the key file, create the collection.
@@ -156,6 +158,12 @@ class Client:
             security_level: Default search level of the collection: "fast", "decoy" or "strict".
             n_clusters: Number of clusters. If omitted, the number of vectors divided by the
                 preset's batch size, rounded, at least 1.
+            decoy_group_size: Size g of fixed decoy groups for Decoy searches; 1 (the default) is
+                off and keeps per-query random decoys. With g > 1 the cluster count is rounded
+                down to a multiple of g, and a Decoy search asks for whole groups.
+            decoy_grouping: "neighbours" (the default: clusters with close centers share a group,
+                which costs the least recall) or "random" (a keyed random partition). Only used
+                when `decoy_group_size` > 1.
             scrypt_params: Key derivation cost `(n, r, p)` of the key file. Library default if
                 omitted.
 
@@ -180,6 +188,8 @@ class Client:
             range_fields=range_fields,
             security_level=security_level,
             n_clusters=n_clusters,
+            decoy_group_size=decoy_group_size,
+            decoy_grouping=decoy_grouping,
             scrypt_params=scrypt_params,
         )
 
@@ -518,6 +528,8 @@ class AsyncClient:
         range_fields: Mapping[str, Any] | None = None,
         security_level: str = "fast",
         n_clusters: int | None = None,
+        decoy_group_size: int = 1,
+        decoy_grouping: str = "neighbours",
         scrypt_params: tuple[int, int, int] | None = None,
     ) -> str:
         """Cluster and encrypt `vectors` (unit length), write the key file, create the collection.
@@ -544,6 +556,12 @@ class AsyncClient:
             security_level: Default search level of the collection: "fast", "decoy" or "strict".
             n_clusters: Number of clusters. If omitted, the number of vectors divided by the
                 preset's batch size, rounded, at least 1.
+            decoy_group_size: Size g of fixed decoy groups for Decoy searches; 1 (the default) is
+                off and keeps per-query random decoys. With g > 1 the cluster count is rounded
+                down to a multiple of g, and a Decoy search asks for whole groups.
+            decoy_grouping: "neighbours" (the default: clusters with close centers share a group,
+                which costs the least recall) or "random" (a keyed random partition). Only used
+                when `decoy_group_size` > 1.
             scrypt_params: Key derivation cost `(n, r, p)` of the key file. Library default if
                 omitted.
 
@@ -568,6 +586,8 @@ class AsyncClient:
             range_fields=range_fields,
             security_level=security_level,
             n_clusters=n_clusters,
+            decoy_group_size=decoy_group_size,
+            decoy_grouping=decoy_grouping,
             scrypt_params=scrypt_params,
         )
 

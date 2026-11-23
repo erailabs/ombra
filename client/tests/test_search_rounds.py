@@ -23,10 +23,11 @@ class _Msg(SimpleNamespace):
         return self.kind
 
 
-def _fake(level, matches_per_cluster, requests):
+def _fake(level, matches_per_cluster, requests, groups=None, key=b"k" * 32, cs=None):
     rng = np.random.default_rng(0)
-    cs = rng.uniform(-1, 1, C)
+    cs = rng.uniform(-1, 1, C) if cs is None else cs
     stats = ClusterStats.empty(C, (2,))
+    stats.groups = groups
     stats.sizes[:] = N
     stats.counts[0][:, 1] = matches_per_cluster
     stats.counts[0][:, 0] = N - matches_per_cluster
@@ -56,6 +57,7 @@ def _fake(level, matches_per_cluster, requests):
     )
     kit = _ns(
         key_tag="t",
+        master_key=key,
         encrypt_query=lambda ext: b"",
         decrypt_column=lambda env: np.frombuffer(env, dtype=np.float64),
     )
