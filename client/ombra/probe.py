@@ -33,12 +33,17 @@ from typing import Any
 
 import numpy as np
 
+from ombra.decoy_groups import SALT_LEN, GroupInfo, members_of
+
 RESERVED_PREFIX = b"\x00ombra/"
 STATS_ID = RESERVED_PREFIX + b"stats"
 FIELDS_KEY = "\x00ombra/fields"  # record metadata key: the filter values of a vector (for delete)
 POLICIES = ("e2", "plain2", "basic")
 _MAGIC = b"OSTA"
-_VERSION = 3  # 2 also held the radii of the dropped check A; refused on load
+_VERSION = 4  # 4 adds the decoy-group trailer; 3 is still read (no groups); 2 held radii: refused
+_READABLE = (3, 4)
+_METHOD_CODE = {"random": 1, "neighbours": 2}
+_TRAILER = struct.Struct("<BI16s")  # method code (0 = no groups), group size, salt
 
 
 def check_user_id(ident: bytes) -> None:
@@ -51,6 +56,7 @@ class ClusterStats:
     cards: tuple[int, ...]
     sizes: np.ndarray  # (C,) live vectors per cluster
     counts: list[np.ndarray]  # per field, (C, card): live vectors per value
+    groups: GroupInfo | None = None  # fixed decoy groups; None: per-query random decoys
 
     @classmethod
     def empty(cls, n_clusters: int, cards: Sequence[int]) -> ClusterStats:
@@ -113,13 +119,18 @@ class ClusterStats:
         body = self.sizes.astype("<i8").tobytes()
         body += b"".join(c.astype("<i8").tobytes() for c in self.counts)
         packed = zlib.compress(body, 6)
-        return head + struct.pack("<I", len(packed)) + packed
+        out = head + struct.pack("<I", len(packed)) + packed
+        g = self.groups
+        if g is None:
+            return out + _TRAILER.pack(0, 0, bytes(SALT_LEN))
+        out += _TRAILER.pack(_METHOD_CODE[g.method], g.size, g.salt)
+        return out + g.group_of.astype("<u4").tobytes()
 
     @classmethod
     def from_bytes(cls, raw: bytes) -> ClusterStats:
         h = struct.Struct("<4sHIH")
         magic, version, n, nf = h.unpack_from(raw)
-        if magic != _MAGIC or version != _VERSION:
+        if magic != _MAGIC or version not in _READABLE:
             raise ValueError("stats blob has an unknown format or version")
         cards = struct.unpack_from(f"<{nf}I", raw, h.size)
         o = h.size + 4 * nf
@@ -130,7 +141,17 @@ class ClusterStats:
         for c in cards:
             counts.append(np.frombuffer(body, "<i8", n * c, off).reshape(n, c).astype(np.int64))
             off += 8 * n * c
-        return cls(tuple(cards), sizes, counts)
+        groups = None
+        if version >= 4:
+            end = o + 4 + plen
+            code, size, salt = _TRAILER.unpack_from(raw, end)
+            if code:
+                names = {v: k for k, v in _METHOD_CODE.items()}
+                if code not in names:
+                    raise ValueError("stats blob has an unknown grouping method")
+                ids = np.frombuffer(raw, "<u4", n, end + _TRAILER.size).astype(np.int64)
+                groups = GroupInfo(size, names[code], bytes(salt), ids)
+        return cls(tuple(cards), sizes, counts, groups)
 
     def seal(self, codec: Any) -> bytes:
         raw = self.to_bytes()
@@ -148,14 +169,20 @@ def strict_halves(n_clusters: int) -> list[list[int]]:
     return [list(range(h)), list(range(h, n_clusters))]
 
 
-def decoy_round_sizes(first: int, n_clusters: int) -> tuple[int, int]:
+def decoy_round_sizes(first: int, n_clusters: int, group_size: int = 1) -> tuple[int, int]:
     """Requested clusters (real plus decoys) in Decoy rounds 1 and 2: 2*first, then 4*first.
 
     Depends only on the first-round count and the collection size, never on the filter. Round 1's
     real clusters are capped at 2*first and round 2's real ones at 2x round 1's, so they always
-    fit. When fewer clusters are left, the round asks for all of those (also filter-independent)."""
-    r1 = min(n_clusters, 2 * first)
-    return r1, min(n_clusters - r1, 4 * first)
+    fit. When fewer clusters are left, the round asks for all of those (also filter-independent).
+
+    With decoy groups of size g (`n_clusters` a multiple of g) the rounds ask for whole groups:
+    ceil(2*first/g) groups in round 1, then ceil(4*first/g) in round 2, so both counts are
+    multiples of g and again independent of the query. g = 1 gives the sizes above."""
+    g = max(1, group_size)
+    n_groups = n_clusters // g
+    g1 = min(n_groups, -(-2 * first // g))
+    return g1 * g, min(n_groups - g1, -(-4 * first // g)) * g
 
 
 class ProbePlanner:
@@ -175,10 +202,36 @@ class ProbePlanner:
         min_selectivity: float = 0.005,
         stop_matches: int | None = None,
         max_probe_factor: int = 8,
+        groups: GroupInfo | None = None,
+        cap2: int | None = None,
     ) -> None:
+        """With `groups` (Decoy only), the planner works on whole groups: a "unit" is a group, in
+        the order of its best-scored cluster, and `first`, `cap1` and `cap2` (clusters) become
+        group counts (rounded up). Every returned round is the clusters of whole groups. `cap2` is
+        the most clusters of real groups in round 2 (default: twice round 1's). Without `groups`
+        a unit is one cluster."""
         if policy not in POLICIES:
             raise ValueError(f"probe policy must be one of {list(POLICIES)}")
+        if groups is not None and policy == "basic":
+            raise ValueError("decoy groups do not apply to the basic policy")
         self.order = [int(c) for c in order]
+        self.group_of: np.ndarray | None = None if groups is None else groups.group_of
+        self.members: list[list[int]] | None = None
+        if groups is not None:
+            self.members = members_of(groups.group_of)
+            seen: set[int] = set()
+            units = []
+            for c in self.order:
+                u = int(groups.group_of[c])
+                if u not in seen:
+                    seen.add(u)
+                    units.append(u)
+            gs = groups.size
+            first = -(-first // gs)
+            cap1 = None if cap1 is None else -(-cap1 // gs)
+            cap2 = None if cap2 is None else -(-cap2 // gs)
+            self.order = units
+        self.cap2 = cap2
         self.policy, self.k, self.first = policy, k, max(1, min(first, len(self.order)))
         self.expect_factor, self.min_selectivity = expect_factor, min_selectivity
         self.cap1 = len(self.order) if cap1 is None else max(1, cap1)  # max real clusters, round 1
@@ -192,6 +245,13 @@ class ProbePlanner:
                 raise ValueError("policy e2 needs cluster stats")
             self.expected = stats.expected(filter)
             self.total = float(stats.sizes.sum())
+            if self.group_of is not None:  # a group is worth all the matches of its clusters
+                self.expected = np.bincount(self.group_of, weights=self.expected)
+
+    def _flat(self, units: list[int]) -> list[int]:
+        if self.members is None:
+            return units
+        return [c for u in units for c in self.members[u]]
 
     def strict_by_selectivity(self) -> bool:
         return (
@@ -220,13 +280,16 @@ class ProbePlanner:
         else:
             real = self.order[: self.first]
         self.taken.update(real)
-        return real
+        return self._flat(real)
 
     def next_round(self, n_matches: int = 0, searched: set[int] | None = None) -> list[int]:
         """The next round's clusters, [] to stop. `searched` are clusters already asked, e.g. as
         decoys. e2 and plain2 always have exactly one more round (possibly empty if nothing is
         left); basic stops at `stop_matches` matches or its cap."""
-        skip = self.taken | (searched or set())
+        asked = searched or set()
+        if self.group_of is not None:  # whole groups are asked, so one cluster means its group
+            asked = {int(self.group_of[c]) for c in asked}
+        skip = self.taken | asked
         if self.policy == "basic":
             if n_matches >= self.stop_matches or len(self.taken) >= self.cap:
                 return []
@@ -238,7 +301,7 @@ class ProbePlanner:
             rest = [c for c in self.order if c not in skip]
             if self.policy == "e2":
                 rest = [c for c in rest if self.expected[c] > 0]
-            real = rest[: 2 * self.n1]
+            real = rest[: 2 * self.n1 if self.cap2 is None else min(2 * self.n1, self.cap2)]
         self.rounds += 1
         self.taken.update(real)
-        return real
+        return self._flat(real)

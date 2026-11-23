@@ -36,7 +36,7 @@ from typing import Any
 
 import numpy as np
 
-from ombra import _seeding, presets
+from ombra import _seeding, decoy_groups, presets
 from ombra import query as oq
 from ombra._decrypt import ExpectedShapes, check_ciphertext, decrypt_values
 from ombra._proto import insert_requests
@@ -412,8 +412,15 @@ class Collection:
         store_records: bool = True,
         blobs: BlobStore | None = None,
         schema: RangeSchema | None = None,
+        decoy_group_size: int = 1,
+        decoy_grouping: str = "random",
     ) -> Collection:
-        """Cluster, create the collection, upload the keys once, insert centers and data."""
+        """Cluster, create the collection, upload the keys once, insert centers and data.
+
+        `decoy_group_size` g > 1 turns on fixed decoy groups for Decoy searches;
+        the cluster count is then rounded down to a multiple of g. `decoy_grouping` is "random"
+        or "neighbours" (clusters with close centers share a group). g = 1 (the default) keeps
+        per-query random decoys."""
         x = np.asarray(vectors, dtype=np.float64)
         # Parameters come only from the presets, which enforce the 128-bit floor.
         derived = presets.derive(preset, x.shape[1])
@@ -433,7 +440,21 @@ class Collection:
             raise ValueError("more clusters than slots: the centers must fit in one block")
         for ident in ids:
             check_user_id(ident)
+        g = int(decoy_group_size)
+        if g < 1:
+            raise ValueError("decoy_group_size must be at least 1")
+        if decoy_grouping not in decoy_groups.METHODS:
+            raise ValueError(f"decoy_grouping must be one of {list(decoy_groups.METHODS)}")
+        if g > 1:
+            k -= k % g
+            if k < g:
+                raise ValueError("decoy_group_size is larger than the cluster count")
         clustering = cluster_vectors(x, k, seed=seed)
+        while g > 1 and len(clustering.centers) % g:  # empty clusters were dropped: ask for fewer
+            k = len(clustering.centers) - len(clustering.centers) % g
+            if k < g:
+                raise ValueError("too few non-empty clusters for decoy_group_size")
+            clustering = cluster_vectors(x, k, seed=seed)
         # k-means from faiss can leave denormal-sized center entries; OpenFHE cannot encode them
         centers = np.where(np.abs(clustering.centers) < FLUSH, 0.0, clustering.centers)
         if openfhe_version is None:
@@ -479,6 +500,16 @@ class Collection:
             if store_records:
                 self._put_records(x, ids, metadata, documents, f)
             self.stats = ClusterStats.build(clustering.labels, len(centers), f, cards)
+            if g > 1:  # a fresh salt at every creation, so a re-cluster regroups independently
+                salt = os.urandom(decoy_groups.SALT_LEN)
+                self.stats.groups = decoy_groups.GroupInfo(
+                    g,
+                    decoy_grouping,
+                    salt,
+                    decoy_groups.build_groups(
+                        kit.master_key, salt, len(centers), g, decoy_grouping, centers
+                    ),
+                )
             self._save_stats()
             if schema is not None:
                 self.blobs.put(self.name, KIND_RECORD, SCHEMA_ID, schema.seal(self.codec))
@@ -879,6 +910,9 @@ class Collection:
             fields.append(f)
         if not ids:
             raise ValueError("no live vectors to cluster")
+        g = None if self.stats is None else self.stats.groups
+        # a grouped collection stays grouped: same size and method, a new keyed grouping
+        grouping = {} if g is None else {"decoy_group_size": g.size, "decoy_grouping": g.method}
         new = Collection.create(
             self.pb,
             self.stub,
@@ -897,6 +931,7 @@ class Collection:
             store_records=False,  # the exact vectors are copied below, not re-derived
             blobs=self.blobs,
             schema=self.schema,
+            **grouping,
         )
         try:
             self._copy_blobs(new.name, [*ids, INFO_ID])  # the info blob is not a vector's

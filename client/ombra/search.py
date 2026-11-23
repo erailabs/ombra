@@ -32,6 +32,7 @@ from typing import Any
 import numpy as np
 
 from ombra.blobstore import KIND_RECORD
+from ombra.decoy_groups import GroupRequester
 from ombra.errors import (
     CollectionError,
     NodeUnavailableError,
@@ -327,16 +328,25 @@ def run_search(
     probed: list[int] = []
     asked_all: set[int] = set()  # every cluster requested on this stream, real or decoy
     rounds = 0
+    ginfo = col.stats.groups if col.stats is not None else None
+    use_groups = level == "decoy" and ginfo is not None
+    requester = (
+        GroupRequester(col.kit.master_key, ginfo.salt, ginfo.group_of) if use_groups else None
+    )
 
     def run_round(chosen: list[int], pad_to: int | None = None) -> None:
         nonlocal rounds
         # A cluster is never requested twice on one stream: a repeat would tell the server which
         # earlier choices were decoys. Results of a cluster asked earlier are already in `cand`.
         asked = [c for c in dict.fromkeys(chosen) if c not in asked_all]
-        if pad_to is not None and len(asked) < pad_to:  # Decoy: fixed requested count
+        if requester is not None and pad_to is not None:
+            # Decoy groups: whole real groups plus keyed decoy groups, in a keyed order. Same real
+            # group set, same bytes.
+            asked = requester.request(rounds + 1, asked, pad_to // ginfo.size, asked_all)
+        elif pad_to is not None and len(asked) < pad_to:  # Decoy: fixed requested count
             left = [c for c in range(total) if c not in asked_all and c not in set(asked)]
             asked += rng.sample(left, min(pad_to - len(asked), len(left)))
-        if pad_to is not None:
+        if pad_to is not None and requester is None:
             # Decoy: real clusters (score order) and decoys are mixed, or the position of a request
             # would tell the server which are real.
             rng.shuffle(asked)
@@ -389,6 +399,11 @@ def run_search(
                 policy = "basic"
             else:
                 policy = "plain2"
+            r1, r2 = (
+                decoy_round_sizes(first, total, ginfo.size if use_groups else 1)
+                if level == "decoy"
+                else (None, None)
+            )
             plan = ProbePlanner(
                 order,
                 policy,
@@ -398,6 +413,8 @@ def run_search(
                 filter=plan_filter or None,
                 cap1=2 * first if level == "decoy" else None,
                 max_probe_factor=max_probe_factor,
+                groups=ginfo if use_groups and policy != "basic" else None,
+                cap2=r2 if use_groups else None,
             )
             real = plan.first_round()
             if real is None:  # expected selectivity too low: a full scan is the better plan
@@ -409,7 +426,6 @@ def run_search(
                     run_round(real)
                     real = plan.next_round(len(cand), asked_all)
             else:
-                r1, r2 = decoy_round_sizes(first, total) if level == "decoy" else (None, None)
                 probed += real
                 run_round(real, r1)
                 real = plan.next_round(len(cand), asked_all)

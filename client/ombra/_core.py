@@ -161,6 +161,8 @@ class ClientCore:
         range_fields: Mapping[str, Any] | None = None,
         security_level: str = "fast",
         n_clusters: int | None = None,
+        decoy_group_size: int = 1,
+        decoy_grouping: str = "random",
         scrypt_params: tuple[int, int, int] | None = None,
     ) -> str:
         preset = preset or getattr(self._t, "default_preset", presets.DEFAULT_PRESET)
@@ -190,6 +192,8 @@ class ClientCore:
             fields=fields,
             cards=cards,
             n_clusters=n_clusters,
+            decoy_group_size=decoy_group_size,
+            decoy_grouping=decoy_grouping,
             openfhe_version=self._t.openfhe_version,
             kit=kit,
             metadata=metadata,
