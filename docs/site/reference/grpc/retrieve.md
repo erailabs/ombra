@@ -73,10 +73,12 @@ Give exactly one of `cluster_ids` and `all_clusters`.
 | Empty `collection`, `key_tag` or `pir_key_tag`, or one that is too long | `ERROR_INVALID_ARGUMENT` |
 | Both or neither of `cluster_ids` and `all_clusters`, or a repeated cluster id | `ERROR_INVALID_ARGUMENT` |
 | More than 4096 cluster ids | `ERROR_SIZE_LIMIT` |
+| The collection does not exist | `ERROR_COLLECTION_NOT_FOUND` |
+| A cluster id at or above the collection's cluster count | `ERROR_INVALID_ARGUMENT` |
 | `m` is 0, `hash_seed` is not 16 bytes, `n_queries` is 0, or a `query` is empty | `ERROR_INVALID_ARGUMENT` |
 | `m` above 3000, `n_queries` above 4500, or a `query` above 4 MiB | `ERROR_SIZE_LIMIT` |
 
-A failed check ends the call with an `Error` message. An API key limited to another collection fails the call with `PERMISSION_DENIED`. The server does not look up the collection, the cluster range or the stored keys yet.
+A failed check ends the call with an `Error` message. An API key limited to another collection fails the call with `PERMISSION_DENIED`. The server does not check the stored keys yet.
 
 ### Record columns in scope
 

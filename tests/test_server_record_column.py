@@ -124,6 +124,16 @@ def test_insert_with_record_column(tmp_path) -> None:
         start.hash_seed = b"short"
         out = call(start, 1)
         assert out[0].error.code == pb.ERROR_INVALID_ARGUMENT
+        start.hash_seed = b"s" * 16
+        start.ClearField("all_clusters")
+        start.cluster_ids.append(1)  # the collection has one data cluster: id 1 is out of range
+        out = call(start, 1)
+        assert out[0].error.code == pb.ERROR_INVALID_ARGUMENT
+        start.collection = "no_such_collection"
+        start.ClearField("cluster_ids")
+        start.all_clusters = True
+        out = call(start, 1)
+        assert out[0].error.code == pb.ERROR_COLLECTION_NOT_FOUND
 
         server.restart(kill=True)  # the file is durable
         assert len(list((server.data_dir / "records").glob("*.orec"))) == 1

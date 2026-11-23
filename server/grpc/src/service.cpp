@@ -1378,8 +1378,18 @@ grpc::Status OmbraService::run_RetrieveRecords(
   while (stream->Read(&m)) {
     if (first) {
       first = false;
-      if (m.part_case() == v1::RetrieveRecordsRequest::kStart)
-        if (auto d = check_collection(ctx, m.start().collection()); !d.ok()) return d;
+      if (m.part_case() == v1::RetrieveRecordsRequest::kStart) {
+        const std::string& name = m.start().collection();
+        if (auto d = check_collection(ctx, name); !d.ok()) return d;
+        // An empty name is left to the validator (INVALID_ARGUMENT). Otherwise the collection
+        // must exist, and its cluster count bounds the cluster ids of the scope.
+        if (!name.empty()) {
+          storage::CollectionSpec spec;
+          if (!store_.get_collection(name, &spec))
+            return send_error({Err::CollectionNotFound, "collection not found"});
+          check = RetrieveValidator(spec.cluster_count);
+        }
+      }
     }
     if (auto st = check.accept(m); !st.ok()) return send_error(st);
   }
