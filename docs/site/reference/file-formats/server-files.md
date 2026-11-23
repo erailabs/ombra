@@ -32,7 +32,7 @@ All numbers are little endian. Source: `server/storage/include/ombra/storage/rec
 
 ## Record column
 
-The sealed re-rank rows of one block: one row per id of the block, in id order. The client builds it and sends it with the block. The server never interprets a row. The rows are bytes that the client encrypted, and the server only checks the header and the length.
+The sealed re-rank rows of one block: one row per id of the block, in id order. The client builds it and sends it with the block. The server never interprets a row. The rows are bytes that the client encrypted, and the server only checks the header and the length. What a row holds is on [Documents and blobs](../../how-it-works/documents.md#record-rows-for-private-retrieval).
 
 | Offset | Size | Field |
 | --- | --- | --- |

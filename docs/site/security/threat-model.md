@@ -8,7 +8,7 @@ It does not defend against a server that lies. A malicious server can return wro
 
 ![The client holds the secret keys and sees plaintext; the server holds evaluation keys, encrypted blocks and a plaintext layout of ids and clusters; server storage holds sealed blobs and the catalog](../assets/parties.svg)
 
-The client holds the secret key and every plaintext. It encrypts vectors and queries with the public key, decrypts the scores the server sends back, picks the top k, and re-ranks the best candidates with the exact vectors it gets from the blob store. Clustering also runs on the client, because the server cannot see the vectors. See [Keys](../concepts/keys.md) for what each key does.
+The client holds the secret key and every plaintext. It encrypts vectors and queries with the public key, decrypts the scores the server sends back, picks the top k, and re-ranks the best candidates with the exact vectors it gets from the blob store, or, on a collection with private retrieval, from one encrypted call that does not show which records it fetched. Clustering also runs on the client, because the server cannot see the vectors. See [Keys](../concepts/keys.md) for what each key does.
 
 The server holds only what the client sends it: ciphertexts, the crypto context and the evaluation keys, ids, and the layout of the collection. Its storage holds the encrypted blocks, the catalog, and the record and document blobs. The client seals records and documents with AES-256-GCM before upload, so the server stores them as opaque bytes of a fixed size class. See [Documents](../how-it-works/documents.md).
 
@@ -38,7 +38,7 @@ Ids are chosen by you and stored in plaintext, so never put sensitive data in an
 
 ## Search levels
 
-Each collection has a search level, Fast, Decoy or Strict, and a query can override it. The level controls which clusters the server is asked to score, and so how much the cluster choice reveals about a query. The data and the query are encrypted in all three. Decoy and Strict hide only which clusters a query requested. After every search, at every level, the client fetches the record blobs of its best candidates by id. The server knows each id's cluster, so that fetch shows which records were candidates and how large k is. See [Clusters and search levels](../how-it-works/clusters.md) for how each level picks clusters.
+Each collection has a search level, Fast, Decoy or Strict, and a query can override it. The level controls which clusters the server is asked to score, and so how much the cluster choice reveals about a query. The data and the query are encrypted in all three. Decoy and Strict hide only which clusters a query requested. After every search, at every level, the client fetches the record blobs of its best candidates by id. The server knows each id's cluster, so that fetch shows which records were candidates and how large k is. A collection created with `private_retrieval=True` replaces that fetch with one encrypted call, which shows only the clusters in scope, the number of rows asked for and the message sizes ([Private record retrieval](../how-it-works/private-retrieval.md)). Its hits carry no metadata, and reading a record or document by id still shows that id. See [Clusters and search levels](../how-it-works/clusters.md) for how each level picks clusters.
 
 There is no plaintext-database mode. Every vector is stored encrypted in every collection.
 
