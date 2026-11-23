@@ -979,7 +979,7 @@ class Collection:
             record = b""
             if self.private_retrieval:  # the new block's rows, from the exact record blobs
                 ev, ei = self._exact_from_blobs(ids)
-                record = pr.seal_column(self.row_codec, group[0].cluster_id, ids, ev, ei)
+                record = pr.seal_column(self.row_codec, group[0].cluster, ids, ev, ei)
 
             def msgs(segments=segments, ids=ids, cols=cols, record=record):
                 yield pb.ReplaceBlockRequest(

@@ -5,8 +5,9 @@ Re-ranking needs the exact vector of each of the best candidates. By default the
 It is off by default. Turn it on when you create the collection:
 
 ```python
-client.create_collection("docs", vectors, ids, key_file="docs.key", passphrase="...",
-                         private_retrieval=True)
+client.create_collection(
+    "docs", vectors, ids, key_file="docs.key", passphrase="...", private_retrieval=True
+)
 ```
 
 ## What changes
