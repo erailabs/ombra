@@ -38,6 +38,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from ombra import params as _params
+from ombra.file_format import Kind, write_envelope
 
 PIR_PRESET = "pir_bfv_n8192"
 HASHES = 3  # candidate buckets per row
@@ -469,6 +470,27 @@ class PirClient:
             ofhe.SerializeEvalMultKeyString(ofhe.BINARY, tag),
             ofhe.SerializeEvalAutomorphismKeyString(ofhe.BINARY, tag) if idx else b"",
         )
+
+    def key_files(self, openfhe_version: str) -> dict[str, bytes]:
+        """The three public key files as the server stores them, keyed by their server kind names.
+
+        Each is a file envelope (the same format and version as the search keys) with the preset
+        `pir_bfv_n8192`: the context is a context file, the other two are public evaluation keys.
+        They go in one UploadKeys stream (KEY_KIND_PIR_CONTEXT, _EVAL_MULT, _AUTOMORPHISM), apart
+        from the search keys. Only public material; the secret key stays in this object.
+        """
+        keys = self.eval_keys()
+        return {
+            "pir_context": write_envelope(
+                Kind.CONTEXT, PIR_PRESET, openfhe_version, self.context_bytes()
+            ),
+            "pir_eval_mult": write_envelope(
+                Kind.PUBLIC_EVAL_KEY, PIR_PRESET, openfhe_version, keys.mult
+            ),
+            "pir_automorphism": write_envelope(
+                Kind.PUBLIC_EVAL_KEY, PIR_PRESET, openfhe_version, keys.automorphism
+            ),
+        }
 
     def _plain(self, values: Sequence[int]) -> Any:
         t = self.shape.pp.plain_modulus

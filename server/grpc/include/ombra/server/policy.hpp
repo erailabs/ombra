@@ -68,6 +68,12 @@ inline constexpr std::size_t kMaxContextBytes = std::size_t{64} << 20;  // kind 
 inline constexpr std::size_t kMaxQueryBytes = std::size_t{64} << 20;    // kind 2, search query
 inline constexpr std::size_t kMaxColumnBytes = std::size_t{64} << 20;  // kind 2 or 4, stored column
 inline constexpr std::size_t kMaxEvalKeyBytes = std::size_t{1} << 30;  // kind 3, per key file
+// Private-retrieval (BFV pir_bfv_n8192) key files, per file. Real keys measured with the client:
+// context 571 B, EvalMult key 3.15 MB, automorphism keys 40.9 MB for 13 indices (the most a
+// ring of 8192 uses, which is also what m = 3000 needs). The limits leave a margin of about 4 to 6.
+inline constexpr std::size_t kMaxPirContextBytes = std::size_t{1} << 20;
+inline constexpr std::size_t kMaxPirEvalMultBytes = std::size_t{16} << 20;
+inline constexpr std::size_t kMaxPirAutomorphismBytes = std::size_t{256} << 20;
 
 struct PresetInfo {
   const char* name;

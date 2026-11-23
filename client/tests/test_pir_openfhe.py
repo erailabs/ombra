@@ -290,3 +290,39 @@ def test_client_and_reference_do_not_expose_secrets(big: Setup) -> None:
     assert repr(big.client) == "PirClient(<redacted>)"
     assert isinstance(big.server.cc, type(big.client.cc))
     assert not any(isinstance(v, bytes) and v == KEY for v in vars(big.server).values())
+
+
+def _policy_limit(text: str, name: str) -> int:
+    import re
+
+    m = re.search(rf"kMaxPir{name}Bytes = std::size_t{{(\d+)}} << (\d+);", text)
+    assert m, name
+    return int(m.group(1)) << int(m.group(2))
+
+
+def test_key_files_are_enveloped_and_fit_the_server_limits() -> None:
+    """The three public key files, in file envelopes, at the largest shape (13 expansion levels,
+    so the most automorphism keys). Measured: about 571 B, 3.1 MB and 41 MB; the server's limits
+    (read from its policy header) must leave a margin."""
+    from pathlib import Path
+
+    from ombra.file_format import Kind, read_envelope
+
+    shape = dataclasses.replace(pir.make_shape(1000, 3000, 256, SEED), levels=13)
+    files = pir.PirClient(shape).key_files("1.6.1")
+    want = {
+        "pir_context": Kind.CONTEXT,
+        "pir_eval_mult": Kind.PUBLIC_EVAL_KEY,
+        "pir_automorphism": Kind.PUBLIC_EVAL_KEY,
+    }
+    assert set(files) == set(want)
+    for name, raw in files.items():
+        env = read_envelope(raw, want[name], pir.PIR_PRESET, "1.6.1")
+        assert env.kind == want[name]
+        assert len(env.payload) > 0
+    policy = Path(__file__).resolve().parents[2] / "server/grpc/include/ombra/server/policy.hpp"
+    if policy.exists():
+        text = policy.read_text()
+        assert len(files["pir_context"]) * 100 < _policy_limit(text, "Context")
+        assert len(files["pir_eval_mult"]) * 4 < _policy_limit(text, "EvalMult")
+        assert len(files["pir_automorphism"]) * 4 < _policy_limit(text, "Automorphism")

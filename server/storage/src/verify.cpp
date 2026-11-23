@@ -103,8 +103,10 @@ void pragma_check(VerifyReport& r, sqlite3* db, const std::string& pragma) {
 
 core::EnvelopeKind key_kind(const std::string& kind, bool* ok) {
   *ok = true;
-  if (kind == kKeyContext) return core::EnvelopeKind::Context;
-  if (kind == kKeyEvalMult || kind == kKeyAutomorphism) return core::EnvelopeKind::PublicEvalKey;
+  if (kind == kKeyContext || kind == kKeyPirContext) return core::EnvelopeKind::Context;
+  if (kind == kKeyEvalMult || kind == kKeyAutomorphism || kind == kKeyPirEvalMult ||
+      kind == kKeyPirAutomorphism)
+    return core::EnvelopeKind::PublicEvalKey;
   *ok = false;
   return core::EnvelopeKind::Context;
 }
@@ -348,7 +350,9 @@ void verify_data_dir(const std::string& root, VerifyReport& r, const VerifyOptio
       auto bytes = read_file(path);
       const std::string ofhe = envelope_openfhe_version(bytes.data(), bytes.size());
       vcheck(ofhe);
-      core::read_envelope(bytes, kind, preset_of(k.collection), ofhe);
+      core::read_envelope(
+          bytes, kind, is_pir_key_kind(k.kind) ? std::string(kPirPreset) : preset_of(k.collection),
+          ofhe);
     } catch (const std::exception& e) {
       add(r, Severity::Corrupt, "key", k.file, is_missing_error(e) ? "file missing" : e.what());
     }
