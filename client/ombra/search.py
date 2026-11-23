@@ -31,6 +31,7 @@ from typing import Any
 
 import numpy as np
 
+from ombra import private_retrieval as pr
 from ombra.blobstore import KIND_RECORD
 from ombra.decoy_groups import GroupRequester
 from ombra.errors import (
@@ -72,6 +73,10 @@ class SearchResult:
     fetched: int = 0  # record blobs fetched (range collections: a fixed number per query)
     rejected: int = 0  # fetched candidates that failed the exact check (edge buckets, digits)
     reranked: bool = True  # False: approximate scores, no record blob fetched
+    private: bool = False  # True: re-ranked with RetrieveRecords; hits carry no metadata
+    pir_dropped: int = 0  # candidates lost to cuckoo failure in the call (never retried)
+    pir_stale: int = 0  # candidates whose block changed between the search and the call
+    pir_bad_rows: int = 0  # rows that failed authentication (dropped, never trusted)
 
 
 class _Stream:
@@ -269,6 +274,14 @@ def run_search(
     with at least that many. `rerank_factor * k` record blobs are fetched for re-ranking
     (default 3, the 2-3x k of the requirements).
 
+    On a collection made with `private_retrieval=True` the re-rank is one RetrieveRecords call
+    instead of the blob fetches: the server does not learn which records were candidates. It sees
+    the scope (the clusters this search requested, decoys included; all clusters at Strict) and
+    m = rerank_factor * k rows (times RANGE_FETCH_FACTOR on a collection with range fields), the
+    same for every query. The exact scores come from the retrieved rows. The hits then have EMPTY
+    metadata: reading it would mean fetching the final ids' blobs, which shows them. Reading a
+    record or document by id is an explicit call, and it does reveal that id.
+
     `rerank=False` skips that fetch: the hits are the best k candidates by decrypted approximate
     score, with empty metadata, and the search sends no blob request. On a collection with range
     fields this is only allowed when the band alone is exact (see `RangePlan.band_exact`: every
@@ -325,6 +338,9 @@ def run_search(
     )
     stream = _Stream(col.stub, pb.SearchRequest(start=start))
     cand: dict[bytes, float] = {}
+    use_pir = rerank and bool(getattr(col, "private_retrieval", False))
+    layout: dict[tuple[int, int], list[bytes]] = {}  # (cluster, block index) -> ids in slot order
+    where: dict[bytes, tuple[int, int, int]] = {}  # id -> (cluster, block index, slot)
     probed: list[int] = []
     asked_all: set[int] = set()  # every cluster requested on this stream, real or decoy
     rounds = 0
@@ -363,10 +379,15 @@ def run_search(
                 if len(m.score_blocks) != len(blocks) or len(m.ids) != sum(blocks):
                     raise RuntimeError("search answer does not describe its blocks")
                 pos = 0
-                for env, n in zip(m.score_blocks, blocks, strict=True):
+                for bi, (env, n) in enumerate(zip(m.score_blocks, blocks, strict=True)):
                     envs.append(bytes(env))
                     counts.append(n)
-                    owners.append([bytes(i) for i in m.ids[pos : pos + n]])
+                    block_ids = [bytes(i) for i in m.ids[pos : pos + n]]
+                    owners.append(block_ids)
+                    if use_pir:
+                        layout[(m.cluster_id, bi)] = block_ids
+                        for slot, ident in enumerate(block_ids):
+                            where[ident] = (m.cluster_id, bi, slot)
                     pos += n
             for vals, ids in zip(_decrypt_round(col, envs, counts, workers), owners, strict=True):
                 c, score = decode_band(vals)
@@ -445,6 +466,12 @@ def run_search(
             strict_fallback=fell_back,
             reranked=False,
         )
+    if use_pir:
+        scope = None if level == "strict" else sorted(asked_all)
+        return _finish_private(
+            col, q, k, cand, where, layout, rerank_factor, filter, range_plan, scope, rng,
+            (probed, rounds, fell_back),
+        )  # fmt: skip
     if is_range:
         return _finish_range(
             col, q, k, cand, seen, rerank_factor, filter, range_plan, rng, probed, rounds, fell_back
@@ -523,4 +550,62 @@ def _finish_range(
         strict_fallback=fell_back,
         fetched=len(order),
         rejected=rejected,
+    )
+
+
+def _finish_private(
+    col, q, k, cand, where, layout, rerank_factor, filter, range_plan, scope, rng, run
+) -> SearchResult:
+    """Re-rank with one RetrieveRecords call (see ombra.private_retrieval).
+
+    m = rerank_factor * k rows, times FETCH_FACTOR on a collection with range fields: the same
+    fixed rule as the blob fetch. The best candidates by approximate score come first; the rest of
+    the m rows are random real rows. Candidates lost to cuckoo failure are counted, never retried.
+    On range fields each opened row is checked exactly (filter values and raw range values), like
+    the record in `_finish_range`. Hits have empty metadata.
+    """
+    probed, rounds, fell_back = run
+    is_range = col.schema is not None
+    m = (FETCH_FACTOR if is_range else 1) * rerank_factor * k
+    if m > pr.MAX_RETRIEVE_M:
+        raise ValueError(
+            f"rerank_factor * k is {m}, above the {pr.MAX_RETRIEVE_M} rows of one private "
+            "retrieval call"
+        )
+    ranked = sorted(cand.items(), key=lambda kv: (-kv[1], kv[0]))[:m]
+    wanted = [pr.Wanted(ident, *where[ident]) for ident, _ in ranked]
+    out = pr.retrieve(col, wanted, lambda c, b: layout.get((c, b)), scope=scope, m=m, rng=rng)
+    eq = {
+        fi: ([w] if isinstance(w, int | np.integer) else [int(v) for v in w])
+        for fi, w in (filter or {}).items()
+    }
+    nf = len(col.cards)
+    scored, rejected = [], 0
+    for ident, _ in ranked:
+        got = out.rows.get(ident)
+        if got is None:
+            continue
+        vec, ints = got
+        if is_range:
+            ok = all(int(ints[fi]) in allowed for fi, allowed in eq.items())
+            raw = {f.name: int(ints[nf + j]) for j, f in enumerate(col.schema.fields)}
+            ok = ok and (range_plan is None or range_plan.exact(raw))
+            if not ok:
+                rejected += 1
+                continue
+        scored.append(Hit(ident, float(vec.astype(np.float64) @ q)))
+    scored.sort(key=lambda h: (-h.score, h.id))
+    return SearchResult(
+        hits=scored[:k],
+        incomplete=(len(scored) if is_range else len(cand)) < k,
+        probed=probed,
+        rounds=rounds,
+        matches=len(cand),
+        strict_fallback=fell_back,
+        fetched=out.asked,
+        rejected=rejected,
+        private=True,
+        pir_dropped=out.dropped,
+        pir_stale=out.stale,
+        pir_bad_rows=out.bad_rows,
     )

@@ -37,9 +37,10 @@ from typing import Any
 import numpy as np
 
 from ombra import _seeding, decoy_groups, presets
+from ombra import private_retrieval as pr
 from ombra import query as oq
 from ombra._decrypt import ExpectedShapes, check_ciphertext, decrypt_values
-from ombra._proto import insert_requests
+from ombra._proto import insert_requests, record_parts
 from ombra._transport import id_batches
 from ombra.blobstore import KIND_DOCUMENT, KIND_RECORD, BlobStore, BlobStoreError, GrpcBlobStore
 from ombra.clustering import assign, cluster_vectors
@@ -49,6 +50,7 @@ from ombra.errors import CollectionError, collection_error
 from ombra.file_format import Kind, read_column_envelope, write_envelope
 from ombra.keyfile import DEFAULT_SCRYPT, KeyMaterial, export_key_file, import_key_file
 from ombra.params import make_ckks_params
+from ombra.pir import PirClient, RowCodec
 from ombra.probe import FIELDS_KEY, STATS_ID, ClusterStats, check_user_id
 from ombra.ranges import SCHEMA_ID, RangeSchema
 from ombra.repack import DEFAULT_THRESHOLD, BlockStat, plan_repack
@@ -109,8 +111,13 @@ class KeyKit:
         *,
         master_key: bytes | None = None,
         secret_blob: bytes | None = None,
+        private_retrieval: bool = False,
+        pir_blob: bytes | None = None,
     ) -> None:
-        """New keys, or (with `secret_blob` from `KeyKit.load`) the keys of an earlier kit."""
+        """New keys, or (with `secret_blob` from `KeyKit.load`) the keys of an earlier kit.
+
+        `private_retrieval` adds the key pair of private record retrieval (a new one, or the one in
+        `pir_blob`). It is generated once and kept in the key file next to the search key."""
         import openfhe as ofhe
 
         self.derived = derived
@@ -134,6 +141,11 @@ class KeyKit:
             self._keys.secretKey, oq.automorphism_indices(cc.GetRingDimension(), n_leaves)
         )
         self.key_tag = self._keys.publicKey.GetKeyTag()
+        self.pir: PirClient | None = None
+        if pir_blob:
+            self.pir = PirClient.restore(pir_blob)
+        elif private_retrieval:
+            self.pir = PirClient()
 
     # ---- persistence (key file) ------------------------------------------------------
     _BLOB_MAGIC = b"OKSB"
@@ -189,7 +201,11 @@ class KeyKit:
         overwrite: bool = False,
     ) -> None:
         """Write the secret key and the document master key to a passphrase-protected key file."""
-        material = KeyMaterial(self._secret_blob(), self.master_key)
+        material = KeyMaterial(
+            self._secret_blob(),
+            self.master_key,
+            b"" if self.pir is None else self.pir.secret_blob(),
+        )
         export_key_file(
             path, material, passphrase, scrypt_params=scrypt_params, overwrite=overwrite
         )
@@ -206,7 +222,12 @@ class KeyKit:
         """Reopen a saved kit. The evaluation keys are generated again from the secret key."""
         m = import_key_file(path, passphrase)
         return cls(
-            derived, openfhe_version, n_leaves, master_key=m.master_key, secret_blob=m.secret_key
+            derived,
+            openfhe_version,
+            n_leaves,
+            master_key=m.master_key,
+            secret_blob=m.secret_key,
+            pir_blob=m.pir_key or None,
         )
 
     def encrypt_query(self, ext: np.ndarray) -> bytes:
@@ -359,8 +380,13 @@ class Collection:
         blobs: BlobStore | None = None,
         security_level: str = "fast",
         schema: RangeSchema | None = None,
+        private_retrieval: bool = False,
     ) -> None:
         self.pb, self.stub = pb, stub
+        # record columns next to the blocks; re-ranking by RetrieveRecords (private_retrieval.py)
+        self.private_retrieval = private_retrieval
+        self._pir_uploaded: str | None = None  # tag of the retrieval keys uploaded here
+        self._row_codec: RowCodec | None = None
         self.schema = schema  # range fields (ombra.ranges); None: equality-only collection
         self.blobs: BlobStore = blobs if blobs is not None else GrpcBlobStore(stub, pb)
         self.security_level = security_level
@@ -377,6 +403,17 @@ class Collection:
     def name(self) -> str:
         """Name on the server: the base name for generation 0, then `<base>.g<n>`."""
         return self.base_name if self.generation == 0 else f"{self.base_name}.g{self.generation}"
+
+    @property
+    def row_codec(self) -> RowCodec:
+        """Seals and opens the record rows. Bound to the base name, so rows survive a re-clustering
+        only as new rows (their associated data holds the cluster)."""
+        if self._row_codec is None:
+            n_ints = pr.n_ints_for(len(self.cards), self.schema)
+            self._row_codec = RowCodec(
+                self.kit.master_key, self.base_name, self.derived.dimension, n_ints
+            )
+        return self._row_codec
 
     @property
     def cluster_count(self) -> int:
@@ -414,13 +451,20 @@ class Collection:
         schema: RangeSchema | None = None,
         decoy_group_size: int = 1,
         decoy_grouping: str = "neighbours",
+        private_retrieval: bool = False,
+        exact_rows: dict[bytes, tuple[np.ndarray, np.ndarray]] | None = None,
     ) -> Collection:
         """Cluster, create the collection, upload the keys once, insert centers and data.
 
         `decoy_group_size` g > 1 turns on fixed decoy groups for Decoy searches;
         the cluster count is then rounded down to a multiple of g. `decoy_grouping` is
         "neighbours" (the default: clusters with close centers share a group) or "random".
-        g = 1 (the default) keeps per-query random decoys."""
+        g = 1 (the default) keeps per-query random decoys.
+
+        `private_retrieval` stores a record column with every block and lets a search re-rank
+        with one RetrieveRecords call (see ombra.private_retrieval); the key kit then needs the
+        retrieval key pair, and one is made if no kit is given. `exact_rows` (id -> float32 vector,
+        int64 values) gives the rows when `store_records` is off (a re-clustering)."""
         x = np.asarray(vectors, dtype=np.float64)
         # Parameters come only from the presets, which enforce the 128-bit floor.
         derived = presets.derive(preset, x.shape[1])
@@ -463,9 +507,11 @@ class Collection:
             openfhe_version = ofhe.__version__
         n_leaves = derived.dimension + sum(cards)
         if kit is None:
-            kit = KeyKit(derived, openfhe_version, n_leaves)
+            kit = KeyKit(derived, openfhe_version, n_leaves, private_retrieval=private_retrieval)
         elif kit.derived.preset != derived.preset or kit.n_leaves != n_leaves:
             raise ValueError("the key kit was made for another preset or layout")
+        if private_retrieval and kit.pir is None:
+            raise ValueError("the key kit has no private retrieval key")
         self = cls(
             pb,
             stub,
@@ -478,6 +524,7 @@ class Collection:
             blobs=blobs,
             security_level=security_level,
             schema=schema,
+            private_retrieval=private_retrieval,
         )
         spec = pb.CollectionSpec(
             api_version=API_VERSION,
@@ -493,10 +540,19 @@ class Collection:
         _create_on_server(pb, stub, spec)
         try:
             self._upload_keys()
+            if private_retrieval:
+                pr.upload_keys(self)
             self._insert_centers()
+            exact = self._exact_rows(x, ids, f, metadata, exact_rows) if private_retrieval else None
             for c in range(self.cluster_count):
                 rows = np.nonzero(clustering.labels == c)[0]
-                self._insert_cluster(c, x[rows], f[rows], [ids[i] for i in rows])
+                self._insert_cluster(
+                    c,
+                    x[rows],
+                    f[rows],
+                    [ids[i] for i in rows],
+                    None if exact is None else (exact[0][rows], exact[1][rows]),
+                )
             if store_records:
                 self._put_records(x, ids, metadata, documents, f)
             self.stats = ClusterStats.build(clustering.labels, len(centers), f, cards)
@@ -513,6 +569,9 @@ class Collection:
             self._save_stats()
             if schema is not None:
                 self.blobs.put(self.name, KIND_RECORD, SCHEMA_ID, schema.seal(self.codec))
+            if private_retrieval:
+                marker = self.codec.seal_record(pr.PIR_ID, pr.marker_payload(), {})
+                self.blobs.put(self.name, KIND_RECORD, pr.PIR_ID, marker)
         except Exception:
             stub.DropCollection(pb.DropCollectionRequest(name=self.name))
             raise
@@ -571,6 +630,17 @@ class Collection:
             )
         except (BlobStoreError, ValueError):
             self.schema = None  # no range fields: equality-only
+        try:
+            rec = self.codec.open_record(
+                pr.PIR_ID, self.blobs.get(self.name, KIND_RECORD, pr.PIR_ID)
+            )
+            self.private_retrieval = pr.is_marker(rec.vector)
+        except (BlobStoreError, ValueError):
+            self.private_retrieval = False
+        if self.private_retrieval and kit.pir is None:
+            raise CollectionError(
+                0, "this collection has private retrieval but the key file has no retrieval key"
+            )
         return self
 
     def search(self, query: np.ndarray, k: int = 10, **options: Any) -> Any:
@@ -631,21 +701,46 @@ class Collection:
         cols = self.kit.encrypt_columns(parts)
         return cols
 
+    def _exact_rows(
+        self,
+        x: np.ndarray,
+        ids: Sequence[bytes],
+        fields: np.ndarray,
+        metadata: Sequence[dict[str, Any]] | None,
+        given: dict[bytes, tuple[np.ndarray, np.ndarray]] | None = None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """(float32 vectors, int64 values) of the record rows of these vectors."""
+        if given is not None:
+            vecs = np.stack([given[bytes(i)][0] for i in ids]).astype("<f4")
+            ints = np.stack([given[bytes(i)][1] for i in ids]).astype(np.int64)
+            return vecs, ints.reshape(len(ids), -1)
+        return np.asarray(x, dtype="<f4"), pr.exact_ints(fields, metadata, self.schema)
+
     def _insert_cluster(
-        self, cluster: int, vecs: np.ndarray, fields: np.ndarray, ids: Sequence[bytes]
+        self,
+        cluster: int,
+        vecs: np.ndarray,
+        fields: np.ndarray,
+        ids: Sequence[bytes],
+        exact: tuple[np.ndarray, np.ndarray] | None = None,
     ) -> None:
+        """One block per `slots` vectors; with `exact` (vectors, ints) each also gets its record
+        column."""
         blocks = []
         for s in range(0, len(vecs), self.slots):
             part = slice(s, s + self.slots)
-            blocks.append(
-                self.pb.InsertBlock(
-                    api_version=API_VERSION,
-                    collection=self.name,
-                    cluster_id=cluster,
-                    ids=list(ids[part]),
-                    columns=self._columns(vecs[part], fields[part]),
-                )
+            block = self.pb.InsertBlock(
+                api_version=API_VERSION,
+                collection=self.name,
+                cluster_id=cluster,
+                ids=list(ids[part]),
+                columns=self._columns(vecs[part], fields[part]),
             )
+            if exact is not None:
+                block.record_column = pr.seal_column(
+                    self.row_codec, cluster, ids[part], exact[0][part], exact[1][part]
+                )
+            blocks.append(block)
         self._insert(blocks)
 
     def _insert(self, blocks: list[Any]) -> int:
@@ -674,9 +769,16 @@ class Collection:
             check_user_id(ident)
         f = _fields(fields, len(x), self.cards)
         labels = assign(x, self.centers)
+        exact = self._exact_rows(x, ids, f, metadata) if self.private_retrieval else None
         for c in np.unique(labels):
             rows = np.nonzero(labels == c)[0]
-            self._insert_cluster(int(c), x[rows], f[rows], [ids[i] for i in rows])
+            self._insert_cluster(
+                int(c),
+                x[rows],
+                f[rows],
+                [ids[i] for i in rows],
+                None if exact is None else (exact[0][rows], exact[1][rows]),
+            )
         self._put_records(x, ids, metadata, documents, f)
         if self.stats is not None:
             self.stats.add(labels, f)
@@ -874,19 +976,41 @@ class Collection:
             cols = self._columns(vecs, fields)
             after += sum(len(c) for c in cols)
             segments = [b.segment for b in group]
+            record = b""
+            if self.private_retrieval:  # the new block's rows, from the exact record blobs
+                ev, ei = self._exact_from_blobs(ids)
+                record = pr.seal_column(self.row_codec, group[0].cluster_id, ids, ev, ei)
 
-            def msgs(segments=segments, ids=ids, cols=cols):
+            def msgs(segments=segments, ids=ids, cols=cols, record=record):
                 yield pb.ReplaceBlockRequest(
                     api_version=API_VERSION,
                     header=pb.ReplaceBlockHeader(collection=self.name, segments=segments, ids=ids),
                 )
                 for c in cols:
                     yield pb.ReplaceBlockRequest(api_version=API_VERSION, column=c)
+                for part in record_parts(record):
+                    yield pb.ReplaceBlockRequest(api_version=API_VERSION, record_column=part)
 
             _check(self.stub.ReplaceBlock(Replayable(msgs)).error)
             n_before += len(group)
             n_after += 1
         return RepackReport(len(groups), n_before, n_after, before, after)
+
+    def _exact_from_blobs(self, ids: Sequence[bytes]) -> tuple[np.ndarray, np.ndarray]:
+        """(float32 vectors, int64 values) of the record rows of stored vectors, read from their
+        record blobs (the exact copies; the ciphertext columns only hold approximations)."""
+        vecs, ints = [], []
+        n_cards = len(self.cards)
+        for ident in ids:
+            try:
+                rec = self.codec.open_record(ident, self.blobs.get(self.name, KIND_RECORD, ident))
+            except (BlobStoreError, ValueError):
+                raise CollectionError(
+                    0, "a vector has no record blob, so its retrieval row cannot be made"
+                ) from None
+            vecs.append(np.frombuffer(rec.vector, dtype="<f4"))
+            ints.append(pr.ints_from_meta(rec.metadata, self.schema, n_cards))
+        return np.stack(vecs), np.asarray(ints, dtype=np.int64).reshape(len(ids), -1)
 
     # ---- re-clustering --------------------------------------------------------------------
     def recluster(
@@ -910,6 +1034,10 @@ class Collection:
             fields.append(f)
         if not ids:
             raise ValueError("no live vectors to cluster")
+        exact_rows = None
+        if self.private_retrieval:  # the new generation's rows are made from the exact records
+            ev, ei = self._exact_from_blobs(ids)
+            exact_rows = {bytes(i): (ev[j], ei[j]) for j, i in enumerate(ids)}
         g = None if self.stats is None else self.stats.groups
         # a grouped collection stays grouped: same size and method, a new keyed grouping
         grouping = {} if g is None else {"decoy_group_size": g.size, "decoy_grouping": g.method}
@@ -931,6 +1059,8 @@ class Collection:
             store_records=False,  # the exact vectors are copied below, not re-derived
             blobs=self.blobs,
             schema=self.schema,
+            private_retrieval=self.private_retrieval,
+            exact_rows=exact_rows,
             **grouping,
         )
         try:

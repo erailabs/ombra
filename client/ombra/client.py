@@ -132,6 +132,7 @@ class Client:
         n_clusters: int | None = None,
         decoy_group_size: int = 1,
         decoy_grouping: str = "neighbours",
+        private_retrieval: bool = False,
         scrypt_params: tuple[int, int, int] | None = None,
     ) -> str:
         """Cluster and encrypt `vectors` (unit length), write the key file, create the collection.
@@ -164,6 +165,12 @@ class Client:
             decoy_grouping: "neighbours" (the default: clusters with close centers share a group,
                 which costs the least recall) or "random" (a keyed random partition). Only used
                 when `decoy_group_size` > 1.
+            private_retrieval: Store a sealed record row with every block and re-rank searches
+                with one private retrieval call, so the server does not learn which records
+                were candidates. Costs about 132 KB of download per bucket (1.5 rows asked
+                per wanted row), a one-time upload of about 41 MB of public keys, and the
+                hits then carry empty metadata (reading a record by id reveals that id).
+                Generates a second key pair, kept in the same key file. Default off.
             scrypt_params: Key derivation cost `(n, r, p)` of the key file. Library default if
                 omitted.
 
@@ -190,6 +197,7 @@ class Client:
             n_clusters=n_clusters,
             decoy_group_size=decoy_group_size,
             decoy_grouping=decoy_grouping,
+            private_retrieval=private_retrieval,
             scrypt_params=scrypt_params,
         )
 
@@ -530,6 +538,7 @@ class AsyncClient:
         n_clusters: int | None = None,
         decoy_group_size: int = 1,
         decoy_grouping: str = "neighbours",
+        private_retrieval: bool = False,
         scrypt_params: tuple[int, int, int] | None = None,
     ) -> str:
         """Cluster and encrypt `vectors` (unit length), write the key file, create the collection.
@@ -562,6 +571,12 @@ class AsyncClient:
             decoy_grouping: "neighbours" (the default: clusters with close centers share a group,
                 which costs the least recall) or "random" (a keyed random partition). Only used
                 when `decoy_group_size` > 1.
+            private_retrieval: Store a sealed record row with every block and re-rank searches
+                with one private retrieval call, so the server does not learn which records
+                were candidates. Costs about 132 KB of download per bucket (1.5 rows asked
+                per wanted row), a one-time upload of about 41 MB of public keys, and the
+                hits then carry empty metadata (reading a record by id reveals that id).
+                Generates a second key pair, kept in the same key file. Default off.
             scrypt_params: Key derivation cost `(n, r, p)` of the key file. Library default if
                 omitted.
 
@@ -588,6 +603,7 @@ class AsyncClient:
             n_clusters=n_clusters,
             decoy_group_size=decoy_group_size,
             decoy_grouping=decoy_grouping,
+            private_retrieval=private_retrieval,
             scrypt_params=scrypt_params,
         )
 

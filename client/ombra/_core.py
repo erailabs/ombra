@@ -163,6 +163,7 @@ class ClientCore:
         n_clusters: int | None = None,
         decoy_group_size: int = 1,
         decoy_grouping: str = "neighbours",
+        private_retrieval: bool = False,
         scrypt_params: tuple[int, int, int] | None = None,
     ) -> str:
         preset = preset or getattr(self._t, "default_preset", presets.DEFAULT_PRESET)
@@ -179,7 +180,12 @@ class ClientCore:
         if schema is not None:
             schema.check_headroom(derived, len(cards))
         fields = self._all_fields(names, cards, schema, metadata, len(x))
-        kit = KeyKit(derived, self._t.openfhe_version, derived.dimension + sum(cards))
+        kit = KeyKit(
+            derived,
+            self._t.openfhe_version,
+            derived.dimension + sum(cards),
+            private_retrieval=private_retrieval,
+        )
         save = {} if scrypt_params is None else {"scrypt_params": scrypt_params}
         kit.save(key_file, passphrase, **save)  # the key is on disk before the server has a byte
         col = Collection.create(
@@ -194,6 +200,7 @@ class ClientCore:
             n_clusters=n_clusters,
             decoy_group_size=decoy_group_size,
             decoy_grouping=decoy_grouping,
+            private_retrieval=private_retrieval,
             openfhe_version=self._t.openfhe_version,
             kit=kit,
             metadata=metadata,
