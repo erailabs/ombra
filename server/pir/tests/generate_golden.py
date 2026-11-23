@@ -3,7 +3,7 @@
 and BLAKE2b from hashlib. tests/test_pir_layout_golden.py regenerates them and compares, so the
 checked-in files cannot drift from the client.
 
-    python server/pir/tests/generate_golden.py        # rewrites golden/layout.txt, golden/blake2b.txt
+    python server/pir/tests/generate_golden.py   # rewrites the two files in golden/
 
 Synthetic data only. Line formats are documented in the C++ test that reads them.
 """
@@ -56,8 +56,16 @@ def layout_text() -> str:
                 map(
                     str,
                     [
-                        s.buckets, s.rows_per_pt, s.bucket_rows, s.pts_per_bucket, s.r1, s.r2,
-                        s.per_ct, s.n_cts, s.levels, s.coeffs_per_bucket,
+                        s.buckets,
+                        s.rows_per_pt,
+                        s.bucket_rows,
+                        s.pts_per_bucket,
+                        s.r1,
+                        s.r2,
+                        s.per_ct,
+                        s.n_cts,
+                        s.levels,
+                        s.coeffs_per_bucket,
                     ],
                 )
             )

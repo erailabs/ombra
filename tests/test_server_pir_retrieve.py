@@ -82,9 +82,7 @@ class Call:
 
     def start(self, **kw) -> None:
         self._q.put(
-            self.pb.RetrieveRecordsRequest(
-                api_version=1, start=self.pb.RetrieveRecordsStart(**kw)
-            )
+            self.pb.RetrieveRecordsRequest(api_version=1, start=self.pb.RetrieveRecordsStart(**kw))
         )
 
     def queries(self, qs: list[bytes]) -> None:
@@ -207,7 +205,7 @@ def _payload(world, name: str) -> bytes:
 
 
 def test_retrieve(world) -> None:
-    pb, stub, t = world["pb"], world["stub"], world["t"]
+    pb, stub = world["pb"], world["stub"]
     rows = world["rows"]
     n_a, n_b = world["spans"]
     m = 2
@@ -225,7 +223,7 @@ def test_retrieve(world) -> None:
     tag = _upload_keys(world, pc)
 
     # The main path: Info first, then the queries, then one answer per bucket.
-    plan = pir.plan_batch(shape, [3, 9, 12][:m], random.Random(1))
+    plan = pir.plan_batch(shape, [3, 9, 12][:m], random.Random(1))  # noqa: S311
     queries = pc.build_queries(plan)
     call = Call(stub, pb)
     call.start(**_start(world, tag, m))
@@ -356,13 +354,13 @@ def test_retrieve(world) -> None:
 
 def test_retrieve_other_shapes(world) -> None:
     """m of 1 and 3, another seed: the layout the server derives is the client's."""
-    pb, stub, t = world["pb"], world["stub"], world["t"]
+    pb, stub = world["pb"], world["stub"]
     rows = world["rows"]
     for m, seed, cands in ((1, b"\x00" * 16, [7]), (3, b"abcdefghijklmnop", [0, 10, 5])):
         shape = _shape(world, m, seed)
         pc = pir.PirClient(shape)
         tag = _upload_keys(world, pc)
-        plan = pir.plan_batch(shape, cands, random.Random(m))
+        plan = pir.plan_batch(shape, cands, random.Random(m))  # noqa: S311
         queries = pc.build_queries(plan)
         call = Call(stub, pb)
         call.start(**_start(world, tag, m, seed))
@@ -380,6 +378,7 @@ def test_block_without_a_record_column(world) -> None:
     shape = _shape(world, 1)
     pc = pir.PirClient(shape)
     tag = _upload_keys(world, pc)
+
     def insert():
         yield pb.InsertRequest(
             api_version=1, header=pb.InsertHeader(collection=NAME, cluster_id=0, ids=[b"z1"])

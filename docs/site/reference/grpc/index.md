@@ -33,7 +33,7 @@ A method marked "stream" sends or receives a sequence of messages.
 | `ListBlocks` | read | Lists the blocks of a collection with their vector and deleted counts. | [Blocks](blocks.md#listblocks) |
 | `GetBlock` (stream out) | read | Streams one block: a header, then its column ciphertexts. | [Blocks](blocks.md#getblock) |
 | `ReplaceBlock` (stream in) | write | Replaces one or more blocks of one cluster with one new block. | [Blocks](blocks.md#replaceblock) |
-| `RetrieveRecords` (stream both ways) | read | Private fetch of record rows. The request is validated, then the call fails with `UNIMPLEMENTED` for now. | [Retrieve](retrieve.md#retrieverecords) |
+| `RetrieveRecords` (stream both ways) | read | Private fetch of record rows. The server answers on BFV (CPU); the Info comes before the queries. | [Retrieve](retrieve.md#retrieverecords) |
 | `PutBlob` (stream in) | write | Stores an encrypted blob under (collection, kind, id). | [Blobs](blobs.md#putblob) |
 | `GetBlob` (stream out) | read | Streams a blob: its size, then data chunks. | [Blobs](blobs.md#getblob) |
 | `DeleteBlobs` | write | Deletes blobs by id. | [Blobs](blobs.md#deleteblobs) |
