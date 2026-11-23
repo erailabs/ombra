@@ -68,19 +68,21 @@ Search reads whole clusters in big sequential chunks and pushes them to the GPU,
 
 #### Durability rules
 
-Implemented in `server/storage/`. Layout under the data root: `catalog.db` (SQLite, WAL mode, `synchronous=FULL`), `wal.log`, `segments/*.oseg`, `keys/*.env`, `blobs/*.oblob`. Every file has a version header, and readers refuse an unknown version. Column envelopes keep their own version, checked against the collection's preset. A stored column is either an OpenFHE ciphertext (envelope kind 2) or a seeded ciphertext (envelope version 2, kind 4): a 256-bit seed and one polynomial, about half the bytes. The server regenerates the other polynomial from the seed on the CPU when it loads the block, so the GPU holds the same words for both kinds. A collection may mix them. Clients that have the compiled module write seeded columns.
+Implemented in `server/storage/`. Layout under the data root: `catalog.db` (SQLite, WAL mode, `synchronous=FULL`), `wal.log`, `segments/*.oseg`, `records/*.orec`, `keys/*.env`, `blobs/*.oblob`. Every file has a version header, and readers refuse an unknown version. Column envelopes keep their own version, checked against the collection's preset. A stored column is either an OpenFHE ciphertext (envelope kind 2) or a seeded ciphertext (envelope version 2, kind 4): a 256-bit seed and one polynomial, about half the bytes. The server regenerates the other polynomial from the seed on the CPU when it loads the block, so the GPU holds the same words for both kinds. A collection may mix them. Clients that have the compiled module write seeded columns.
 
 Insert, in this order; each step is durable before the next starts:
 
 1. Append the insert-intent record (collection, cluster, segment name, ids) to `wal.log` and `fsync` it. From now on recovery knows which segment file may be an orphan.
-2. Write the segment to `<name>.tmp`, `fsync` the file, `rename` it to its final name, `fsync` the directory. The file is either absent or complete under its final name.
+2. If the block has a record column, write it to `records/<name>.orec` the same way (`<name>.tmp`, `fsync` the file, `rename`, `fsync` the directory) before the segment. Then write the segment to `<name>.tmp`, `fsync` the file, `rename` it to its final name, `fsync` the directory. Each file is either absent or complete under its final name.
 3. Update the catalog (segment row and one row per id) in one SQLite transaction. A vector is visible to search only through the catalog, so the update is all-or-nothing.
 4. Append the insert-commit record and `fsync` the log.
 5. Acknowledge to the client. Never earlier.
 
+Replacing blocks (`ReplaceBlock`) writes the new record file, if any, before the new segment too. Removing a block (collection drop, compaction of dead blocks, replacement, or a removal that was deferred while a search still read the block) removes its record file with its segment.
+
 Delete: append the delete record and `fsync`; tombstone the ids in the catalog (one transaction); acknowledge. A delete is a mark; segments are not touched.
 
-Recovery on open replays `wal.log` in order: a torn last record is truncated; a delete record is re-applied; an intent whose segment is in the catalog is rolled forward; an intent with a commit but no catalog row is applied from the segment file; an intent with neither is discarded. Then any `.tmp` file and any segment file the catalog does not list is removed, and the log is truncated.
+Recovery on open replays `wal.log` in order: a torn last record is truncated; a delete record is re-applied; an intent whose segment is in the catalog is rolled forward; an intent with a commit but no catalog row is applied from the segment file; an intent with neither is discarded. Then any `.tmp` file, any segment file the catalog does not list, and any record file whose segment the catalog does not list is removed, and the log is truncated.
 
 Guarantee: an acknowledged write survives a crash or power loss. A write that was not acknowledged is either fully there or fully absent, never partial. Limits: single writer per data directory, and the disk must honour `fsync`. Logs carry sizes, counts and timings only.
 

@@ -23,11 +23,12 @@ ombra_verify --data-dir DIR [--json] [--openfhe-version V]
 | Part | Check |
 | --- | --- |
 | Segment files | Header, version, CRC, that the file parses, and that its vector count, column count, CRC and cluster equal the catalog row. |
+| Record files | `records/*.orec`, one per block at most, named after its segment. Header, version and CRC, that the column parses, and that its row count equals the block's slot count. A block with no record file is fine. A record file that no block names is a warning. |
 | Blob files | Header, version, CRC, kind and size against the catalog row. |
 | Key files | Magic, format version, kind, preset, OpenFHE version and lengths. See the limit below. |
 | Catalog | SQLite `integrity_check`, `quick_check` and `foreign_key_check`, the schema and API versions. |
 | Cross-references | Every catalog row has its file. The vector rows of each block add up to the block's vector count. |
-| Orphans | A file that no catalog row names is a warning. The server deletes such files at its next start. |
+| Orphans | A file that no catalog row names (a record file: that no block's segment names) is a warning. The server deletes such files at its next start. |
 | Write-ahead log | Header, version and the CRC of every record. A torn tail is a warning. A damaged record that valid ones follow is corrupt, because the server refuses to start on it. |
 
 A key file has no checksum in the [key file format](../file-formats/key-file.md), so a flipped byte in its payload is not found here. A truncated or extended file is. The same holds for the ciphertext payload inside a segment, but the segment's CRC covers it.

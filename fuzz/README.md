@@ -49,4 +49,4 @@ Reproduce a finding with `build-fuzz/fuzz/ombra_fuzz_<target> <artifact file>`. 
 
 ## Corpus and dictionaries
 
-`fuzz/corpus/<target>/` holds a few small valid inputs per target, built from the project's own writers with synthetic data only. `make fuzz-corpus` regenerates them. `fuzz/dict/<target>.dict` lists magic strings and format versions.
+`fuzz/corpus/<target>/` holds a few small valid inputs per target, built from the project's own writers with synthetic data only. `make fuzz-corpus` regenerates them. It first deletes the whole `fuzz/corpus` directory, then writes the corpora that the seed generator knows. The hand-written `retrieve` and `proto` corpora are not among them, so they are gone afterwards: restore them with `git checkout -- fuzz/corpus/retrieve fuzz/corpus/proto`. `fuzz/dict/<target>.dict` lists magic strings and format versions.

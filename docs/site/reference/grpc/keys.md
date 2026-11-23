@@ -6,6 +6,8 @@ Upload the public evaluation keys of a collection. There is no kind for a secret
 
 `KEY_KIND_CONTEXT`, `KEY_KIND_EVAL_MULT` and `KEY_KIND_AUTOMORPHISM` (and `KEY_KIND_UNSPECIFIED`, which is 0).
 
+The values 4 to 6 are `KEY_KIND_PIR_CONTEXT`, `KEY_KIND_PIR_EVAL_MULT` and `KEY_KIND_PIR_AUTOMORPHISM`. They are the public evaluation keys of the client's retrieval key, for [`RetrieveRecords`](retrieve.md). They will be uploaded with this same call, not with a separate method. The server does not store them yet and refuses them with `ERROR_INVALID_ARGUMENT`.
+
 ## UploadKeys
 
 Uploads the public evaluation keys in chunks. `kind` says which file the bytes belong to.

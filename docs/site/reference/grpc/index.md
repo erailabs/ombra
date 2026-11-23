@@ -14,7 +14,7 @@ Use TLS. The server refuses to start without it unless it is started with `--ins
 
 An API key has one scope. `read` may call the read methods, `write` may also call the write methods, and `admin` may call everything. The table below gives the scope each method needs. See [API keys](../../security/api-keys.md).
 
-Messages may be up to 16 MiB in both directions (`--max-message-mb`). Calls that move big data send it in parts: `Insert` and `ReplaceBlock` send one column per message, `PutBlob` and `UploadKeys` send chunks of at most 4 MiB.
+Messages may be up to 16 MiB in both directions (`--max-message-mb`). Calls that move big data send it in parts: `Insert` and `ReplaceBlock` send one column per message (and the optional record column in parts of at most 4 MiB), `PutBlob` and `UploadKeys` send chunks of at most 4 MiB.
 
 ## Methods
 
@@ -33,6 +33,7 @@ A method marked "stream" sends or receives a sequence of messages.
 | `ListBlocks` | read | Lists the blocks of a collection with their vector and deleted counts. | [Blocks](blocks.md#listblocks) |
 | `GetBlock` (stream out) | read | Streams one block: a header, then its column ciphertexts. | [Blocks](blocks.md#getblock) |
 | `ReplaceBlock` (stream in) | write | Replaces one or more blocks of one cluster with one new block. | [Blocks](blocks.md#replaceblock) |
+| `RetrieveRecords` (stream both ways) | read | Private fetch of record rows. The request is validated, then the call fails with `UNIMPLEMENTED` for now. | [Retrieve](retrieve.md#retrieverecords) |
 | `PutBlob` (stream in) | write | Stores an encrypted blob under (collection, kind, id). | [Blobs](blobs.md#putblob) |
 | `GetBlob` (stream out) | read | Streams a blob: its size, then data chunks. | [Blobs](blobs.md#getblob) |
 | `DeleteBlobs` | write | Deletes blobs by id. | [Blobs](blobs.md#deleteblobs) |
@@ -57,6 +58,8 @@ These are the values of the `Limit` enum.
 | `LIMIT_MAX_FILTER_FIELDS` | 16 (a preset's headroom may lower it, see [Presets](../presets.md)) |
 | `LIMIT_MAX_FILTER_CARDINALITY` | 64 values per field |
 | `LIMIT_MAX_CLUSTERS_PER_ROUND` | 4096 |
+| `LIMIT_MAX_RETRIEVE_M` | 3000 (rows wanted in one `RetrieveRecords` call) |
+| `LIMIT_MAX_RETRIEVE_QUERIES` | 4500 (query ciphertexts in one `RetrieveRecords` call) |
 | `LIMIT_BLOB_BUCKET_0` to `LIMIT_BLOB_BUCKET_3` | 16384, 262144, 2097152 and 16777216 bytes |
 
 A stored blob has exactly one bucket size, so the server learns the bucket of a document and nothing finer.
@@ -81,7 +84,7 @@ Responses report most failures in an `Error` field (code and message) instead of
 | `ERROR_BAD_SEQUENCE` | Stream messages arrived out of order. |
 | `ERROR_INTERNAL` | A server fault. |
 | `ERROR_BLOCK_NOT_FOUND` | No such block in the collection. |
-| `ERROR_BLOCK_MISMATCH` | The ids of a `ReplaceBlock` are not exactly the live ids, or the cluster or columns differ. |
+| `ERROR_BLOCK_MISMATCH` | The ids of a `ReplaceBlock` are not exactly the live ids, or the cluster or columns differ. In `RetrieveRecords`: a block in scope has no record column, or the blocks in scope have different row sizes. |
 | `ERROR_BLOB_NOT_FOUND` | No blob with this kind and id in the collection. |
 | `ERROR_STORAGE_FULL` | The server's disk or quota is full. Nothing was stored. The server sends this as the gRPC status `RESOURCE_EXHAUSTED`, and the client retries. |
 | `ERROR_ALIAS_NOT_FOUND` | No alias has this name. |
