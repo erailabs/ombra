@@ -86,4 +86,4 @@ When the answer is implemented, every block in scope must have a record column, 
 
 ### Keys
 
-The retrieval keys are public evaluation keys of the client's retrieval key. They are not sent with each call. The client uploads them once with [`UploadKeys`](keys.md#uploadkeys), as the key kinds 4 to 6, and the call names them by (`collection`, `pir_key_tag`). The server does not store them yet. Once it does, `ERROR_KEYS_MISSING` will mean that none are stored, and `ERROR_KEY_TAG_MISMATCH` that the stored ones carry another tag.
+The retrieval keys are public evaluation keys of the client's retrieval key. They are not sent with each call. The client uploads them once with [`UploadKeys`](keys.md#uploadkeys), as the key kinds 4 to 6, and the call names them by (`collection`, `pir_key_tag`). The server stores them, but RetrieveRecords does not look them up yet. Once it does, `ERROR_KEYS_MISSING` will mean that none are stored, and `ERROR_KEY_TAG_MISMATCH` that the stored ones carry another tag.
