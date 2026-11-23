@@ -4,6 +4,7 @@
 // Internal code returns Status; the public functions convert to exceptions at the boundary.
 
 #include <algorithm>
+#include <cstring>
 #include <stdexcept>
 
 #include "device_buffer.cuh"
@@ -38,6 +39,7 @@ struct PirInnerDevice::Impl {
   DeviceBuffer<long long> cells;  // [b][a][N]: the cell a * r2 + b of the grid sits at b * r1 + a
   DeviceBuffer<u64> plain;        // [b][a][tower][N], evaluation form
   DeviceBuffer<u64> sel, out;
+  long long* stage = nullptr;  // pinned host copy of the cells in device order, made once
   cudaEvent_t e0 = nullptr, e1 = nullptr;
   double seconds = 0;
 
@@ -46,6 +48,7 @@ struct PirInnerDevice::Impl {
     for (cudaEvent_t e : {e0, e1}) {
       if (e != nullptr) (void)cudaEventDestroy(e);
     }
+    if (stage != nullptr) (void)cudaFreeHost(stage);
   }
 
   Status init() {
@@ -65,6 +68,8 @@ struct PirInnerDevice::Impl {
     OMBRA_TRY(plain.allocate(r1 * r2 * poly));
     OMBRA_TRY(sel.allocate(r1 * 2 * poly));
     OMBRA_TRY(out.allocate(r2 * 2 * poly));
+    OMBRA_CUDA_CHECK(
+        cudaMallocHost(reinterpret_cast<void**>(&stage), r1 * r2 * n * sizeof(long long)));
     OMBRA_CUDA_CHECK(cudaEventCreate(&e0));
     OMBRA_CUDA_CHECK(cudaEventCreate(&e1));
     return {};
@@ -79,13 +84,15 @@ struct PirInnerDevice::Impl {
     OMBRA_CUDA_CHECK(
         cudaMemcpy(sel.get(), sel_h, r1 * 2 * poly * sizeof(u64), cudaMemcpyHostToDevice));
     // Cell (a, b) goes to slot b * r1 + a, so that the products of one output b read r1
-    // consecutive plaintexts (the layout of launch_plain_search).
+    // consecutive plaintexts (the layout of launch_plain_search). The reordering is done on the
+    // host into pinned memory, then all cells cross to the device in one copy.
     for (std::size_t a = 0; a < r1; ++a) {
       for (std::size_t b = 0; b < r2; ++b) {
-        OMBRA_CUDA_CHECK(cudaMemcpy(cells.get() + (b * r1 + a) * n, cells_h + (a * r2 + b) * n,
-                                    n * sizeof(long long), cudaMemcpyHostToDevice));
+        std::memcpy(stage + (b * r1 + a) * n, cells_h + (a * r2 + b) * n, n * sizeof(long long));
       }
     }
+    OMBRA_CUDA_CHECK(cudaMemcpy(cells.get(), stage, r1 * r2 * n * sizeof(long long),
+                                cudaMemcpyHostToDevice));
     const std::size_t cols = r1 * r2;
     OMBRA_CUDA_CHECK(cudaEventRecord(e0, nullptr));
     OMBRA_CUDA_CHECK(launch_reduce_ints(cells.get(), cols, n, tc.get(), nt, plain.get(), nullptr));
