@@ -54,14 +54,21 @@ class Replayable:
     """A request stream that can be sent again: wraps a function that makes a fresh iterator.
 
     A plain generator is used up after one attempt, so calls that stream requests pass one of
-    these; the transport iterates it anew for each attempt.
+    these; the transport iterates it anew for each attempt. It is also an iterator itself (one
+    pass), so a raw generated stub, which calls `next()` on the request stream, accepts it too.
     """
 
     def __init__(self, factory: Callable[[], Iterator[Any]]) -> None:
         self._factory = factory
+        self._current: Iterator[Any] | None = None
 
     def __iter__(self) -> Iterator[Any]:
         return iter(self._factory())
+
+    def __next__(self) -> Any:
+        if self._current is None:
+            self._current = iter(self._factory())
+        return next(self._current)
 
 
 def call_with_retry(

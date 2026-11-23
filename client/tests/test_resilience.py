@@ -402,6 +402,19 @@ def test_put_blob_retry_resends_the_whole_request_stream(server):
     assert servicer.requests["PutBlob"] == [3]  # the second try sent all three messages
 
 
+def test_replayable_works_with_a_raw_grpc_stub(server):
+    """A Collection may be given the generated stub without the wrapper; grpc then calls next()
+    on the request stream itself."""
+    servicer, stub = server
+    raw = stub()._stub  # the generated OmbraStub under the wrapper
+    msgs = [pb.PutBlobRequest(), pb.PutBlobRequest(data=b"x"), pb.PutBlobRequest(data=b"y")]
+    raw.PutBlob(Replayable(lambda: iter(msgs)))
+    assert servicer.requests["PutBlob"] == [3]
+    r = Replayable(lambda: iter(msgs))
+    assert next(r) is msgs[0]
+    assert list(iter(r)) == msgs  # iter() still starts a fresh stream for each attempt
+
+
 def test_one_shot_request_stream_is_not_retried(server):
     servicer, stub = server
     servicer.fail["PutBlob"] = 1
