@@ -82,6 +82,7 @@ nav:
       - how-it-works/deletes.md
       - how-it-works/accuracy.md
       - how-it-works/documents.md
+      - how-it-works/private-retrieval.md
   - Security:
       - security/threat-model.md
       - security/what-the-server-learns.md
