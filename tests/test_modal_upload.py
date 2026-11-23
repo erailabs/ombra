@@ -114,6 +114,23 @@ def test_known_fixtures_included(path: str) -> None:
     assert not is_excluded(path)
 
 
+def test_every_tracked_binary_the_build_reads_is_uploaded() -> None:
+    import subprocess
+
+    tracked = subprocess.run(  # noqa: S603
+        ["git", "ls-files", "*.bin"],  # noqa: S607
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if tracked.returncode != 0:
+        pytest.skip("not a git checkout")
+    paths = [p for p in tracked.stdout.split() if p.split("/")[0] in ALLOWED_TOP_LEVEL]
+    assert paths
+    assert [p for p in paths if is_excluded(p)] == []
+
+
 @pytest.mark.parametrize("path", ["ombra/.env", "keys/a", "ombra/k.pem", "ombra/a.sqlite"])
 def test_client_folder_secrets_unsafe(path: str) -> None:
     from modal_upload import is_unsafe
