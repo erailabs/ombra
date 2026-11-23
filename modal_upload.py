@@ -71,6 +71,9 @@ EXCLUDED_PATTERNS = (
 ALLOWED_BINARY = (
     "tests/fixtures/envelope_v1_ciphertext.bin",
     "tests/fixtures/envelope_v2_seeded.bin",
+    # The CUDA configure step refuses to run without these public context fixtures.
+    "server/search/context_golden/m0_compact_n8192.bin",
+    "server/search/context_golden/m0_depth2.bin",
 )
 
 
