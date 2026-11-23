@@ -315,7 +315,9 @@ message ReplaceBlockResponse {
 //   3. in:  exactly shape.n_cts messages with `query` (one serialized ciphertext each, at most
 //           LIMIT_MAX_CHUNK_BYTES), the shape being the one the Info describes. A non-zero
 //           n_queries in the start must equal shape.n_cts, else ERROR_INVALID_ARGUMENT; a client
-//           sends 0. An extra query is ERROR_BAD_SEQUENCE, a short stream is ERROR_BAD_SEQUENCE.
+//           sends 0. Then the client closes its side of the stream: the server computes the
+//           answers only after that close. An extra query is ERROR_BAD_SEQUENCE, a short stream
+//           is ERROR_BAD_SEQUENCE.
 //   4. out: one RecordAnswer per bucket in bucket order, or an Error and the end.
 // The server stores nothing of the call. A scope with no row (no block, or only empty blocks) is
 // refused with ERROR_INVALID_ARGUMENT before the Info: there is nothing to retrieve.
