@@ -111,6 +111,7 @@ nav:
           - reference/grpc/insert-and-delete.md
           - reference/grpc/search.md
           - reference/grpc/blocks.md
+          - reference/grpc/retrieve.md
           - reference/grpc/blobs.md
           - reference/grpc/aliases.md
           - reference/grpc/messages.md

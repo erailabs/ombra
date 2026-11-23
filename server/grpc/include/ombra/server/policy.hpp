@@ -56,6 +56,9 @@ inline constexpr std::size_t kMaxNameBytes = 128;
 inline constexpr std::size_t kMaxIdBytes = 256;
 inline constexpr std::size_t kMaxIdsPerRequest = 100000;
 inline constexpr std::size_t kMaxClustersPerRound = 4096;
+inline constexpr std::uint32_t kMaxRetrieveM = 3000;
+inline constexpr std::uint32_t kMaxRetrieveQueries = 4500;
+inline constexpr std::size_t kPirSeedBytes = 16;
 // Not in the proto Limit enum: the catalog creates one row per cluster, so cap the count.
 inline constexpr std::uint32_t kMaxClusterCount = 1u << 20;
 inline constexpr std::size_t kMaxKeyTagBytes = 256;

@@ -13,6 +13,7 @@
 
 #include "ombra/server/log.hpp"
 #include "ombra/server/policy.hpp"
+#include "ombra/server/retrieve.hpp"
 #include "ombra/storage/fsutil.hpp"
 
 namespace ombra::server {
@@ -106,6 +107,10 @@ Status classify_current() {
     return {Err::InvalidArgument, "unknown blob kind"};
   } catch (const storage::BlockMismatch& e) {
     return {Err::BlockMismatch, e.what()};
+  } catch (const storage::RecordColumnMissing& e) {
+    return {Err::BlockMismatch, e.what()};
+  } catch (const storage::RecordColumnError& e) {
+    return {Err::InvalidArgument, e.what()};
   } catch (const search::ResourceExhausted&) {
     return {Err::SizeLimit, "too many concurrent searches for the server's GPU memory"};
   } catch (const search::KeyTagMismatch& e) {
@@ -613,6 +618,7 @@ grpc::Status OmbraService::run_Insert(grpc::ServerContext* ctx,
   std::size_t want_cols = 0;
   std::vector<std::string> ids;
   std::vector<std::vector<std::uint8_t>> cols;
+  std::vector<std::uint8_t> record;  // the open block's record column, joined from its parts
   try {
     // Stores the open block. Empty status: nothing open, or stored.
     const auto close_block = [&]() -> Status {
@@ -620,13 +626,14 @@ grpc::Status OmbraService::run_Insert(grpc::ServerContext* ctx,
       if (cols.size() != want_cols)
         return {Err::BadSequence, "the block has fewer columns than the layout needs"};
       bool repeat = false;
-      store_.insert(coll, cluster, ids, cols, &repeat);
+      store_.insert(coll, cluster, ids, cols, &repeat, record.empty() ? nullptr : &record);
       inserted += ids.size();
       replayed += repeat ? 1 : 0;
       ++blocks;
       open = false;
       ids.clear();
       cols.clear();
+      record.clear();
       return {};
     };
     v1::InsertRequest m;
@@ -676,6 +683,14 @@ grpc::Status OmbraService::run_Insert(grpc::ServerContext* ctx,
         if (m.column().size() > kMaxColumnBytes) return fail(Err::SizeLimit, "column is too large");
         cols.emplace_back(m.column().begin(), m.column().end());
         bytes += m.column().size();
+      } else if (m.part_case() == v1::InsertRequest::kRecordColumn) {
+        if (!open) return fail(Err::BadSequence, "a record column before the header");
+        if (m.record_column().size() > kMaxChunkBytes)
+          return fail(Err::SizeLimit, "record column part is too large");
+        if (record.size() + m.record_column().size() > storage::kMaxRecordColumnBytes)
+          return fail(Err::SizeLimit, "record column is too large");
+        record.insert(record.end(), m.record_column().begin(), m.record_column().end());
+        bytes += m.record_column().size();
       } else {
         return fail(Err::InvalidArgument, "empty message");
       }
@@ -968,6 +983,7 @@ grpc::Status OmbraService::run_ReplaceBlock(grpc::ServerContext* ctx,
     std::size_t max_columns = 0;
     bool have_header = false;
     std::size_t bytes = 0;
+    std::vector<std::uint8_t> record;
     while (in->Read(&m)) {
       if (m.api_version() != kApiVersion)
         return fail(Err::UnsupportedVersion, "unsupported api_version");
@@ -1000,6 +1016,14 @@ grpc::Status OmbraService::run_ReplaceBlock(grpc::ServerContext* ctx,
         if (m.column().size() > kMaxColumnBytes) return fail(Err::SizeLimit, "column is too large");
         nd.column_envelopes.emplace_back(m.column().begin(), m.column().end());
         bytes += m.column().size();
+      } else if (m.part_case() == v1::ReplaceBlockRequest::kRecordColumn) {
+        if (!have_header) return fail(Err::BadSequence, "a record column before the header");
+        if (m.record_column().size() > kMaxChunkBytes)
+          return fail(Err::SizeLimit, "record column part is too large");
+        if (record.size() + m.record_column().size() > storage::kMaxRecordColumnBytes)
+          return fail(Err::SizeLimit, "record column is too large");
+        record.insert(record.end(), m.record_column().begin(), m.record_column().end());
+        bytes += m.record_column().size();
       } else {
         return fail(Err::InvalidArgument, "empty message");
       }
@@ -1022,7 +1046,8 @@ grpc::Status OmbraService::run_ReplaceBlock(grpc::ServerContext* ctx,
         found = true;
       }
     if (!found) return fail(Err::BlockNotFound, "block not found");
-    resp->set_segment(store_.replace_segments(coll, segments, nd));
+    resp->set_segment(
+        store_.replace_segments(coll, segments, nd, record.empty() ? nullptr : &record));
     log_line("replace_block", nd.ids.size(), bytes, ms_since(t0));
   } catch (...) {
     fill(resp->mutable_error(), classify_current());
@@ -1334,6 +1359,50 @@ grpc::Status OmbraService::PutBlob(grpc::ServerContext* ctx,
 grpc::Status OmbraService::GetBlob(grpc::ServerContext* ctx, const v1::GetBlobRequest* req,
                                    grpc::ServerWriter<v1::GetBlobResponse>* resp) {
   return guarded(ctx, Rpc::GetBlob, resp, [&] { return run_GetBlob(ctx, req, resp); });
+}
+
+// RetrieveRecords: the request stream is read and validated; the answer is not implemented yet.
+grpc::Status OmbraService::run_RetrieveRecords(
+    grpc::ServerContext* ctx,
+    grpc::ServerReaderWriter<v1::RetrieveRecordsResponse, v1::RetrieveRecordsRequest>* stream) {
+  const auto send_error = [&](const Status& s) {
+    v1::RetrieveRecordsResponse out;
+    out.set_api_version(kApiVersion);
+    fill(out.mutable_error(), s);
+    stream->Write(out);
+    return grpc::Status::OK;
+  };
+  RetrieveValidator check;
+  v1::RetrieveRecordsRequest m;
+  bool first = true;
+  while (stream->Read(&m)) {
+    if (first) {
+      first = false;
+      if (m.part_case() == v1::RetrieveRecordsRequest::kStart) {
+        const std::string& name = m.start().collection();
+        if (auto d = check_collection(ctx, name); !d.ok()) return d;
+        // An empty name is left to the validator (INVALID_ARGUMENT). Otherwise the collection
+        // must exist, and its cluster count bounds the cluster ids of the scope.
+        if (!name.empty()) {
+          storage::CollectionSpec spec;
+          if (!store_.get_collection(name, &spec))
+            return send_error({Err::CollectionNotFound, "collection not found"});
+          check = RetrieveValidator(spec.cluster_count);
+        }
+      }
+    }
+    if (auto st = check.accept(m); !st.ok()) return send_error(st);
+  }
+  if (ctx->IsCancelled()) return grpc::Status(grpc::StatusCode::CANCELLED, "call cancelled");
+  if (auto st = check.finish(); !st.ok()) return send_error(st);
+  return grpc::Status(grpc::StatusCode::UNIMPLEMENTED, "RetrieveRecords is not implemented yet");
+}
+
+grpc::Status OmbraService::RetrieveRecords(
+    grpc::ServerContext* ctx,
+    grpc::ServerReaderWriter<v1::RetrieveRecordsResponse, v1::RetrieveRecordsRequest>* stream) {
+  return guarded(ctx, Rpc::RetrieveRecords, static_cast<void*>(nullptr),
+                 [&] { return run_RetrieveRecords(ctx, stream); });
 }
 
 grpc::Status OmbraService::DeleteBlobs(grpc::ServerContext* ctx, const v1::DeleteBlobsRequest* req,

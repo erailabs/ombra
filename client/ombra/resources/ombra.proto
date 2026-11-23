@@ -22,6 +22,8 @@ enum Limit {
   LIMIT_MAX_FILTER_FIELDS = 16;         // F; the preset's headroom may lower it (see below)
   LIMIT_MAX_FILTER_CARDINALITY = 64;    // values per field (higher cardinality is hashed)
   LIMIT_MAX_CLUSTERS_PER_ROUND = 4096;
+  LIMIT_MAX_RETRIEVE_M = 3000;          // RetrieveRecords: most wanted rows per call (1.5 m buckets)
+  LIMIT_MAX_RETRIEVE_QUERIES = 4500;    // RetrieveRecords: query ciphertexts per call (<= buckets)
   // Encrypted blob sizes: a stored blob is exactly one of these sizes, never another, so
   // the server learns only the bucket of a document, not its size. Larger files are kept in the
   // customer's own storage and the blob holds an encrypted reference.
@@ -140,6 +142,14 @@ enum KeyKind {
   KEY_KIND_CONTEXT = 1;
   KEY_KIND_EVAL_MULT = 2;
   KEY_KIND_AUTOMORPHISM = 3;
+  // Keys of the private record retrieval (BFV, its own preset and its own key): the serialized
+  // context, relinearization key and automorphism keys of the client's retrieval key, uploaded once
+  // with this same call and stored per collection, replacing the previous set. RetrieveRecords refers
+  // to them by (collection, pir_key_tag). A server that does not store them yet refuses these kinds
+  // with ERROR_INVALID_ARGUMENT.
+  KEY_KIND_PIR_CONTEXT = 4;
+  KEY_KIND_PIR_EVAL_MULT = 5;
+  KEY_KIND_PIR_AUTOMORPHISM = 6;
 }
 
 message UploadKeysChunk {
@@ -169,9 +179,18 @@ message InsertHeader {
   repeated bytes ids = 3;       // one per occupied slot, in slot order; at most one block of slots
   bool is_center = 4;           // cluster-center block (stage 1) instead of data
 }
+//
+// Record column (private record retrieval). After the block's columns a client may send its record
+// column: the sealed re-rank rows of the block, one row per slot, in the versioned "ORCL" layout
+// (magic, version 1, reserved 0, row size, row count, then the rows; see client/ombra/pir.py). It
+// is sent in `record_column` parts, each at most LIMIT_MAX_CHUNK_BYTES, which the server joins in
+// order. The row count must equal the number of ids of the block. The server stores it with the
+// block and never opens it (the rows are AES-GCM sealed under a key only the client has). A block
+// without a record column works as before; a repeat of a stored block must carry the same record
+// column bytes (or none, if the stored block has none), else it is a duplicate.
 message InsertRequest {
   uint32 api_version = 1;       // must be 1 (the block is stored)
-  oneof part { InsertHeader header = 2; bytes column = 3; }
+  oneof part { InsertHeader header = 2; bytes column = 3; bytes record_column = 4; }
 }
 // One whole block: the form that the local mode stores. No call sends it.
 message InsertBlock {
@@ -181,6 +200,7 @@ message InsertBlock {
   repeated bytes ids = 4;       // one per occupied slot, in slot order
   repeated bytes columns = 5;   // dimension + sum(cardinality) envelopes, in that column order
   bool is_center = 6;           // cluster-center block (stage 1) instead of data
+  bytes record_column = 7;      // whole ORCL record column of a data block; empty: none (see InsertRequest)
 }
 message InsertResponse { uint64 inserted = 1; Error error = 2; }
 
@@ -261,14 +281,72 @@ message ReplaceBlockHeader {
 }
 // Client stream: one header, then the columns in column order (same layout as the old blocks).
 // N old blocks become ONE new block, so the stored bytes fall by N-1 blocks.
+// `record_column` parts (after the columns) carry the new block's record column, as in InsertRequest,
+// with one row per id of the header, in the new slot order. The record columns of the old blocks are
+// removed with them; a replacement sent without one leaves the new block without a record column.
 message ReplaceBlockRequest {
   uint32 api_version = 1;   // must be 1 (the block is stored)
-  oneof part { ReplaceBlockHeader header = 2; bytes column = 3; }
+  oneof part { ReplaceBlockHeader header = 2; bytes column = 3; bytes record_column = 4; }
 }
 message ReplaceBlockResponse {
   uint32 api_version = 1;
   string segment = 2;       // name of the new block
   Error error = 3;
+}
+
+// Private record retrieval. The client fetches the re-rank rows of its candidates without the server
+// learning which rows: batched BFV PIR on the retrieval preset (pir_bfv_n8192). The database of one
+// call is the concatenation of the record columns of the blocks in scope. Scope: the listed data
+// clusters, or all data clusters (Strict). The blocks of a cluster come in the order they were
+// created; clusters in ascending id order; every block in scope must have a record column and all
+// must have the same row size, else ERROR_BLOCK_MISMATCH. Row i of the database is the i-th row of
+// that concatenation.
+//
+// Keys. The retrieval keys are public evaluation keys of the client's retrieval key. They are not
+// sent per call: they are uploaded once with UploadKeys (KEY_KIND_PIR_*) and the call names them by
+// (collection, pir_key_tag); ERROR_KEYS_MISSING if none are stored, ERROR_KEY_TAG_MISMATCH if the
+// stored ones carry another tag.
+//
+// Stream in: one RetrieveRecordsStart, then exactly `n_queries` messages with `query` (one
+// serialized ciphertext each, at most LIMIT_MAX_CHUNK_BYTES). Stream out: one RetrieveRecordsInfo,
+// then one RecordAnswer per bucket in bucket order, or an Error and the end. The server stores
+// nothing of the call.
+message RetrieveRecordsStart {
+  string collection = 1;
+  string key_tag = 2;             // checked against the collection's, like SearchStart
+  string pir_key_tag = 3;         // tag of the uploaded retrieval keys (public, not secret)
+  repeated uint32 cluster_ids = 4;  // scope: these data clusters (distinct, each < cluster_count) ...
+  bool all_clusters = 5;          // ... or all data clusters. Exactly one of the two is used.
+  uint32 m = 6;                   // rows wanted per call, 1 .. LIMIT_MAX_RETRIEVE_M; buckets = ceil(1.5 m)
+  bytes hash_seed = 7;            // exactly 16 bytes; public; keys the cuckoo hashing of the call
+  uint32 n_queries = 8;           // query messages that follow, 1 .. LIMIT_MAX_RETRIEVE_QUERIES
+}
+message RetrieveRecordsRequest {
+  uint32 api_version = 1;         // must be 1
+  oneof part { RetrieveRecordsStart start = 2; bytes query = 3; }
+}
+
+// Where the rows of one block sit in the concatenation (counts and opaque names only).
+message RecordSpan {
+  uint32 cluster_id = 1;
+  string segment = 2;
+  uint64 first_row = 3;
+  uint64 n_rows = 4;
+}
+// First answer message: the shape the server used, so the client can check it equals its own.
+message RetrieveRecordsInfo {
+  uint64 n_rows = 1;              // database size
+  uint32 row_size = 2;            // bytes per row (a multiple of 64)
+  uint32 n_buckets = 3;           // answers that follow
+  repeated RecordSpan spans = 4;  // block layout of the database, in database order
+}
+message RecordAnswer {
+  uint32 bucket = 1;              // 0 .. n_buckets-1, in order
+  bytes answer = 2;               // one serialized compressed ciphertext (about 132 KB)
+}
+message RetrieveRecordsResponse {
+  uint32 api_version = 1;
+  oneof part { RetrieveRecordsInfo info = 2; RecordAnswer answer = 3; Error error = 4; }
 }
 
 // Encrypted blob store. Blobs are opaque client ciphertexts (the client's versioned
@@ -329,4 +407,5 @@ service Ombra {
   rpc SwitchAlias(SwitchAliasRequest) returns (SwitchAliasResponse);
   rpc DropAlias(DropAliasRequest) returns (DropAliasResponse);
   rpc ListAliases(ListAliasesRequest) returns (ListAliasesResponse);
+  rpc RetrieveRecords(stream RetrieveRecordsRequest) returns (stream RetrieveRecordsResponse);
 }

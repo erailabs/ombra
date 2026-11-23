@@ -1,0 +1,5 @@
+# Record column (magic ORCL, version 1) and record file container (magic OREC, version 1).
+magic="ORCL"
+file_magic="OREC"
+v1="\x01\x00"
+row64="\x40\x00\x00\x00"

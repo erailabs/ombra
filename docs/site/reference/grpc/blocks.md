@@ -95,6 +95,7 @@ The client sends one header, then the columns in column order, one per message (
 | `api_version` | uint32 | yes | Must be 1. |
 | `header` | `ReplaceBlockHeader` | first message | Names the old blocks and the new ids. |
 | `column` | bytes | after the header | One envelope, in column order. |
+| `record_column` | bytes | optional, after the header | A part of the new block's record column. See below. |
 
 **ReplaceBlockHeader**
 
@@ -115,3 +116,5 @@ The client sends one header, then the columns in column order, one per message (
 Errors: `ERROR_COLLECTION_NOT_FOUND`, `ERROR_BLOCK_NOT_FOUND`, `ERROR_BLOCK_MISMATCH` (the ids are not exactly the live ids, or the cluster or columns differ), `ERROR_BAD_SEQUENCE`, `ERROR_KEY_TAG_MISMATCH`, `ERROR_UNSUPPORTED_VERSION`, `ERROR_SIZE_LIMIT`, `ERROR_STORAGE_FULL`.
 
 Notes: N old blocks become one new block, so storage falls by N minus 1 blocks.
+
+Record column: the new block may carry one, sent as `record_column` parts after the columns, with the same rules as in [`Insert`](insert-and-delete.md#record-column). It has one row per id of the header, in the new slot order. The record files of the old blocks are removed with them. A replacement sent without a record column leaves the new block without one: the rows are not copied from the old blocks. A client that uses record columns must send the new column with every replacement. A malformed column or a wrong row count fails with `ERROR_INVALID_ARGUMENT`.

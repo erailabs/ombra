@@ -19,7 +19,7 @@ find_package(Threads REQUIRED)
 target_link_libraries(ombra_sqlite PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
 
 add_library(ombra_storage STATIC src/segment.cpp src/wal.cpp src/catalog.cpp src/store.cpp
-                                 src/fsutil.cpp src/blob.cpp src/verify.cpp src/backup.cpp)
+                                 src/fsutil.cpp src/blob.cpp src/record_column.cpp src/verify.cpp src/backup.cpp)
 target_include_directories(ombra_storage PUBLIC include
                            ${CMAKE_CURRENT_SOURCE_DIR}/../../core/include)
 target_link_libraries(ombra_storage PUBLIC ombra_sqlite)
@@ -34,11 +34,17 @@ target_link_libraries(ombra_verify PRIVATE ombra_storage)
 add_executable(ombra_backup tools/ombra_backup.cpp)
 target_link_libraries(ombra_backup PRIVATE ombra_storage)
 
-foreach(t segment wal catalog recovery blob seeded verify backup diskfull concurrency)
+foreach(t segment wal catalog recovery blob seeded record_column verify backup diskfull concurrency)
   add_executable(ombra_storage_${t}_test tests/${t}_test.cpp)
   target_link_libraries(ombra_storage_${t}_test PRIVATE ombra_storage)
   add_test(NAME storage_${t} COMMAND ombra_storage_${t}_test)
 endforeach()
+# The record column fuzz entry point over its committed corpus, without libFuzzer.
+add_executable(ombra_storage_record_column_corpus ../../fuzz/fuzz_record_column.cpp
+                                                  ../../fuzz/corpus_driver.cpp)
+target_link_libraries(ombra_storage_record_column_corpus PRIVATE ombra_storage)
+add_test(NAME storage_record_column_corpus
+         COMMAND ombra_storage_record_column_corpus ${CMAKE_CURRENT_SOURCE_DIR}/../../fuzz/corpus/record_column)
 # The CLI tests run the real binaries.
 add_dependencies(ombra_storage_verify_test ombra_verify)
 target_compile_definitions(ombra_storage_verify_test PRIVATE

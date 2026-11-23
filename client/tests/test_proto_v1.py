@@ -129,3 +129,36 @@ def test_block_messages_carry_counts_only(pb) -> None:
     fields = set(pb.BlockInfo.DESCRIPTOR.fields_by_name)
     assert fields == {"segment", "cluster_id", "n_vectors", "n_deleted"}
     assert pb.ERROR_BLOCK_NOT_FOUND == 12 and pb.ERROR_BLOCK_MISMATCH == 13
+
+
+def test_old_messages_without_record_columns_still_parse(pb) -> None:
+    """Bytes written before the record column fields existed parse, with the new fields unset."""
+    # InsertRequest{api_version=1, header{collection="docs", cluster_id=1, ids=["a"]}}
+    old_header = (
+        bytes([0x08, 0x01, 0x12, 0x0B, 0x0A, 0x04])
+        + b"docs"
+        + bytes([0x10, 0x01, 0x1A, 0x01])
+        + b"a"
+    )
+    m = pb.InsertRequest.FromString(old_header)
+    assert m.WhichOneof("part") == "header" and m.header.collection == "docs"
+    old_col = bytes([0x08, 0x01, 0x1A, 0x03]) + b"abc"  # column = 3
+    assert pb.InsertRequest.FromString(old_col).column == b"abc"
+    r = pb.ReplaceBlockRequest.FromString(bytes([0x08, 0x01, 0x1A, 0x01]) + b"x")
+    assert r.WhichOneof("part") == "column"
+    blk = pb.InsertBlock.FromString(bytes([0x08, 0x01, 0x12, 0x01]) + b"c")
+    assert blk.record_column == b"" and blk.collection == "c"
+
+
+def test_record_column_fields_are_new_numbers(pb) -> None:
+    for name, num in (("InsertRequest", 4), ("ReplaceBlockRequest", 4), ("InsertBlock", 7)):
+        assert (
+            pb.DESCRIPTOR.message_types_by_name[name].fields_by_name["record_column"].number == num
+        )
+    # existing field numbers did not move
+    ins = pb.DESCRIPTOR.message_types_by_name["InsertRequest"].fields_by_name
+    assert (ins["header"].number, ins["column"].number) == (2, 3)
+    rep = pb.InsertRequest(api_version=1, record_column=b"r")
+    assert pb.InsertRequest.FromString(rep.SerializeToString()).record_column == b"r"
+    svc = pb.DESCRIPTOR.services_by_name["Ombra"].methods_by_name["RetrieveRecords"]
+    assert svc.client_streaming and svc.server_streaming

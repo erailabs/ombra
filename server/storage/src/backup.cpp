@@ -17,6 +17,8 @@
 #include <vector>
 
 #include "ombra/storage/fsutil.hpp"
+#include "ombra/storage/record_column.hpp"
+#include "ombra/storage/segment.hpp"
 #include "ombra/storage/verify.hpp"
 
 namespace fs = std::filesystem;
@@ -120,7 +122,8 @@ void attempt(const std::string& root, const std::string& out, BackupReport& rep)
   make_private_dir(out + "/segments");
   make_private_dir(out + "/keys");
   make_private_dir(out + "/blobs");
-  rep.segments = rep.blobs = rep.key_files = 0;
+  make_private_dir(out + "/records");
+  rep.segments = rep.blobs = rep.key_files = rep.records = 0;
   rep.bytes = 0;
   rep.api_keys = false;
 
@@ -165,6 +168,15 @@ void attempt(const std::string& root, const std::string& out, BackupReport& rep)
           throw std::runtime_error(std::string("catalog row with an invalid file name in ") + dir);
         items.push_back({dir, name});
       }
+    // The record column of a block, if it has one: records/<segment stem>.orec. It is written
+    // before its segment and never changes, so it exists at the snapshot or never will.
+    const std::size_t n_segments = items.size();
+    for (std::size_t i = 0; i < n_segments; ++i) {
+      if (items[i].dir != "segments" || !is_valid_segment_name(items[i].name)) continue;
+      const std::string rec = record_file_name(items[i].name);
+      std::error_code ec;
+      if (fs::exists(root + "/records/" + rec, ec)) items.push_back({"records", rec});
+    }
   }
   rlimit lim{};
   std::size_t batch = 256;
@@ -195,12 +207,14 @@ void attempt(const std::string& root, const std::string& out, BackupReport& rep)
         ++rep.segments;
       else if (it.dir == std::string("blobs"))
         ++rep.blobs;
+      else if (it.dir == std::string("records"))
+        ++rep.records;
       else
         ++rep.key_files;
     }
   }
   if (first_batch) fsync_path(out + "/catalog.db");
-  for (const char* dir : {"segments", "blobs", "keys"}) fsync_path(out + "/" + dir);
+  for (const char* dir : {"segments", "blobs", "keys", "records"}) fsync_path(out + "/" + dir);
 
   // 3. the API key file (atomically replaced by the server, so any read sees a whole file)
   // v1, or v2 (written once a collection-scoped key exists; the server reads v2 first).

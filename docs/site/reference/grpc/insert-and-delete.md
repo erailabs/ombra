@@ -21,6 +21,7 @@ The client sends a stream of blocks in parts, so that no message is larger than 
 | `api_version` | uint32 | yes | Must be 1. |
 | `header` | `InsertHeader` | one of | Starts a block. |
 | `column` | bytes | one of | One column envelope of the current block. |
+| `record_column` | bytes | one of, optional | A part of the current block's record column. See below. |
 
 **InsertHeader**
 
@@ -45,7 +46,17 @@ Notes:
 - Idempotent: a block whose ids all exist in one stored block of the same cluster, with byte-identical column envelopes, is a success that stores nothing and counts its ids again. A client may repeat an `Insert` whose answer it never got. A block that shares only some ids with stored ones, or reuses an id with other bytes, is refused as a duplicate.
 - Each block is stored when it is closed.
 
-**InsertBlock** is one whole block (`api_version`, `collection`, `cluster_id`, `ids`, `columns` and `is_center`). No call sends it. Local mode stores blocks in this form.
+### Record column
+
+A data block may carry a record column: the sealed re-rank rows of its vectors, one row per id, in the [`ORCL` layout](../file-formats/server-files.md#record-column). The server stores it with the block and never opens it. It is meant for [`RetrieveRecords`](retrieve.md).
+
+- The client sends it after the block's columns, as `record_column` parts. Each part is at most `LIMIT_MAX_CHUNK_BYTES` (4 MiB). The server joins the parts in order. The joined column is at most 1 GiB (`kMaxRecordColumnBytes`), else `ERROR_SIZE_LIMIT`. A part before the header fails with `ERROR_BAD_SEQUENCE`.
+- A block without `record_column` parts works as before and has no record column. `InsertBlock` carries the whole column in its `record_column` field (empty means none).
+- A malformed column (magic, version, reserved field, row size, length) fails with `ERROR_INVALID_ARGUMENT`. So does a row count that differs from the number of ids of the block.
+- A record column on a center block (`is_center`) is refused with `ERROR_INVALID_ARGUMENT`.
+- A repeated `Insert` of a block is a replay only if it carries byte-identical record bytes, or if the stored block and the new block both have none. Otherwise it fails as a duplicate id.
+
+**InsertBlock** is one whole block (`api_version`, `collection`, `cluster_id`, `ids`, `columns`, `is_center` and `record_column`). No call sends it. Local mode stores blocks in this form.
 
 ## Delete
 

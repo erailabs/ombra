@@ -5,6 +5,8 @@ The server keeps everything in its data directory, laid out as in [Backups](../.
 | File | Magic | Version |
 | --- | --- | --- |
 | [Segment](#segment) | `OSEG` | {{ cpp("server/storage/include/ombra/storage/segment.hpp", "kSegmentVersion") }} |
+| [Record file](#record-file) | `OREC` | {{ cpp("server/storage/include/ombra/storage/record_column.hpp", "kRecordFileVersion") }} |
+| [Record column](#record-column) | `ORCL` | {{ cpp("server/storage/include/ombra/storage/record_column.hpp", "kRecordColumnVersion") }} |
 | [Stored blob](#stored-blob) | `OBLB` | {{ cpp("server/storage/include/ombra/storage/blob.hpp", "kBlobVersion") }} |
 | [Write-ahead log](#write-ahead-log) | `OWAL` | {{ cpp("server/storage/include/ombra/storage/wal.hpp", "kWalVersion") }} |
 | [Catalog](#catalog) | SQLite, `schema_version` in `meta` | {{ cpp("server/storage/include/ombra/storage/catalog.hpp", "kCatalogSchemaVersion") }} |
@@ -14,6 +16,34 @@ The server keeps everything in its data directory, laid out as in [Backups](../.
 ## Segment
 
 `segments/<name>.oseg`: one block of one cluster, immutable once written. Magic `OSEG`, a 2-byte version, a CRC32 of the body, then the cluster number, the ids and the column envelopes. Each column is a complete [envelope](envelope.md) of kind ciphertext. Source: `server/storage/include/ombra/storage/segment.hpp`.
+
+## Record file
+
+`records/<segment stem>.orec`: the optional record column of one block, named after the block's segment (`s<16 hex>.oseg` has `s<16 hex>.orec`). A block has at most one, and a block without one has no file. It is written once, before its segment, and never changes.
+
+| Offset | Size | Field |
+| --- | --- | --- |
+| 0 | 4 | Magic `OREC`. |
+| 4 | 2 | Container version, u16, currently {{ cpp("server/storage/include/ombra/storage/record_column.hpp", "kRecordFileVersion") }}. |
+| 6 | 4 | CRC32 of the column, u32. |
+| 10 | n | The [record column](#record-column), stored verbatim. |
+
+All numbers are little endian. Source: `server/storage/include/ombra/storage/record_column.hpp`.
+
+## Record column
+
+The sealed re-rank rows of one block: one row per id of the block, in id order. The client builds it and sends it with the block. The server never interprets a row. The rows are bytes that the client encrypted, and the server only checks the header and the length.
+
+| Offset | Size | Field |
+| --- | --- | --- |
+| 0 | 4 | Magic `ORCL`. |
+| 4 | 2 | Version, u16, currently {{ cpp("server/storage/include/ombra/storage/record_column.hpp", "kRecordColumnVersion") }}. |
+| 6 | 2 | Reserved, u16, must be 0. |
+| 8 | 4 | `row_size`, u32: bytes per row, nonzero and a multiple of 64. |
+| 12 | 4 | `n_rows`, u32. |
+| 16 | `n_rows` x `row_size` | The rows. |
+
+The length must be exactly 16 + `n_rows` x `row_size`, and a column is at most 1 GiB (`kMaxRecordColumnBytes`). A reader refuses another magic or version, a nonzero reserved field, a bad `row_size` or a wrong length. [`ombra_verify`](../cli/ombra-verify.md) also checks that `n_rows` equals the number of slots of the block.
 
 ## Stored blob
 

@@ -24,13 +24,14 @@ enum class Severity { Warning, Corrupt };
 
 struct Finding {
   Severity severity = Severity::Corrupt;
-  std::string kind;  // catalog, segment, blob, key, wal, orphan
+  std::string kind;  // catalog, segment, record, blob, key, wal, orphan
   std::string file;  // file name inside the data directory, "" if not about one file
   std::string what;
 };
 
 struct VerifyReport {
   std::size_t collections = 0, segments = 0, blobs = 0, key_files = 0, vectors = 0;
+  std::size_t record_files = 0;  // record columns found and checked (a block may have none)
   std::size_t wal_records = 0;
   std::vector<Finding> findings;
   std::size_t corrupt_count() const;

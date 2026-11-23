@@ -52,7 +52,9 @@ DEFAULT_BLOB_TIMEOUT = 300.0  # one blob is at most 16 MiB
 DEFAULT_METADATA_TIMEOUT = 30.0  # small reads
 _METADATA = frozenset({"GetCollection", "ListCollections", "ListBlocks", "ListAliases"})
 _BLOB = frozenset({"PutBlob", "GetBlob"})
-_STREAMING = frozenset({"UploadKeys", "Insert", "Search", "GetBlock", "ReplaceBlock"})
+_STREAMING = frozenset(
+    {"UploadKeys", "Insert", "Search", "GetBlock", "ReplaceBlock", "RetrieveRecords"}
+)
 _UNARY = frozenset(
     {
         "CreateCollection",

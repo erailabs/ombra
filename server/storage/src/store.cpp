@@ -6,6 +6,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cctype>
 #include <cerrno>
 #include <chrono>
@@ -85,6 +86,7 @@ Store::Store(std::string root, std::string openfhe_version)
   make_dir(segments_dir());
   make_dir(root_ + "/keys");
   make_dir(blob_dir());
+  make_dir(record_dir());
   catalog_ = std::make_unique<Catalog>(root_ + "/catalog.db");
   wal_ = std::make_unique<Wal>(wal_path());
   ::umask(old_umask);
@@ -95,6 +97,21 @@ Store::Store(std::string root, std::string openfhe_version)
 std::string Store::segment_path(const std::string& name) const {
   return segments_dir() + "/" + name;
 }
+
+void Store::unlink_segment_files(const std::string& segment_name) const {
+  ::unlink(segment_path(segment_name).c_str());
+  ::unlink(record_path(segment_name).c_str());
+}
+
+namespace {
+// The checks of a record column given with a block of `n_ids` slots.
+void check_record_column_for_block(const std::vector<std::uint8_t>& col, std::size_t n_ids) {
+  if (col.size() > kMaxRecordColumnBytes) throw RecordColumnError("record column: too large");
+  const auto info = parse_record_column(col);
+  if (info.n_rows != n_ids)
+    throw RecordColumnError("record column: row count differs from the number of ids");
+}
+}  // namespace
 
 ColumnExpect Store::expect_for(const CollectionSpec& spec) const {
   ColumnExpect e;
@@ -188,7 +205,7 @@ bool Store::drop_collection(const std::string& name) {
   maybe_crash(CrashPoint::DropAfterWalReset);
   bool first = true;
   for (const auto& f : segs) {
-    ::unlink(segment_path(f).c_str());
+    unlink_segment_files(f);
     if (first) maybe_crash(CrashPoint::DropAfterFirstFile);
     first = false;
   }
@@ -196,6 +213,7 @@ bool Store::drop_collection(const std::string& name) {
   for (const auto& f : blobs) ::unlink((blob_dir() + "/" + f).c_str());
   fsync_best_effort(blob_dir());
   fsync_best_effort(segments_dir());
+  fsync_best_effort(record_dir());
   fsync_best_effort(root_ + "/keys");
   if (reset_error) std::rethrow_exception(reset_error);
   log_line("drop", segs.size() + keys.size() + blobs.size(), 0, ms_since(t0));
@@ -213,7 +231,7 @@ void Store::unlink_or_defer(const std::string& file) {
   if (it != pins_.end() && it->second > 0)
     deferred_.insert(file);
   else
-    ::unlink(segment_path(file).c_str());
+    unlink_segment_files(file);
 }
 
 void Store::unpin(const std::vector<std::string>& files) const {
@@ -225,11 +243,14 @@ void Store::unpin(const std::vector<std::string>& files) const {
     if (--it->second > 0) continue;
     pins_.erase(it);
     if (deferred_.erase(f)) {
-      ::unlink(segment_path(f).c_str());
+      unlink_segment_files(f);
       any = true;
     }
   }
-  if (any) fsync_best_effort(segments_dir());  // runs in a destructor: must not throw
+  if (any) {  // runs in a destructor: must not throw
+    fsync_best_effort(segments_dir());
+    fsync_best_effort(record_dir());
+  }
 }
 
 Snapshot Store::snapshot(const std::string& collection) const {
@@ -267,6 +288,7 @@ std::size_t Store::drop_dead_blocks(const std::string& collection) {
   maybe_crash(CrashPoint::CompactAfterCatalog);
   for (const auto& f : dead) unlink_or_defer(f);
   fsync_best_effort(segments_dir());
+  fsync_best_effort(record_dir());
   maybe_crash(CrashPoint::CompactAfterUnlink);
   log_line("drop_dead_blocks", dead.size(), 0, ms_since(t0));
   return dead.size();
@@ -274,7 +296,8 @@ std::size_t Store::drop_dead_blocks(const std::string& collection) {
 
 std::string Store::replace_segments(const std::string& collection,
                                     const std::vector<std::string>& old_segments,
-                                    const SegmentData& neu) {
+                                    const SegmentData& neu,
+                                    const std::vector<std::uint8_t>* record_column) {
   const auto t0 = std::chrono::steady_clock::now();
   CollectionSpec spec;
   // Checks the precondition against the catalog. Runs twice: before the new file is written (so a
@@ -316,14 +339,17 @@ std::string Store::replace_segments(const std::string& collection,
     name = hex_name('s', catalog_->next_segment_id(), ".oseg");
   }
   const std::string path = segment_path(name);
+  const std::string rpath = record_path(name);
   const auto discard_new_file = [&] {
     ::unlink(path.c_str());
     ::unlink((path + ".tmp").c_str());
+    ::unlink(rpath.c_str());
+    ::unlink((rpath + ".tmp").c_str());
   };
 
-  // Step 2 (no lock): check the columns, write the new file durably under its final name. It is
-  // not in the catalog yet, so nothing refers to it; a crash leaves an unreferenced file that
-  // recovery sweeps.
+  // Step 2 (no lock): check the columns, write the new files durably under their final names (the
+  // record file first). They are not in the catalog yet, so nothing refers to them; a crash leaves
+  // unreferenced files that recovery sweeps.
   std::size_t bytes = 0;
   SegmentInfo info;
   try {
@@ -331,7 +357,13 @@ std::string Store::replace_segments(const std::string& collection,
       check_column_for_insert(c.data(), c.size(), spec.preset, ofhe_, expect_for(spec));
       bytes += c.size();
     }
+    if (record_column) check_record_column_for_block(*record_column, neu.ids.size());
     maybe_crash(CrashPoint::ReplaceBeforeNewFile);
+    if (record_column) {
+      write_record_file(rpath, *record_column);
+      bytes += record_column->size();
+      maybe_crash(CrashPoint::ReplaceAfterRecordFile);
+    }
     info = write_segment(path, neu);
     maybe_crash(CrashPoint::ReplaceAfterNewFile);
   } catch (...) {
@@ -363,6 +395,7 @@ std::string Store::replace_segments(const std::string& collection,
     }
   }
   fsync_best_effort(segments_dir());
+  fsync_best_effort(record_dir());
   maybe_crash(CrashPoint::ReplaceAfterUnlink);
   log_line("replace_block", neu.ids.size(), bytes, ms_since(t0));
   return name;
@@ -370,9 +403,12 @@ std::string Store::replace_segments(const std::string& collection,
 
 std::string Store::insert(const std::string& collection, std::uint32_t cluster,
                           const std::vector<std::string>& ids,
-                          const std::vector<std::vector<std::uint8_t>>& cols, bool* replayed) {
+                          const std::vector<std::vector<std::uint8_t>>& cols, bool* replayed,
+                          const std::vector<std::uint8_t>* record_column) {
   const auto t0 = std::chrono::steady_clock::now();
   if (replayed) *replayed = false;
+  // Shape of the column against the ids, before anything is looked up or written.
+  if (record_column) check_record_column_for_block(*record_column, ids.size());
   CollectionSpec spec;
   // A stored block that this block may repeat.
   struct Candidate {
@@ -419,6 +455,21 @@ std::string Store::insert(const std::string& collection, std::uint32_t cluster,
       throw std::runtime_error("insert: duplicate id");
     }
     if (stored != enc) throw std::runtime_error("insert: duplicate id");
+    // The record column too: both absent, or the same bytes.
+    const std::string rpath = record_path(c.row.file);
+    struct stat st {};
+    const bool has_record = ::stat(rpath.c_str(), &st) == 0;
+    if (has_record != (record_column != nullptr)) throw std::runtime_error("insert: duplicate id");
+    if (has_record) {
+      std::vector<std::uint8_t> stored_record;
+      try {
+        stored_record = read_file(rpath);
+      } catch (const std::exception&) {
+        throw std::runtime_error("insert: duplicate id");
+      }
+      if (stored_record != encode_record_file(*record_column))
+        throw std::runtime_error("insert: duplicate id");
+    }
     if (replayed) *replayed = true;
     log_line("insert_replayed", ids.size(), enc.size(), ms_since(t0));
     return c.row.file;
@@ -432,6 +483,8 @@ std::string Store::insert(const std::string& collection, std::uint32_t cluster,
     if (!catalog_->get_collection(collection, &spec))
       throw std::runtime_error("unknown collection");
     if (cluster > spec.cluster_count) throw std::runtime_error("cluster out of range");
+    if (record_column && cluster == spec.cluster_count)
+      throw RecordColumnError("record column: not allowed on a center block");
     if (ids.empty()) throw std::runtime_error("insert: no ids");
     std::set<std::string> seen;
     for (const auto& id : ids)
@@ -441,20 +494,28 @@ std::string Store::insert(const std::string& collection, std::uint32_t cluster,
   }
   if (early) return finish_replay(*early);
   const std::string path = segment_path(name);
+  const std::string rpath = record_path(name);
   const auto discard_new_file = [&] {
     ::unlink(path.c_str());
     ::unlink((path + ".tmp").c_str());
+    ::unlink(rpath.c_str());
+    ::unlink((rpath + ".tmp").c_str());
   };
 
-  // Step 2 (no lock): check the columns and write the segment durably under its final name. It
-  // is not in the catalog, so nothing refers to it yet; a crash here leaves an unreferenced file
-  // that recovery sweeps (there is no log record for it either).
+  // Step 2 (no lock): check the columns and write the record file, then the segment, durably under
+  // their final names. They are not in the catalog, so nothing refers to them yet; a crash here
+  // leaves unreferenced files that recovery sweeps (there is no log record for them either).
   std::size_t bytes = 0;
   SegmentInfo info;
   try {
     for (const auto& c : cols) {
       check_column_for_insert(c.data(), c.size(), spec.preset, ofhe_, expect_for(spec));
       bytes += c.size();
+    }
+    if (record_column) {
+      write_record_file(rpath, *record_column);
+      bytes += record_column->size();
+      maybe_crash(CrashPoint::InsertAfterRecordFile);
     }
     SegmentData sd{cluster, ids, cols};
     info = write_segment(path, sd);  // rename crash points fire inside
@@ -666,7 +727,10 @@ std::uint64_t Store::disk_bytes(const std::string& collection) const {
   };
   std::lock_guard lk(mu_);
   std::uint64_t total = 0;
-  for (const auto& r : catalog_->segments(collection)) total += size_of(segment_path(r.file));
+  for (const auto& r : catalog_->segments(collection)) {
+    total += size_of(segment_path(r.file));
+    total += size_of(record_path(r.file));  // 0 for a block without a record column
+  }
   for (const auto& kv : catalog_->key_files(collection))
     total += size_of(key_dir() + "/" + kv.second);
   std::uint64_t n = 0, bytes = 0;
@@ -727,6 +791,98 @@ SegmentData Store::read_segment(const std::string& collection, const std::string
   return ombra::storage::read_segment(segment_path(segment), spec.preset, ofhe_);
 }
 
+bool Store::get_record_column(const std::string& collection, const std::string& segment,
+                              std::vector<std::uint8_t>* out) const {
+  SegmentPin pin;
+  {
+    std::lock_guard lk(mu_);
+    if (!catalog_->segment_row(collection, segment, nullptr)) return false;
+    ++pins_[segment];
+    pin = SegmentPin(this, {segment});
+  }
+  struct stat st {};
+  if (::stat(record_path(segment).c_str(), &st) != 0) return false;
+  auto col = read_record_file(record_path(segment));
+  if (out) *out = std::move(col);
+  return true;
+}
+
+RecordScopeColumns Store::read_record_columns(const std::string& collection,
+                                              const std::vector<std::uint32_t>& clusters,
+                                              bool all_clusters) const {
+  const auto t0 = std::chrono::steady_clock::now();
+  std::vector<SegmentRow> blocks;
+  SegmentPin pin;
+  {
+    std::lock_guard lk(mu_);
+    CollectionSpec spec;
+    if (!catalog_->get_collection(collection, &spec))
+      throw std::runtime_error("unknown collection");
+    std::set<std::uint32_t> want;
+    if (!all_clusters) {
+      for (const auto c : clusters) {
+        if (c >= spec.cluster_count) throw std::runtime_error("cluster out of range");
+        if (!want.insert(c).second) throw std::runtime_error("duplicate cluster");
+      }
+    }
+    for (const auto& r : catalog_->segments(collection)) {
+      if (r.cluster >= spec.cluster_count) continue;  // center blocks hold no records
+      if (!all_clusters && !want.count(r.cluster)) continue;
+      blocks.push_back(r);
+    }
+    // Segment names are fixed-width hex of a durable counter, so name order is creation order.
+    std::sort(blocks.begin(), blocks.end(), [](const SegmentRow& a, const SegmentRow& b) {
+      return a.cluster != b.cluster ? a.cluster < b.cluster : a.file < b.file;
+    });
+    std::vector<std::string> files;
+    for (const auto& r : blocks) {
+      ++pins_[r.file];
+      files.push_back(r.file);
+    }
+    pin = SegmentPin(this, std::move(files));
+  }
+  // The files are read without the lock; the pin keeps them on disk.
+  RecordScopeColumns out;
+  std::vector<std::vector<std::uint8_t>> parts;
+  std::uint64_t rows = 0;
+  for (const auto& r : blocks) {
+    std::vector<std::uint8_t> col;
+    try {
+      col = read_record_file(record_path(r.file));
+    } catch (const RecordColumnError&) {
+      throw;
+    } catch (const std::exception&) {
+      // No file (or unreadable): the block has no record column.
+      struct stat st {};
+      if (::stat(record_path(r.file).c_str(), &st) == 0) throw;
+      throw RecordColumnMissing("a block in scope has no record column");
+    }
+    const auto info = parse_record_column(col);
+    if (info.n_rows != r.n_vectors)
+      throw RecordColumnError("record column: row count differs from the block's");
+    if (out.row_size == 0)
+      out.row_size = info.row_size;
+    else if (out.row_size != info.row_size)
+      throw RecordColumnMissing("record columns in scope have different row sizes");
+    out.spans.push_back({r.cluster, r.file, rows, info.n_rows});
+    rows += info.n_rows;
+    parts.push_back(std::move(col));
+  }
+  if (out.row_size == 0) out.row_size = kRecordRowAlign;  // empty scope
+  out.n_rows = rows;
+  if (rows > 0xFFFFFFFFull) throw RecordColumnError("record column: too many rows in scope");
+  out.column.reserve(kRecordColumnHeaderLen + rows * out.row_size);
+  out.column.insert(out.column.end(), {'O', 'R', 'C', 'L'});
+  put_le(out.column, kRecordColumnVersion, 2);
+  put_le(out.column, 0, 2);
+  put_le(out.column, out.row_size, 4);
+  put_le(out.column, rows, 4);
+  for (const auto& p : parts)
+    out.column.insert(out.column.end(), p.begin() + kRecordColumnHeaderLen, p.end());
+  log_line("read_record_columns", blocks.size(), out.column.size(), ms_since(t0));
+  return out;
+}
+
 void Store::recover() {
   const auto t0 = std::chrono::steady_clock::now();
   std::size_t dropped = 0;
@@ -785,6 +941,17 @@ void Store::recover() {
     if (ends_with(n, ".tmp") || !known.count(n)) {
       if (::unlink(segment_path(n).c_str()) == 0) ++stats_.orphans_removed;
     }
+  }
+  // Record files: temp files and files whose segment is not in the catalog (aborted insert or
+  // replacement, removed block).
+  {
+    std::set<std::string> known_records;
+    for (const auto& f : files)
+      if (is_valid_segment_name(f)) known_records.insert(record_file_name(f));
+    for (const auto& n : list_dir(record_dir()))
+      if (ends_with(n, ".tmp") || !known_records.count(n)) {
+        if (::unlink((record_dir() + "/" + n).c_str()) == 0) ++stats_.orphans_removed;
+      }
   }
   // Key files: temp files and files no catalog row points to (aborted upload, or a dropped
   // collection whose files were not yet unlinked).
