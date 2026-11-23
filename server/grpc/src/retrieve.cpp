@@ -53,7 +53,8 @@ Status RetrieveValidator::accept(const v1::RetrieveRecordsRequest& m) {
     }
     case v1::RetrieveRecordsRequest::kQuery:
       if (!started_) return bad(Err::BadSequence, "a query before the start");
-      if (queries_ >= start_.n_queries()) return bad(Err::BadSequence, "more queries than n_queries");
+      if (queries_ >= start_.n_queries())
+        return bad(Err::BadSequence, "more queries than n_queries");
       if (m.query().empty()) return bad(Err::InvalidArgument, "empty query");
       if (m.query().size() > kMaxChunkBytes) return bad(Err::SizeLimit, "query is too large");
       ++queries_;

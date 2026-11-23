@@ -18,8 +18,8 @@
 #include "ombra/core/seeded_ciphertext.hpp"
 #include "ombra/server/auth.hpp"
 #include "ombra/storage/blob.hpp"
-#include "ombra/storage/record_column.hpp"
 #include "ombra/storage/fsutil.hpp"
+#include "ombra/storage/record_column.hpp"
 #include "ombra/storage/segment.hpp"
 #include "ombra/storage/wal.hpp"
 

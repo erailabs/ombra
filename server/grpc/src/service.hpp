@@ -105,9 +105,9 @@ class OmbraService final : public ombra::v1::Ombra::Service {
                        grpc::ServerWriter<v1::GetBlobResponse>*) override;
   grpc::Status DeleteBlobs(grpc::ServerContext*, const v1::DeleteBlobsRequest*,
                            v1::DeleteBlobsResponse*) override;
-  grpc::Status RetrieveRecords(grpc::ServerContext*,
-                               grpc::ServerReaderWriter<v1::RetrieveRecordsResponse,
-                                                        v1::RetrieveRecordsRequest>*) override;
+  grpc::Status RetrieveRecords(
+      grpc::ServerContext*,
+      grpc::ServerReaderWriter<v1::RetrieveRecordsResponse, v1::RetrieveRecordsRequest>*) override;
 
  private:
   // The RPC bodies; the public overrides check the API key and record metrics around them.

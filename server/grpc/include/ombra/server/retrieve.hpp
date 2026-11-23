@@ -13,7 +13,8 @@
 namespace ombra::server {
 
 // Checks one RetrieveRecordsStart: names, scope (exactly one of a cluster list or all clusters;
-// distinct ids, each below cluster_count when it is non-zero), m, the 16-byte seed, the query count.
+// distinct ids, each below cluster_count when it is non-zero), m, the 16-byte seed, the query
+// count.
 Status validate_retrieve_start(const v1::RetrieveRecordsStart& s, std::uint32_t cluster_count = 0);
 
 // Feeds the messages of one call in order. accept() checks the api_version, that the first message
