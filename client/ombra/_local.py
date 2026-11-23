@@ -1238,6 +1238,8 @@ class LocalServer:
                 if not req.query or len(req.query) > MAX_CHUNK:
                     raise Refuse(pb.ERROR_INVALID_ARGUMENT, "a query is empty or too large")
                 queries.append(bytes(req.query))
+            if next(it, None) is not None:  # like the server: answers only after the half-close
+                raise Refuse(pb.ERROR_BAD_SEQUENCE, "more queries than the shape needs")
             answers = _run_pir_worker(
                 b"answer",
                 keys["pir_context.payload"],

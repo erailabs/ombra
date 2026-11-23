@@ -180,8 +180,12 @@ class _Call:
                 raise
             raise mapped from exc
 
+    def done_writing(self) -> None:
+        """Half-close: no more requests. Safe to call more than once."""
+        self._q.put(None)
+
     def close(self) -> None:
-        self._q.put(None)  # half-close
+        self.done_writing()
         cancel = getattr(self._call, "cancel", None)
         if cancel is not None and not self._ended:
             cancel()
@@ -294,6 +298,7 @@ def _once(
         for shape, plan, _w in parts:
             for q in pc.with_shape(shape).build_queries(plan):
                 call.query(q)
+        call.done_writing()  # the server answers once the request side is closed
         for p, (shape, plan, w) in enumerate(parts):
             answers = []
             for b in range(shape.buckets):
