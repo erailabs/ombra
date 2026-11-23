@@ -87,3 +87,18 @@ add_executable(pir_answer_test tests/answer_test.cpp)
 target_compile_options(pir_answer_test PRIVATE ${_ofhe_flags})
 target_link_libraries(pir_answer_test PRIVATE ombra_pir_answer)
 add_test(NAME pir_answer COMMAND pir_answer_test)
+
+# ---- The GPU backend of the inner sums (CUDA build only) ---------------------------------------
+# PirInnerDevice of core/ behind the InnerSums hook. A separate library, so ombra_pir_answer stays
+# free of CUDA and the CPU build is unchanged.
+if(OMBRA_ENABLE_CUDA AND TARGET ombra_core)
+  add_library(ombra_pir_gpu STATIC src/gpu_inner.cpp)
+  target_compile_options(ombra_pir_gpu PRIVATE ${_ofhe_flags})
+  target_link_libraries(ombra_pir_gpu PUBLIC ombra_pir_answer ombra_core)
+
+  # The answer with the GPU hook against the answer on OpenFHE, byte for byte (needs a GPU).
+  add_executable(pir_answer_gpu_test tests/answer_gpu_test.cpp)
+  target_compile_options(pir_answer_gpu_test PRIVATE ${_ofhe_flags})
+  target_link_libraries(pir_answer_gpu_test PRIVATE ombra_pir_gpu)
+  add_test(NAME pir_answer_gpu COMMAND pir_answer_gpu_test)
+endif()

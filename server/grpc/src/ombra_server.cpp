@@ -55,6 +55,7 @@
 #include <thread>
 
 #include "gpu_info.hpp"
+#include "ombra/pir/retrieval.hpp"
 #include "ombra/search/session.hpp"
 #include "ombra/server/auth.hpp"
 #include "ombra/server/limits.hpp"
@@ -320,6 +321,18 @@ int main(int argc, char** argv) {
   ombra::server::log::warn(
       "this server was built without GPU support (for tests and development): Search fails, "
       "every other call works");
+#endif
+#ifdef OMBRA_PIR_GPU
+  {
+    // RetrieveRecords computes its inner sums on the GPU when the device answers; if it does not
+    // (a CUDA build on a machine without a GPU), the OpenFHE CPU path stays in use.
+    std::uint64_t used = 0, total = 0;
+    if (ombra::server::gpu_memory(&used, &total)) {
+      ombra::pir::register_gpu_inner_sums();
+    } else {
+      ombra::server::log::warn("no usable GPU: RetrieveRecords answers on the CPU");
+    }
+  }
 #endif
   if (!tls) ombra::server::log::warn("--insecure: connections are NOT encrypted");
   if (no_auth) ombra::server::log::warn("--no-auth: anyone who can connect has full access");

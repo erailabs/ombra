@@ -156,6 +156,10 @@ target_link_libraries(ombra_server PRIVATE ombra_server_policy ombra_server_retr
 target_compile_definitions(ombra_server PRIVATE OMBRA_VERSION="${PROJECT_VERSION}")
 if(NOT OMBRA_ENABLE_CUDA)
   target_compile_definitions(ombra_server PRIVATE OMBRA_NO_GPU=1)
+elseif(TARGET ombra_pir_gpu)
+  # RetrieveRecords answers through the GPU inner sums.
+  target_link_libraries(ombra_server PRIVATE ombra_pir_gpu)
+  target_compile_definitions(ombra_server PRIVATE OMBRA_PIR_GPU=1)
 endif()
 # Default OpenFHE version of the stored envelopes (overridable with --openfhe-version). The
 # variable of core/'s find_package is directory-scoped, so look the package up again here.
