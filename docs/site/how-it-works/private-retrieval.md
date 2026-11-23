@@ -33,7 +33,7 @@ The server sees the scope of the call: the clusters the search requested (decoys
 - **Upload.** About 41 MB of public keys once per collection, and the query ciphertexts of each call.
 - **Server work.** The server computes over every row in scope, so a Strict search is the most expensive.
 - **Storage.** One row of about 3 KB per vector at 768 dimensions, next to the vector's ciphertext columns.
-- **Through a router.** When the scope spans several nodes the call is made in parts, one per node, each with the full row count. The cost grows with the number of parts.
+- **Through a router.** When the scope spans several nodes the call is made in parts, one per node, each with the full row count. The router splits the scope and forwards the encrypted queries and answers unchanged, so it learns no more than a node does. The cost grows with the number of parts.
 
 A candidate that does not fit the batch placement (a cuckoo failure) is dropped and counted, never retried: a retry would reveal that a first attempt failed on specific rows. `SearchResult` reports `pir_dropped`, `pir_stale` and `pir_bad_rows`.
 

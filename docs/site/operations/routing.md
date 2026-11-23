@@ -65,6 +65,7 @@ Clients connect to the router with a key from the router's key file. The node ke
 | `Search` | See above. |
 | `ListBlocks` | Asks every node. Segment names get the node id in front (`a/seg-17`). Center blocks show up once per node. |
 | `GetBlock`, `ReplaceBlock` | Strip the node id and go to that node. A `ReplaceBlock` that names blocks of two nodes fails with `ERROR_BLOCK_MISMATCH`. |
+| `RetrieveRecords` | Splits the scope by owner node and opens one sub-stream per node, each with the full row count. It renumbers the parts, forwards the encrypted queries and answers unchanged, and leaves out a node that holds no record of the scope. It never sees which rows were asked for. See [Private record retrieval](../how-it-works/private-retrieval.md). |
 | `PutBlob`, `GetBlob`, `DeleteBlobs` | The node is chosen by the same hashing, from the blob id. |
 | Alias calls | Go to the first node of the placement file, which holds the alias table. The other nodes keep no aliases. |
 
@@ -81,7 +82,7 @@ A call that cannot reach a node fails with the gRPC status `UNAVAILABLE` (a sear
 
 ## What each process learns
 
-- The **router** sees what one server sees today: every cluster number of every round, the ciphertexts in transit and the ids of the blobs a client reads. It does not hold the stored segments, and it holds no HE key. It does hold an `admin` API key for every node, so a break-in at the router is as bad as a break-in at a server.
+- The **router** sees what one server sees today: every cluster number of every round, the ciphertexts in transit and the ids of the blobs a client reads. For a private retrieval it sees the clusters of the scope and the sizes of the encrypted queries, not the rows. It does not hold the stored segments, and it holds no HE key. It does hold an `admin` API key for every node, so a break-in at the router is as bad as a break-in at a server.
 - A **node** sees only the part of each round it owns, the ids and ciphertexts of its own clusters, and its own part of the blob store.
 - **Placement never depends on the data.** The owner of a cluster is a function of the cluster number and the node ids. If neighbouring clusters were put on one node, that node could tell real clusters from decoys, because real clusters would gather on it while decoys spread evenly. Putting them by hash prevents that.
 - A router and all nodes that collude learn no more than one server learns today.
