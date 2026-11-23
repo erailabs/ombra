@@ -78,6 +78,7 @@ class FakeClient:
         n_clusters: int | None = None,
         decoy_group_size: int = 1,
         decoy_grouping: str = "neighbours",
+        private_retrieval: bool = False,
         scrypt_params: tuple[int, int, int] | None = None,
     ) -> str:
         """Create an in-memory collection and insert the vectors.
