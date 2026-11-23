@@ -21,9 +21,18 @@ _PROTO = Path(__file__).resolve().parent / "resources" / "ombra.proto"
 _MODULES = ("ombra_api.v1.ombra_pb2", "ombra_api.v1.ombra_pb2_grpc")
 
 
+RECORD_PART = 4_000_000  # below LIMIT_MAX_CHUNK_BYTES (4 MiB)
+
+
+def record_parts(column: bytes) -> list[bytes]:
+    """A record column cut into parts that each fit one message."""
+    return [column[o : o + RECORD_PART] for o in range(0, len(column), RECORD_PART)]
+
+
 def insert_requests(pb: Any, blocks: Any) -> Any:
     """The Insert request stream of whole `InsertBlock`s: per block one header, then its columns,
-    one per message (the server's receive limit is 16 MiB, so no message holds a whole block).
+    one per message, then its record column (if any) in parts (the server's receive limit is
+    16 MiB, so no message holds a whole block).
     A generator, so a `Replayable` can call it again for a retry; the blocks must stay the same
     objects (the retry sends the same bytes, which is what makes a repeated Insert a no-op)."""
     for b in blocks:
@@ -33,6 +42,8 @@ def insert_requests(pb: Any, blocks: Any) -> Any:
         yield pb.InsertRequest(api_version=b.api_version, header=header)
         for col in b.columns:
             yield pb.InsertRequest(api_version=b.api_version, column=col)
+        for part in record_parts(b.record_column):  # after the columns; none if the block has none
+            yield pb.InsertRequest(api_version=b.api_version, record_column=part)
 
 
 def load_stubs(*, grpc_module: bool = True) -> tuple[Any, Any | None]:
