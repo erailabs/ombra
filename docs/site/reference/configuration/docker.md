@@ -1,6 +1,6 @@
 # Docker image
 
-The image runs a small entrypoint script that builds the `ombra_server` command line from environment variables. See [Docker and compose](../../operations/docker.md) for how to run it.
+An entrypoint script builds the `ombra_server` command line from environment variables. See [Docker and compose](../../operations/docker.md).
 
 ## Environment variables
 
@@ -15,4 +15,4 @@ All are optional. Arguments after the image name are passed on to `ombra_server`
 | `OMBRA_OPENFHE_VERSION` | the build's | As `--openfhe-version`. |
 | `OMBRA_TLS_HOSTS` | `DNS:localhost,IP:127.0.0.1` | Subject alternative names of the self-signed certificate made on the first start. Read only while no certificate exists yet. |
 
-The entrypoint always passes `--data-dir /data` and the TLS files in `/data/tls/`. On the first start it makes a certificate and an admin API key if they are missing. The flags are listed on the [Server](server.md) page.
+The entrypoint always passes `--data-dir /data` and the TLS files in `/data/tls/`, and on first start makes a certificate and an admin API key if missing. Flags: [Server](server.md).

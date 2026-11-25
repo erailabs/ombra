@@ -1,6 +1,6 @@
 # Testing
 
-`FakeClient` is an in-memory stand-in for unit tests of your own code. It does not encrypt anything, so never use it to try Ombra itself.
+`FakeClient` is an in-memory stand-in for unit tests of your own code. It does not encrypt, so never use it to try Ombra itself.
 
 ::: ombra.testing
     options:

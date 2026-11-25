@@ -1,6 +1,6 @@
 # Python API
 
-The `ombra` package is the client: it holds the keys, encrypts, clusters, ranks and re-ranks. Install it with `pip install ombra`. The reference pages are generated from the docstrings in `client/ombra/`, and the build reads the source without importing it, because the package imports numpy.
+The `ombra` package is the client (`pip install ombra`): it holds the keys, encrypts, clusters, ranks and re-ranks. These pages are generated from the docstrings in `client/ombra/`.
 
 ## Exports
 
@@ -8,13 +8,11 @@ The package exports these names: `Client`, `AsyncClient`, `CollectionInfo`, `Ali
 
 ## Public and internal modules
 
-The modules you may touch directly are `ombra.errors`, `ombra.retry`, `ombra.collection`, `ombra.ranges`, `ombra.migrate`, `ombra.collection_info`, `ombra.presets` and `ombra.testing`. Everything else under `ombra.` (names starting with an underscore, `search`, `topk`, `clustering` and so on) is internal and can change between versions.
+Public modules: `ombra.errors`, `ombra.retry`, `ombra.collection`, `ombra.ranges`, `ombra.migrate`, `ombra.collection_info`, `ombra.presets` and `ombra.testing`. Everything else under `ombra.` (underscore names, `search`, `topk`, `clustering` and so on) is internal and can change.
 
 ## AsyncClient
 
-`AsyncClient` has the same methods as `Client`, as coroutines. The work still runs in the calling thread, so awaiting a call blocks the event loop until it returns.
-
-For how to choose between `Client("host:port")` and `Client.local(path)`, see [Local mode or a server](../../getting-started/local-or-server.md).
+`AsyncClient` has the same methods as `Client`, as coroutines. The work runs in the calling thread, so awaiting a call blocks the event loop until it returns. To choose between `Client("host:port")` and `Client.local(path)`, see [Local mode or a server](../../getting-started/local-or-server.md).
 
 ## Pages
 
@@ -28,4 +26,4 @@ For how to choose between `Client("host:port")` and `Client.local(path)`, see [L
 | [Presets](presets.md) | `ombra.presets`, the preset parameters in code. |
 | [Testing](testing.md) | `FakeClient`, an in-memory stand-in for unit tests. |
 
-`ombra-keys` is a command line tool, described on [its own page](../cli/ombra-keys.md).
+

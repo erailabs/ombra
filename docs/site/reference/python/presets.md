@@ -1,6 +1,6 @@
 # Presets
 
-`ombra.presets` derives the parameters of a preset for a dimension and checks filter schemas. The preset values themselves are listed on the [Presets](../presets.md) page.
+`ombra.presets` derives preset parameters for a dimension and checks filter schemas. Values: [Presets](../presets.md).
 
 ::: ombra.presets
     options:
