@@ -91,8 +91,8 @@ struct PirInnerDevice::Impl {
         std::memcpy(stage + (b * r1 + a) * n, cells_h + (a * r2 + b) * n, n * sizeof(long long));
       }
     }
-    OMBRA_CUDA_CHECK(cudaMemcpy(cells.get(), stage, r1 * r2 * n * sizeof(long long),
-                                cudaMemcpyHostToDevice));
+    OMBRA_CUDA_CHECK(
+        cudaMemcpy(cells.get(), stage, r1 * r2 * n * sizeof(long long), cudaMemcpyHostToDevice));
     const std::size_t cols = r1 * r2;
     OMBRA_CUDA_CHECK(cudaEventRecord(e0, nullptr));
     OMBRA_CUDA_CHECK(launch_reduce_ints(cells.get(), cols, n, tc.get(), nt, plain.get(), nullptr));
