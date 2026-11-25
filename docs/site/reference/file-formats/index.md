@@ -1,8 +1,6 @@
 # File formats
 
-Every file Ombra writes starts with a magic string and a version number, so a program can tell what it is reading and refuse a version it does not know. All integers are little-endian. A reader never guesses: it refuses bad magic, an unknown version, a wrong kind, truncation and trailing bytes.
-
-A format changes only with a version bump. The version of a file never depends on the version of the package that wrote it.
+Every file starts with a magic string and a version number. All integers are little-endian. A reader refuses bad magic, an unknown version, a wrong kind, truncation and trailing bytes. A format changes only with a version bump, independent of the package version.
 
 | Format | Written by | Magic | Version |
 | --- | --- | --- | --- |
@@ -20,4 +18,4 @@ A format changes only with a version bump. The version of a file never depends o
 
 ## Collection format
 
-A collection is the set of the files above plus its catalog rows. The wire version is the `api_version` field, 1, stored with every collection spec. See the [gRPC API](../grpc/index.md).
+A collection is the files above plus its catalog rows. The wire version is the `api_version` field, 1, stored with every collection spec. See the [gRPC API](../grpc/index.md).

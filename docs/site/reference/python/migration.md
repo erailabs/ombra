@@ -1,6 +1,6 @@
 # Migration
 
-`ombra.migrate` is the Python side of [`ombra-migrate`](../cli/ombra-migrate.md); the process is described on the [Migration](../../operations/migration.md) page. `ombra.collection_info` holds the format of the collection info record.
+`ombra.migrate` is the Python side of [`ombra-migrate`](../cli/ombra-migrate.md); see [Migration](../../operations/migration.md). `ombra.collection_info` holds the collection info record format.
 
 ::: ombra.migrate.Migration
     options:
