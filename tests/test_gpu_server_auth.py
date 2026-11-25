@@ -64,6 +64,11 @@ RPC_NAMES = {
     "PutBlob",
     "GetBlob",
     "DeleteBlobs",
+    "CreateAlias",
+    "SwitchAlias",
+    "DropAlias",
+    "ListAliases",
+    "RetrieveRecords",
 }
 RPC_KEYS = {"requests", "errors", "latency_ms"}
 LATENCY_KEYS = {"sum", "count", "max"}
