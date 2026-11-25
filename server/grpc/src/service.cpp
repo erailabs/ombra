@@ -1532,8 +1532,11 @@ grpc::Status OmbraService::run_RetrieveRecords(
   std::vector<std::string> answers;
   try {
     std::lock_guard lk(load_mu_);
+    // The CUDA build answers through the GPU when one was registered at start-up; otherwise (and
+    // in the CPU build) the answer is computed on OpenFHE. The bytes are the same either way.
     answers = pir::answer_call(files, start.pir_key_tag(), shape,
-                               scope.column.data() + storage::kRecordColumnHeaderLen, queries);
+                               scope.column.data() + storage::kRecordColumnHeaderLen, queries,
+                               pir::PirBackend::kGpu);
   } catch (...) {
     return send_error(classify_current());
   }

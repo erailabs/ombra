@@ -183,6 +183,50 @@ void answers_decrypt_to_the_cells() {
       answer_queries(pc, keys, shape, body.data(), {"junk"}, [](std::size_t, std::string&&) {});
     }));
   }
+  // A hook that returns OpenFHE's own sums gives the same bytes: the plumbing is exact (cells flat,
+  // in [0, t), zero for missing cells; selectors in order). It also sees every bucket once.
+  {
+    std::size_t hook_calls = 0;
+    bool shapes_ok = true;
+    const InnerSums hook = [&](const PirContext& c, const std::vector<Ciphertext<DCRTPoly>>& sel,
+                               const std::vector<std::int64_t>& cells, std::size_t r1,
+                               std::size_t r2) {
+      ++hook_calls;
+      const std::size_t n = pp.ring_dim;
+      shapes_ok = shapes_ok && sel.size() == r1 && cells.size() == r1 * r2 * n;
+      std::vector<Ciphertext<DCRTPoly>> inner;
+      for (std::size_t b = 0; b < r2; ++b) {
+        Ciphertext<DCRTPoly> acc;
+        for (std::size_t a = 0; a < r1; ++a) {
+          std::vector<std::int64_t> v(cells.begin() + (a * r2 + b) * n,
+                                      cells.begin() + (a * r2 + b + 1) * n);
+          for (auto& x : v) {
+            shapes_ok = shapes_ok && x >= 0 && x < static_cast<std::int64_t>(t);
+            if (x > static_cast<std::int64_t>(t) / 2) x -= static_cast<std::int64_t>(t);
+          }
+          const auto term = c->EvalMult(sel[a], c->MakeCoefPackedPlaintext(v));
+          acc = acc ? c->EvalAdd(acc, term) : term;
+        }
+        inner.push_back(acc);
+      }
+      return inner;
+    };
+    PirKeys keys(pc, mult, autom, tag, shape);
+    std::vector<std::string> hooked(shape.buckets);
+    answer_queries(
+        pc, keys, shape, body.data(), queries,
+        [&](std::size_t b, std::string&& a) { hooked[b] = std::move(a); }, hook);
+    CHECK(hook_calls == shape.buckets);
+    CHECK(shapes_ok);
+    CHECK(hooked == answers);
+    // A hook that returns the wrong number of ciphertexts is refused.
+    const InnerSums bad = [](const PirContext&, const std::vector<Ciphertext<DCRTPoly>>&,
+                             const std::vector<std::int64_t>&, std::size_t,
+                             std::size_t) { return std::vector<Ciphertext<DCRTPoly>>{}; };
+    CHECK(throws_type<PirError>([&] {
+      answer_queries(pc, keys, shape, body.data(), queries, [](std::size_t, std::string&&) {}, bad);
+    }));
+  }
   // Released: the PIR tag is gone, the other tag is intact.
   CHECK(Impl::GetAllEvalMultKeys().count(tag) == 0 &&
         Impl::GetAllEvalAutomorphismKeys().count(tag) == 0);

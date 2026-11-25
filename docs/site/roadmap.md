@@ -12,7 +12,7 @@ Not built yet, in no fixed order and with no dates.
 
 **Private retrieval of metadata and documents.** [Private record retrieval](how-it-works/private-retrieval.md) hides which candidates a search re-ranks, but the hits of such a search carry no metadata, and reading the metadata or document of a hit is a fetch by id that the server sees. A private call for blobs, with one call per blob size class and always k rows per class, is planned. For now, use random ids.
 
-**Private retrieval on GPUs.** The server answers retrieval calls on the CPU. A GPU answer is planned, with every kernel checked against OpenFHE.
+**Private retrieval on GPUs.** The products of the query with the stored rows already run on the GPU, and they match OpenFHE byte for byte. The remaining steps still run on the CPU: expanding the query, the second-dimension product and compressing the answer. Moving them, along with batching the upload of rows to the GPU, is planned, with every kernel checked against OpenFHE.
 
 **Hiding which cluster each record is in.** On insert, the client sends each vector's cluster in the clear, so the server knows the split of ids into clusters. No setting hides this yet, private retrieval included.
 

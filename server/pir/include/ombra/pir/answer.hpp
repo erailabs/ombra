@@ -19,6 +19,7 @@
 
 #include "ombra/pir/errors.hpp"
 #include "ombra/pir/layout.hpp"
+#include "ombra/pir/retrieval.hpp"
 #include "openfhe.h"
 
 namespace ombra::pir {
@@ -57,6 +58,18 @@ class PirKeys {
   std::string tag_;
 };
 
+// Optional replacement of the first-dimension inner sums of one bucket (the CPU computes them with
+// OpenFHE; a GPU backend can compute the same ciphertexts, word for word). Receives the r1
+// selector ciphertexts (the expansion outputs base .. base + r1 - 1, evaluation form) and the
+// r1 * r2 cells, flat: cell [a * r2 + b] is the ring_dim int64 coefficients at offset
+// (a * r2 + b) * ring_dim, values in [0, plain_modulus) exactly as bytes_to_coeffs returns them
+// (NOT centered; a missing cell is all zero). Returns r2 ciphertexts, inner_b = sum_a
+// EvalMult(sel_a, cell[a * r2 + b]) as OpenFHE computes it. It may throw; the call then fails.
+// One instance is made per call and used for its buckets in order, so it may keep state.
+using InnerSums = std::function<std::vector<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>>(
+    const PirContext& cc, const std::vector<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>>& selectors,
+    const std::vector<std::int64_t>& cells, std::size_t r1, std::size_t r2)>;
+
 // Called once per bucket, in bucket order, with the serialized compressed answer.
 using AnswerSink = std::function<void(std::size_t bucket, std::string&& answer)>;
 
@@ -65,6 +78,19 @@ using AnswerSink = std::function<void(std::size_t bucket, std::string&& answer)>
 // PirQueryError for a bad query and PirError for a wrong count. `keys` must be alive.
 void answer_queries(const PirContext& cc, const PirKeys& keys, const PirShape& shape,
                     const std::uint8_t* column_body, const std::vector<std::string>& queries,
-                    const AnswerSink& sink);
+                    const AnswerSink& sink, const InnerSums& inner_sums = nullptr);
+
+// Same as answer_call (retrieval.hpp) with an explicit inner-sums hook (empty: OpenFHE).
+std::vector<std::string> answer_call_with_hook(const PirKeyFiles& files, const std::string& key_tag,
+                                               const PirShape& shape,
+                                               const std::uint8_t* column_body,
+                                               const std::vector<std::string>& queries,
+                                               const InnerSums& inner_sums);
+
+// A GPU backend registers a factory here at start-up (the CUDA build of the server does); the
+// factory makes one InnerSums per call. answer_call with PirBackend::kGpu uses it, and falls back
+// to OpenFHE on the CPU if none is registered.
+using InnerSumsFactory = std::function<InnerSums()>;
+void set_gpu_inner_sums_factory(InnerSumsFactory factory);
 
 }  // namespace ombra::pir
