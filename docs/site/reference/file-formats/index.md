@@ -7,7 +7,7 @@ A format changes only with a version bump. The version of a file never depends o
 | Format | Written by | Magic | Version |
 | --- | --- | --- | --- |
 | [Envelope](envelope.md) | client, server | `{{ const("ombra.file_format.MAGIC").decode() }}` | {{ const("ombra.file_format.FORMAT_VERSION") }}, and {{ const("ombra.file_format.FORMAT_VERSION_SEEDED") }} for seeded ciphertexts |
-| [Key file](key-file.md) | client | `{{ const("ombra.keyfile.MAGIC").decode() }}` | {{ const("ombra.keyfile.KEYFILE_VERSION") }} |
+| [Key file](key-file.md) | client | `{{ const("ombra.keyfile.MAGIC").decode() }}` | {{ const("ombra.keyfile.KEYFILE_VERSION") }}, and {{ const("ombra.keyfile.KEYFILE_VERSION_PIR") }} with the retrieval key pair |
 | [Blob](blobs.md) | client | `{{ const("ombra.documents.MAGIC").decode() }}` | {{ const("ombra.documents.BLOB_VERSION") }} |
 | [Segment](server-files.md#segment) | server | `OSEG` | {{ cpp("server/storage/include/ombra/storage/segment.hpp", "kSegmentVersion") }} |
 | [Stored blob](server-files.md#stored-blob) | server | `OBLB` | {{ cpp("server/storage/include/ombra/storage/blob.hpp", "kBlobVersion") }} |

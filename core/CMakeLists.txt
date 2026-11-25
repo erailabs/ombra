@@ -53,6 +53,7 @@ add_library(
   src/rns_basic_host.cu
   src/column_search_host.cu
   src/plain_search_host.cu
+  src/pir_inner_host.cu
   src/expansion_device.cu)
 target_include_directories(ombra_rns_cuda PUBLIC include PRIVATE kernels src)
 # CMake 3.22 (the pinned image's apt cmake) does not know the CUDA20 dialect (added in 3.25), and
@@ -64,7 +65,7 @@ if(OMBRA_ENABLE_TEST_HOOKS)
                                                                  OMBRA_ENABLE_TEST_HOOKS)
 endif()
 add_library(ombra_core STATIC src/ciphertext_ops.cpp src/expansion_gpu.cpp src/gpu_search.cpp
-                      src/security_floor.cpp)
+                      src/pir_inner_gpu.cpp src/security_floor.cpp)
 target_include_directories(
   ombra_core PUBLIC include ${OpenFHE_INCLUDE} ${OpenFHE_INCLUDE}/third-party/include
                     ${OpenFHE_INCLUDE}/core ${OpenFHE_INCLUDE}/pke ${OpenFHE_INCLUDE}/binfhe)
@@ -124,3 +125,11 @@ target_link_libraries(ombra_security_floor_wiring PRIVATE ombra_core)
 
 add_executable(ombra_bench_e2e src/ombra_bench_e2e.cpp)
 target_link_libraries(ombra_bench_e2e PRIVATE ombra_core)
+
+# GPU inner products of the private retrieval answer: exact oracle against OpenFHE, and a timing
+# binary. They take the preset header and the layout from server/pir (target ombra_pir_layout).
+add_executable(ombra_pir_inner_check src/ombra_pir_inner_check.cpp)
+target_link_libraries(ombra_pir_inner_check PRIVATE ombra_core ombra_pir_layout)
+
+add_executable(ombra_bench_pir_inner src/ombra_bench_pir_inner.cpp)
+target_link_libraries(ombra_bench_pir_inner PRIVATE ombra_core ombra_pir_layout)

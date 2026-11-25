@@ -10,9 +10,11 @@ Not built yet, in no fixed order and with no dates.
 
 ### Privacy
 
-**Hiding the record fetch.** After a search, the client fetches the best candidates by id, so the server sees which records matched. Strict mode does not hide this. It needs private retrieval, which costs time and bandwidth and is not designed yet. For now, use random ids.
+**Private retrieval of metadata and documents.** [Private record retrieval](how-it-works/private-retrieval.md) hides which candidates a search re-ranks, but the hits of such a search carry no metadata, and reading the metadata or document of a hit is a fetch by id that the server sees. A private call for blobs, with one call per blob size class and always k rows per class, is planned. For now, use random ids.
 
-**Hiding which cluster each record is in.** On insert, the client sends each vector's cluster in the clear, so the server knows the split of ids into clusters. No setting hides this yet.
+**Private retrieval on GPUs.** The server answers retrieval calls on the CPU. A GPU answer is planned, with every kernel checked against OpenFHE.
+
+**Hiding which cluster each record is in.** On insert, the client sends each vector's cluster in the clear, so the server knows the split of ids into clusters. No setting hides this yet, private retrieval included.
 
 **Key rotation on the server.** `ombra-migrate --new-keys` rotates keys by moving the whole collection through the client ([Migrating a collection](operations/migration.md)). A server-side switch would avoid that transfer for large collections. It needs a new envelope version and an outside review.
 

@@ -56,6 +56,21 @@ For example, a 5 MB PDF is above the {{ TH // 1048576 }} MiB threshold. The clie
 
 References are not wired into `Collection.add` yet. That call only seals inline documents, and it raises an error for a body over the inline threshold. To store a reference today, use `DocumentCodec.seal_reference` and `fetch_document` directly.
 
+## Record rows for private retrieval
+
+A collection created with `private_retrieval=True` also stores a record column next to every block: one sealed row per vector, which the client fetches with an encrypted call instead of by id (see [Private record retrieval](private-retrieval.md)). A row holds the exact vector as float32 values and, on a collection with range fields, every filter value and every raw range value as int64. It does not hold metadata or the document; those stay in the blobs.
+
+| Field | Bytes |
+| --- | --- |
+| nonce | 12 |
+| AES-256-GCM of float32[dim] then int64[n_ints] | 4 dim + 8 n_ints |
+| tag | 16 |
+| zero padding to a multiple of 64 | the rest |
+
+All rows of a collection have the same size, so the size shows the dimension and the number of filter fields, nothing about one vector. At 768 dimensions without range fields a row is 3,136 bytes.
+
+The row key comes from the document master key through HKDF-SHA256 with its own label, so it is never the key of a blob. The associated data binds the collection, the cluster, the id and a row version (1). A row copied to another slot, another cluster or another collection fails its tag, and the client drops and counts it rather than use it. Every row gets a fresh random nonce when it is sealed, and repacking a block seals its rows again.
+
 ## What is not protected
 
 The `uri` is encrypted inside the blob, but the fetch is yours: the request to your storage is not hidden by Ombra. Files in your storage are as protected as you make them. The document master key lives in the key file; lose the file and the passphrase and every record and document is unreadable. The same holds for the secret key, and there is no recovery.
