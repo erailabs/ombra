@@ -30,4 +30,11 @@ Scope: `read`. Same as gRPC `ListCollections`. A key limited to one collection s
 
 ## Status codes
 
-Statuses: 200; 401; 403 scope too low; 503. See [Errors](index.md#errors).
+| Status | When |
+| --- | --- |
+| 200 | Success. |
+| 401 | No key, or an unknown key. |
+| 403 | The scope is too low. |
+| 503 | The server is shutting down, or its disk is full. |
+
+See [Errors](index.md#errors) for the full table.

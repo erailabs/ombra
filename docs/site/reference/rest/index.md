@@ -35,15 +35,17 @@ An error has an HTTP status and a body with the same codes as gRPC's `Error` mes
 {"error": {"code": "COLLECTION_NOT_FOUND", "message": "collection not found", "request_id": "6f1c0e5a2b7d9c34"}}
 ```
 
-- 400 `INVALID_ARGUMENT`, `INVALID_FILTER_LAYOUT`, `UNSUPPORTED_VERSION`, `SIZE_LIMIT`: Bad JSON, a missing or unknown field, or a spec the server refuses.
-- 401 `UNAUTHENTICATED`: No key, or an unknown key.
-- 403 `PERMISSION_DENIED`: The scope is too low, or the key is limited to another collection.
-- 404 `NOT_FOUND`, `COLLECTION_NOT_FOUND`: Unknown route, or no such collection.
-- 405 `METHOD_NOT_ALLOWED`: The route does not take this method. The `Allow` header lists the ones it takes.
-- 409 `COLLECTION_EXISTS`: The name is taken.
-- 413 `PAYLOAD_TOO_LARGE`: The body is over 64 KiB. The server refuses it before it reads the body.
-- 500 `INTERNAL`: A server error. The message is fixed text.
-- 503 `UNAVAILABLE`, `STORAGE_FULL`: The server is shutting down, or its disk is full. Retry later.
+| Status | Code | When |
+| --- | --- | --- |
+| 400 | `INVALID_ARGUMENT`, `INVALID_FILTER_LAYOUT`, `UNSUPPORTED_VERSION`, `SIZE_LIMIT` | Bad JSON, a missing or unknown field, or a spec the server refuses. |
+| 401 | `UNAUTHENTICATED` | No key, or an unknown key. |
+| 403 | `PERMISSION_DENIED` | The scope is too low, or the key is limited to another collection. |
+| 404 | `NOT_FOUND`, `COLLECTION_NOT_FOUND` | Unknown route, or no such collection. |
+| 405 | `METHOD_NOT_ALLOWED` | The route does not take this method. The `Allow` header lists the ones it takes. |
+| 409 | `COLLECTION_EXISTS` | The name is taken. |
+| 413 | `PAYLOAD_TOO_LARGE` | The body is over 64 KiB. The server refuses it before it reads the body. |
+| 500 | `INTERNAL` | A server error. The message is fixed text. |
+| 503 | `UNAVAILABLE`, `STORAGE_FULL` | The server is shutting down, or its disk is full. Retry later. |
 
 The message is fixed text, never a collection name, id, value or key.
 

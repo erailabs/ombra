@@ -12,10 +12,12 @@ A key limited to an alias may use the alias's target and its previous target (fo
 
 ## AliasInfo
 
-- `name` (string): The alias name.
-- `target` (string): The collection the alias points at.
-- `previous` (string): The target before the last switch. Empty if never switched.
-- `switched_at` (int64): Time of the last switch, unix seconds.
+| Field | Type | Description |
+| --- | --- | --- |
+| `name` | string | The alias name. |
+| `target` | string | The collection the alias points at. |
+| `previous` | string | The target before the last switch. Empty if never switched. |
+| `switched_at` | int64 | Time of the last switch, unix seconds. |
 
 ## CreateAlias
 
@@ -25,13 +27,17 @@ rpc CreateAlias(CreateAliasRequest) returns (CreateAliasResponse)
 
 **CreateAliasRequest**
 
-- `name` (string, required): The alias name.
-- `target` (string, required): The collection to point at.
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | string | yes | The alias name. |
+| `target` | string | yes | The collection to point at. |
 
 **CreateAliasResponse** (one of)
 
-- `alias` (`AliasInfo`): The new alias.
-- `error` (`Error`)
+| Field | Type | Description |
+| --- | --- | --- |
+| `alias` | `AliasInfo` | The new alias. |
+| `error` | `Error` | Set on failure. |
 
 Errors: `ERROR_ALIAS_EXISTS` (the name is already a collection or an alias), `ERROR_COLLECTION_NOT_FOUND` (the target), `ERROR_INVALID_ARGUMENT`.
 
@@ -43,14 +49,18 @@ rpc SwitchAlias(SwitchAliasRequest) returns (SwitchAliasResponse)
 
 **SwitchAliasRequest**
 
-- `name` (string, required): The alias name.
-- `new_target` (string, required): The collection to move to.
-- `expected_target` (string, required): The collection the alias must point at now.
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | string | yes | The alias name. |
+| `new_target` | string | yes | The collection to move to. |
+| `expected_target` | string | yes | The collection the alias must point at now. |
 
 **SwitchAliasResponse** (one of)
 
-- `alias` (`AliasInfo`): The alias after the switch.
-- `error` (`Error`)
+| Field | Type | Description |
+| --- | --- | --- |
+| `alias` | `AliasInfo` | The alias after the switch. |
+| `error` | `Error` | Set on failure. |
 
 Errors: `ERROR_ALIAS_NOT_FOUND`, `ERROR_ALIAS_CONFLICT` (the alias does not point at `expected_target`), `ERROR_COLLECTION_NOT_FOUND` (the new target), `ERROR_INVALID_ARGUMENT`.
 
@@ -67,11 +77,15 @@ rpc DropAlias(DropAliasRequest) returns (DropAliasResponse)
 
 **DropAliasRequest**
 
-- `name` (string, required): The alias name.
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | string | yes | The alias name. |
 
 **DropAliasResponse**
 
-- `error` (`Error`)
+| Field | Type | Description |
+| --- | --- | --- |
+| `error` | `Error` | Unset on success. |
 
 Errors: `ERROR_ALIAS_NOT_FOUND`.
 
@@ -85,7 +99,9 @@ rpc ListAliases(ListAliasesRequest) returns (ListAliasesResponse)
 
 **ListAliasesResponse**
 
-- `aliases` (repeated `AliasInfo`): One entry per alias.
+| Field | Type | Description |
+| --- | --- | --- |
+| `aliases` | repeated `AliasInfo` | One entry per alias. |
 
 Errors: none in the message.
 

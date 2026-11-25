@@ -16,12 +16,14 @@ Public modules: `ombra.errors`, `ombra.retry`, `ombra.collection`, `ombra.ranges
 
 ## Pages
 
-- [Client](client.md): `Client` and `AsyncClient`: connect, create and open collections, insert, search, delete, aliases.
-- [Results](results.md): `CollectionInfo`, `AliasInfo`, `StoredRecord` and `SearchHit`.
-- [Errors, retries and deadlines](errors-and-retries.md): `ombra.errors`, `ombra.retry`, which calls are repeated and what the deadlines are.
-- [Collections and key files](collections.md): `ombra.collection`, key files, and the helpers for range filters.
-- [Migration](migration.md): `ombra.migrate` and `ombra.collection_info`, the Python side of `ombra-migrate`.
-- [Presets](presets.md): `ombra.presets`, the preset parameters in code.
-- [Testing](testing.md): `FakeClient`, an in-memory stand-in for unit tests.
+| Page | Contents |
+| --- | --- |
+| [Client](client.md) | `Client` and `AsyncClient`: connect, create and open collections, insert, search, delete, aliases. |
+| [Results](results.md) | `CollectionInfo`, `AliasInfo`, `StoredRecord` and `SearchHit`. |
+| [Errors, retries and deadlines](errors-and-retries.md) | `ombra.errors`, `ombra.retry`, which calls are repeated and what the deadlines are. |
+| [Collections and key files](collections.md) | `ombra.collection`, key files, and the helpers for range filters. |
+| [Migration](migration.md) | `ombra.migrate` and `ombra.collection_info`, the Python side of `ombra-migrate`. |
+| [Presets](presets.md) | `ombra.presets`, the preset parameters in code. |
+| [Testing](testing.md) | `FakeClient`, an in-memory stand-in for unit tests. |
 
 

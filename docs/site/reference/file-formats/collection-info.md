@@ -6,13 +6,13 @@ An encrypted record of the embedding model a collection was built for (see [Migr
 
 The plaintext, read only by the client:
 
-Sizes are in bytes.
-
-- 4: magic `OINF`
-- 2: version, 1
-- 4: length of the JSON object
-- length: UTF-8 JSON object, at most 4096 bytes
-- rest: zero padding to a multiple of 4
+| Size | Field |
+| --- | --- |
+| 4 | magic `OINF` |
+| 2 | version, 1 |
+| 4 | length of the JSON object |
+| length | UTF-8 JSON object, at most 4096 bytes |
+| rest | zero padding to a multiple of 4 |
 
 ## Compatibility
 

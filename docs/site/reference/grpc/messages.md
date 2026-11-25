@@ -4,37 +4,45 @@ Messages used by more than one method. Every stored message carries `api_version
 
 ## Error
 
-- `code` (`ErrorCode`): One of the codes in [Errors](index.md#errors).
-- `message` (string): Text for people. It never contains ids, ciphertext bytes or values.
+| Field | Type | Description |
+| --- | --- | --- |
+| `code` | `ErrorCode` | One of the codes in [Errors](index.md#errors). |
+| `message` | string | Text for people. It never contains ids, ciphertext bytes or values. |
 
 ## FilterField
 
 The server sees counts of fields and values, never names. A one-hot column per value is stored for every vector.
 
-- `field_id` (uint32): 0, 1, ... in order. Opaque, not a name.
-- `cardinality` (uint32): Number of values, 1 to 64 (`LIMIT_MAX_FILTER_CARDINALITY`).
+| Field | Type | Description |
+| --- | --- | --- |
+| `field_id` | uint32 | 0, 1, ... in order. Opaque, not a name. |
+| `cardinality` | uint32 | Number of values, 1 to 64 (`LIMIT_MAX_FILTER_CARDINALITY`). |
 
 ## CollectionSpec
 
 Stored in the catalog.
 
-- `api_version` (uint32): Must be 1.
-- `name` (string): Collection name, at most 128 bytes.
-- `preset` (string): Name of the HE preset, see [Presets](../presets.md).
-- `dimension` (uint32)
-- `security_level` (`SecurityLevel`): See below.
-- `filter_fields` (repeated `FilterField`): The filter layout.
-- `key_tag` (string): A public tag of the client's key. It is not secret.
-- `cluster_count` (uint32)
+| Field | Type | Description |
+| --- | --- | --- |
+| `api_version` | uint32 | Must be 1. |
+| `name` | string | Collection name, at most 128 bytes. |
+| `preset` | string | Name of the HE preset, see [Presets](../presets.md). |
+| `dimension` | uint32 | Vector dimension. |
+| `security_level` | `SecurityLevel` | See below. |
+| `filter_fields` | repeated `FilterField` | The filter layout. |
+| `key_tag` | string | A public tag of the client's key. It is not secret. |
+| `cluster_count` | uint32 | Number of clusters. |
 
 The query ciphertext of a collection carries `dimension + sum(cardinality)` entries.
 
 ## CollectionInfo
 
-- `spec` (`CollectionSpec`): The stored spec.
-- `vector_count` (uint64): Vectors stored, deleted ones included until their blocks are dropped.
-- `deleted_count` (uint64): Deleted vectors.
-- `keys_uploaded` (bool): Whether the evaluation keys are uploaded.
+| Field | Type | Description |
+| --- | --- | --- |
+| `spec` | `CollectionSpec` | The stored spec. |
+| `vector_count` | uint64 | Vectors stored, deleted ones included until their blocks are dropped. |
+| `deleted_count` | uint64 | Deleted vectors. |
+| `keys_uploaded` | bool | Whether the evaluation keys are uploaded. |
 
 ## SecurityLevel
 

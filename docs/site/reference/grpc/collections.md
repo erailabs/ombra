@@ -10,12 +10,16 @@ rpc CreateCollection(CreateCollectionRequest) returns (CreateCollectionResponse)
 
 **CreateCollectionRequest**
 
-- `spec` (`CollectionSpec`, required): The collection to create.
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `spec` | `CollectionSpec` | yes | The collection to create. |
 
 **CreateCollectionResponse** (one of)
 
-- `spec` (`CollectionSpec`): The stored spec.
-- `error` (`Error`)
+| Field | Type | Description |
+| --- | --- | --- |
+| `spec` | `CollectionSpec` | The stored spec. |
+| `error` | `Error` | Set on failure. |
 
 Errors: `ERROR_COLLECTION_EXISTS`, `ERROR_ALIAS_EXISTS` (the name is an alias), `ERROR_INVALID_ARGUMENT`, `ERROR_UNSUPPORTED_VERSION`, `ERROR_INVALID_FILTER_LAYOUT`, `ERROR_SIZE_LIMIT`.
 
@@ -31,12 +35,16 @@ rpc GetCollection(GetCollectionRequest) returns (GetCollectionResponse)
 
 **GetCollectionRequest**
 
-- `name` (string, required): Collection name or [alias](aliases.md).
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | string | yes | Collection name or [alias](aliases.md). |
 
 **GetCollectionResponse** (one of)
 
-- `info` (`CollectionInfo`): Spec, counts and `keys_uploaded`.
-- `error` (`Error`)
+| Field | Type | Description |
+| --- | --- | --- |
+| `info` | `CollectionInfo` | Spec, counts and `keys_uploaded`. |
+| `error` | `Error` | Set on failure. |
 
 Errors: `ERROR_COLLECTION_NOT_FOUND`, `ERROR_INVALID_ARGUMENT`.
 
@@ -54,7 +62,9 @@ rpc ListCollections(ListCollectionsRequest) returns (ListCollectionsResponse)
 
 **ListCollectionsResponse**
 
-- `collections` (repeated `CollectionInfo`): One entry per collection.
+| Field | Type | Description |
+| --- | --- | --- |
+| `collections` | repeated `CollectionInfo` | One entry per collection. |
 
 Errors: none in the message.
 
@@ -68,11 +78,15 @@ rpc DropCollection(DropCollectionRequest) returns (DropCollectionResponse)
 
 **DropCollectionRequest**
 
-- `name` (string, required)
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | string | yes | Collection name. |
 
 **DropCollectionResponse**
 
-- `error` (`Error`)
+| Field | Type | Description |
+| --- | --- | --- |
+| `error` | `Error` | Unset on success. |
 
 Errors: `ERROR_COLLECTION_NOT_FOUND`, `ERROR_ALIAS_CONFLICT` (an alias points at the collection).
 

@@ -4,8 +4,10 @@ Blobs are opaque client ciphertexts, keyed by (collection, kind, id). The server
 
 ## BlobKind
 
-- `BLOB_KIND_RECORD`: Per-vector record: encrypted vector copy and metadata.
-- `BLOB_KIND_DOCUMENT`: Document body, or an encrypted reference to the customer's storage.
+| Value | Meaning |
+| --- | --- |
+| `BLOB_KIND_RECORD` | Per-vector record: encrypted vector copy and metadata. |
+| `BLOB_KIND_DOCUMENT` | Document body, or an encrypted reference to the customer's storage. |
 
 `BLOB_KIND_UNSPECIFIED` is 0.
 
@@ -19,19 +21,25 @@ The client sends one header, then `data` chunks of at most 4 MiB summing to `siz
 
 **PutBlobRequest** (one per message; one of)
 
-- `header` (`PutBlobHeader`, first message): Names the blob.
-- `data` (bytes, after the header): A chunk of at most `LIMIT_MAX_CHUNK_BYTES` (4 MiB).
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `header` | `PutBlobHeader` | first message | Names the blob. |
+| `data` | bytes | after the header | A chunk of at most `LIMIT_MAX_CHUNK_BYTES` (4 MiB). |
 
 **PutBlobHeader**
 
-- `collection` (string, required)
-- `kind` (`BlobKind`, required)
-- `id` (bytes, required): At most 256 bytes.
-- `size` (uint64, required): Total bytes that follow. Must be a bucket size.
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `collection` | string | yes | Collection name. |
+| `kind` | `BlobKind` | yes | Blob kind. |
+| `id` | bytes | yes | At most 256 bytes. |
+| `size` | uint64 | yes | Total bytes that follow. Must be a bucket size. |
 
 **PutBlobResponse**
 
-- `error` (`Error`)
+| Field | Type | Description |
+| --- | --- | --- |
+| `error` | `Error` | Unset on success. |
 
 Errors: `ERROR_COLLECTION_NOT_FOUND`, `ERROR_SIZE_LIMIT` (not a bucket size, or an id or chunk too large), `ERROR_BAD_SEQUENCE`, `ERROR_INVALID_ARGUMENT`, `ERROR_UNSUPPORTED_VERSION`, `ERROR_STORAGE_FULL`.
 
@@ -43,15 +51,19 @@ rpc GetBlob(GetBlobRequest) returns (stream GetBlobResponse)
 
 **GetBlobRequest**
 
-- `collection` (string, required)
-- `kind` (`BlobKind`, required)
-- `id` (bytes, required)
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `collection` | string | yes | Collection name. |
+| `kind` | `BlobKind` | yes | Blob kind. |
+| `id` | bytes | yes | Blob id. |
 
 **GetBlobResponse** (one per message; one of)
 
-- `size` (uint64): First message: total bytes.
-- `data` (bytes): Chunks in order.
-- `error` (`Error`)
+| Field | Type | Description |
+| --- | --- | --- |
+| `size` | uint64 | First message: total bytes. |
+| `data` | bytes | Chunks in order. |
+| `error` | `Error` | Set on failure. |
 
 Errors: `ERROR_COLLECTION_NOT_FOUND`, `ERROR_BLOB_NOT_FOUND`, `ERROR_UNSUPPORTED_VERSION`, `ERROR_INVALID_ARGUMENT`.
 
@@ -63,13 +75,17 @@ rpc DeleteBlobs(DeleteBlobsRequest) returns (DeleteBlobsResponse)
 
 **DeleteBlobsRequest**
 
-- `collection` (string, required)
-- `kind` (`BlobKind`, required)
-- `ids` (repeated bytes, required): At most 100000 (`LIMIT_MAX_IDS_PER_REQUEST`).
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `collection` | string | yes | Collection name. |
+| `kind` | `BlobKind` | yes | Blob kind. |
+| `ids` | repeated bytes | yes | At most 100000 (`LIMIT_MAX_IDS_PER_REQUEST`). |
 
 **DeleteBlobsResponse**
 
-- `deleted` (uint64): Count of blobs deleted.
-- `error` (`Error`)
+| Field | Type | Description |
+| --- | --- | --- |
+| `deleted` | uint64 | Count of blobs deleted. |
+| `error` | `Error` | Set on failure. |
 
 Errors: `ERROR_COLLECTION_NOT_FOUND`, `ERROR_SIZE_LIMIT`, `ERROR_UNSUPPORTED_VERSION`, `ERROR_INVALID_ARGUMENT`.

@@ -12,10 +12,12 @@ collection docs a b
 
 ## Layout
 
-- `ombra-placement 1`: The version header. Must be the first line.
-- `epoch N`: A counter of map changes, written to the log when the map is loaded.
-- `node ID HOST:PORT`: A node. `ID` is 1 to 64 characters from `A-Z a-z 0-9 . _ -`. The order of the `node` lines is the order of the nodes. The first node holds the alias table.
-- `collection NAME ID...`: Limits a collection to the listed nodes. A collection with no line is on every node.
+| Line | Meaning |
+| --- | --- |
+| `ombra-placement 1` | The version header. Must be the first line. |
+| `epoch N` | A counter of map changes, written to the log when the map is loaded. |
+| `node ID HOST:PORT` | A node. `ID` is 1 to 64 characters from `A-Z a-z 0-9 . _ -`. The order of the `node` lines is the order of the nodes. The first node holds the alias table. |
+| `collection NAME ID...` | Limits a collection to the listed nodes. A collection with no line is on every node. |
 
 ## Compatibility
 

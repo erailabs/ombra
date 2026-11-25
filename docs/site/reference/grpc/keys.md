@@ -14,15 +14,19 @@ rpc UploadKeys(stream UploadKeysChunk) returns (UploadKeysResponse)
 
 **UploadKeysChunk** (one per message)
 
-- `collection` (string, first chunk)
-- `kind` (`KeyKind`, required): Which key file the bytes belong to.
-- `offset` (uint64, required): Byte offset in this key file.
-- `data` (bytes, required): At most `LIMIT_MAX_CHUNK_BYTES` (4 MiB).
-- `last` (bool, required): True on the last chunk of this kind.
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `collection` | string | first chunk | Collection name. |
+| `kind` | `KeyKind` | yes | Which key file the bytes belong to. |
+| `offset` | uint64 | yes | Byte offset in this key file. |
+| `data` | bytes | yes | At most `LIMIT_MAX_CHUNK_BYTES` (4 MiB). |
+| `last` | bool | yes | True on the last chunk of this kind. |
 
 **UploadKeysResponse**
 
-- `error` (`Error`)
+| Field | Type | Description |
+| --- | --- | --- |
+| `error` | `Error` | Unset on success. |
 
 Errors: `ERROR_COLLECTION_NOT_FOUND`, `ERROR_INVALID_ARGUMENT` (the context is not the collection's preset's context, or a key file has a size no key of the preset has), `ERROR_KEY_TAG_MISMATCH`, `ERROR_UNSUPPORTED_VERSION`, `ERROR_SIZE_LIMIT`, `ERROR_BAD_SEQUENCE`, `ERROR_STORAGE_FULL`.
 

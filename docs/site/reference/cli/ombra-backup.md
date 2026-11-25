@@ -6,12 +6,16 @@ Copies a server data directory, then verifies the copy. CPU only; prints counts 
 ombra_backup --data-dir DIR --out DIR2
 ```
 
-- `--data-dir DIR` (default none, required): The data directory to copy.
-- `--out DIR2` (default none, required): Where to put the copy. It must not exist or be empty, and must not lie inside `DIR`.
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--data-dir DIR` | none, required | The data directory to copy. |
+| `--out DIR2` | none, required | Where to put the copy. It must not exist or be empty, and must not lie inside `DIR`. |
 
-- 0: The copy is done and was verified.
-- 1: The backup failed. `DIR2` is empty again.
-- 2: Usage error.
+| Exit code | Meaning |
+| --- | --- |
+| 0 | The copy is done and was verified. |
+| 1 | The backup failed. `DIR2` is empty again. |
+| 2 | Usage error. |
 
 The copy is the state of one instant and is safe to take while the server runs; `DIR` is not changed. See [Backups](../../operations/backups.md). After copying, the tool runs the checks of [`ombra_verify`](ombra-verify.md) on the copy and fails if any file is corrupt.
 

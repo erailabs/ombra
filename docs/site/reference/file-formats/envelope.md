@@ -6,17 +6,17 @@ Magic `{{ const("ombra.file_format.MAGIC").decode() }}`. The version is {{ const
 
 ## Layout
 
-Offsets and sizes are in bytes.
-
-- 0, 4: magic `OMBR`
-- 4, 2: format version
-- 6, 2: kind: 1 context, 2 ciphertext, 3 public evaluation key, 4 seeded ciphertext
-- 8, 2: preset name length $P$, 1 to {{ const("ombra.file_format.MAX_NAME") }}
-- 10, $P$: preset name
-- ., 2: OpenFHE version length $V$, 1 to {{ const("ombra.file_format.MAX_NAME") }}
-- ., $V$: OpenFHE version string
-- ., 8: payload length $L$
-- ., $L$: payload: OpenFHE binary serialization (kinds 1 to 3) or the seeded layout below (kind 4). The file ends here.
+| Offset | Size | Field |
+| --- | --- | --- |
+| 0 | 4 | magic `OMBR` |
+| 4 | 2 | format version |
+| 6 | 2 | kind: 1 context, 2 ciphertext, 3 public evaluation key, 4 seeded ciphertext |
+| 8 | 2 | preset name length $P$, 1 to {{ const("ombra.file_format.MAX_NAME") }} |
+| 10 | $P$ | preset name |
+| . | 2 | OpenFHE version length $V$, 1 to {{ const("ombra.file_format.MAX_NAME") }} |
+| . | $V$ | OpenFHE version string |
+| . | 8 | payload length $L$ |
+| . | $L$ | payload: OpenFHE binary serialization (kinds 1 to 3) or the seeded layout below (kind 4). The file ends here. |
 
 There is no kind for a secret key. A reader checks kind, preset name and OpenFHE version, and the payload length against the bytes present before allocating.
 
@@ -24,20 +24,20 @@ There is no kind for a secret key. A reader checks kind, preset name and OpenFHE
 
 A seeded ciphertext stores a 32-byte seed in place of the uniformly random half, so it is about half the size. The server expands it when loading a block. Payload of kind 4:
 
-Sizes are in bytes.
-
-- 2: payload version, 1
-- 2: generator, 1 is BLAKE2xb
-- 32: seed, a fresh one from the operating system for each ciphertext
-- 4: ring dimension $N$
-- 2: towers $T$
-- 4: level
-- 4: noise scale degree
-- 4: slots
-- 8: scaling factor, IEEE double
-- 2 + $K$: key tag length $K$ and the key tag
-- $8T$: moduli, 8 bytes each
-- $8TN$: the first polynomial, tower by tower, in evaluation form
+| Size | Field |
+| --- | --- |
+| 2 | payload version, 1 |
+| 2 | generator, 1 is BLAKE2xb |
+| 32 | seed, a fresh one from the operating system for each ciphertext |
+| 4 | ring dimension $N$ |
+| 2 | towers $T$ |
+| 4 | level |
+| 4 | noise scale degree |
+| 4 | slots |
+| 8 | scaling factor, IEEE double |
+| 2 + $K$ | key tag length $K$ and the key tag |
+| $8T$ | moduli, 8 bytes each |
+| $8TN$ | the first polynomial, tower by tower, in evaluation form |
 
 A reader refuses an unknown payload version or generator, a size that does not match $N$ and $T$, a word that is not reduced, and trailing bytes.
 

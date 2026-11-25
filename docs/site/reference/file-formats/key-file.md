@@ -6,26 +6,26 @@ Magic `{{ const("ombra.keyfile.MAGIC").decode() }}`, version {{ const("ombra.key
 
 ## Layout
 
-Sizes are in bytes.
-
-- 4: magic `OMBK`
-- 2: version
-- 1: key derivation function: 1 is scrypt
-- 4, 4, 4: scrypt $n$, $r$, $p$
-- 16: salt
-- 12: AES-GCM nonce
-- rest: AES-256-GCM ciphertext and tag
+| Size | Field |
+| --- | --- |
+| 4 | magic `OMBK` |
+| 2 | version |
+| 1 | key derivation function: 1 is scrypt |
+| 4, 4, 4 | scrypt $n$, $r$, $p$ |
+| 16 | salt |
+| 12 | AES-GCM nonce |
+| rest | AES-256-GCM ciphertext and tag |
 
 In version 1 the plaintext is the 32-byte master key followed by the serialized secret key.
 
 In version 2 the plaintext is:
 
-Sizes are in bytes.
-
-- 32: master key
-- 4: length of the secret key, u32
-- that length: serialized CKKS secret key
-- rest: retrieval key pair
+| Size | Field |
+| --- | --- |
+| 32 | master key |
+| 4 | length of the secret key, u32 |
+| that length | serialized CKKS secret key |
+| rest | retrieval key pair |
 
 The retrieval key pair starts with magic `OPKB`, a u16 version (1) and a u32 length, then the serialized BFV secret key of that length and the BFV public key. A reader refuses a version 2 body shorter than its length fields, a length past the end, or an empty retrieval key pair.
 

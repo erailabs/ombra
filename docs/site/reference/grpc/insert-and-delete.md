@@ -10,21 +10,27 @@ A block is up to one batch of vectors of one cluster: `dimension` column ciphert
 
 **InsertRequest** (one per message)
 
-- `header` (`InsertHeader`, one of): Starts a block.
-- `column` (bytes, one of): One column envelope of the current block.
-- `record_column` (bytes, one of, optional): A part of the current block's record column. See below.
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `header` | `InsertHeader` | one of | Starts a block. |
+| `column` | bytes | one of | One column envelope of the current block. |
+| `record_column` | bytes | one of, optional | A part of the current block's record column. See below. |
 
 **InsertHeader**
 
-- `collection` (string, required)
-- `cluster_id` (uint32, required)
-- `ids` (repeated bytes, required): One per occupied slot, in slot order, at most one block of slots.
-- `is_center` (bool, optional): A cluster-center block for stage 1 instead of data.
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `collection` | string | yes | Collection name. |
+| `cluster_id` | uint32 | yes | Cluster of the block. |
+| `ids` | repeated bytes | yes | One per occupied slot, in slot order, at most one block of slots. |
+| `is_center` | bool | no | A cluster-center block for stage 1 instead of data. |
 
 **InsertResponse**
 
-- `inserted` (uint64): Count of ids in the stored blocks.
-- `error` (`Error`)
+| Field | Type | Description |
+| --- | --- | --- |
+| `inserted` | uint64 | Count of ids in the stored blocks. |
+| `error` | `Error` | Set on failure. |
 
 Errors: `ERROR_COLLECTION_NOT_FOUND`, `ERROR_KEYS_MISSING`, `ERROR_KEY_TAG_MISMATCH`, `ERROR_PRESET_MISMATCH`, `ERROR_UNSUPPORTED_VERSION`, `ERROR_INVALID_ARGUMENT`, `ERROR_BAD_SEQUENCE` or `ERROR_SIZE_LIMIT` (fewer or more columns than the layout needs, or a column before a header), `ERROR_STORAGE_FULL`.
 
@@ -52,13 +58,17 @@ rpc Delete(DeleteRequest) returns (DeleteResponse)
 
 **DeleteRequest**
 
-- `collection` (string, required)
-- `ids` (repeated bytes, required): Ids to delete, at most 100000 (`LIMIT_MAX_IDS_PER_REQUEST`), each at most 256 bytes.
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `collection` | string | yes | Collection name. |
+| `ids` | repeated bytes | yes | Ids to delete, at most 100000 (`LIMIT_MAX_IDS_PER_REQUEST`), each at most 256 bytes. |
 
 **DeleteResponse**
 
-- `deleted` (uint64): Count of ids deleted.
-- `error` (`Error`)
+| Field | Type | Description |
+| --- | --- | --- |
+| `deleted` | uint64 | Count of ids deleted. |
+| `error` | `Error` | Set on failure. |
 
 Errors: `ERROR_COLLECTION_NOT_FOUND`, `ERROR_UNSUPPORTED_VERSION`, `ERROR_INVALID_ARGUMENT`, `ERROR_SIZE_LIMIT`.
 
