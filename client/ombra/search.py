@@ -60,6 +60,13 @@ class Hit:
     id: bytes
     score: float = field(repr=False)  # exact cosine score; the approximate one if not re-ranked
     metadata: dict[str, Any] = field(repr=False, default_factory=dict)  # empty if not re-ranked
+    # fetch_documents=True only. The inline body of the hit's document, or None.
+    document: str | bytes | None = field(repr=False, default=None)
+    reference: Any = field(repr=False, default=None)  # a stored-by-reference document, if any
+    # "none" (no document, or fetch_documents was off), "fetched", "large" (above 256 KiB: read it
+    # with Collection.get_document(id), which shows the id), "dropped" (lost to cuckoo failure,
+    # never retried) or "bad" (failed authentication)
+    document_status: str = "none"
 
 
 @dataclass
@@ -73,10 +80,13 @@ class SearchResult:
     fetched: int = 0  # record blobs fetched (range collections: a fixed number per query)
     rejected: int = 0  # fetched candidates that failed the exact check (edge buckets, digits)
     reranked: bool = True  # False: approximate scores, no record blob fetched
-    private: bool = False  # True: re-ranked with RetrieveRecords; hits carry no metadata
+    private: bool = False  # True: re-ranked with RetrieveRecords; hits carry the rows' metadata
     pir_dropped: int = 0  # candidates lost to cuckoo failure in the call (never retried)
     pir_stale: int = 0  # candidates whose block changed between the search and the call
     pir_bad_rows: int = 0  # rows that failed authentication (dropped, never trusted)
+    doc_calls: int = 0  # RetrieveDocuments calls made (fetch_documents)
+    doc_dropped: int = 0  # documents lost to cuckoo failure in those calls
+    doc_stale: int = 0  # documents whose block changed between the search and the call
 
 
 class _Stream:
@@ -264,6 +274,7 @@ def run_search(
     rerank: bool = True,
     workers: int = 1,
     range_plan: Any = None,
+    fetch_documents: bool = False,
     _rng: random.Random | None = None,
 ) -> SearchResult:
     """Search `col` for the k nearest vectors that pass `filter`.
@@ -274,13 +285,21 @@ def run_search(
     with at least that many. `rerank_factor * k` record blobs are fetched for re-ranking
     (default 3, the 2-3x k of the requirements).
 
+    `fetch_documents=True` (private-retrieval collections with v2 rows only) also returns the
+    documents of the final hits that are 256 KiB or smaller, with one RetrieveDocuments call per
+    practical class (16 KiB, 256 KiB) that the collection has, each for k rows and over the same
+    scope as the record call, so the server learns neither which documents nor how many hits have
+    one. A hit with a larger document gets `document_status == "large"`; read it with
+    `Collection.get_document(id)`, which shows that id.
+
     On a collection made with `private_retrieval=True` the re-rank is one RetrieveRecords call
     instead of the blob fetches: the server does not learn which records were candidates. It sees
     the scope (the clusters this search requested, decoys included; all clusters at Strict) and
     m = rerank_factor * k rows (times RANGE_FETCH_FACTOR on a collection with range fields), the
     same for every query. The exact scores come from the retrieved rows. The hits then have EMPTY
-    metadata: reading it would mean fetching the final ids' blobs, which shows them. Reading a
-    record or document by id is an explicit call, and it does reveal that id.
+    metadata on a collection with v1 rows (made before row v2); v2 rows carry the metadata, so the
+    hits have it with no extra call. Reading a record or document by id is an explicit call, and it
+    does reveal that id.
 
     `rerank=False` skips that fetch: the hits are the best k candidates by decrypted approximate
     score, with empty metadata, and the search sends no blob request. On a collection with range
@@ -339,6 +358,12 @@ def run_search(
     stream = _Stream(col.stub, pb.SearchRequest(start=start))
     cand: dict[bytes, float] = {}
     use_pir = rerank and bool(getattr(col, "private_retrieval", False))
+    if fetch_documents:
+        if not use_pir or not getattr(col, "_v2", False):
+            raise ValueError(
+                "fetch_documents needs a collection made with private_retrieval=True (row v2) "
+                "and rerank=True"
+            )
     layout: dict[tuple[int, int], list[bytes]] = {}  # (cluster, block index) -> ids in slot order
     where: dict[bytes, tuple[int, int, int]] = {}  # id -> (cluster, block index, slot)
     probed: list[int] = []
@@ -470,7 +495,7 @@ def run_search(
         scope = None if level == "strict" else sorted(asked_all)
         return _finish_private(
             col, q, k, cand, where, layout, rerank_factor, filter, range_plan, scope, rng,
-            (probed, rounds, fell_back),
+            (probed, rounds, fell_back), fetch_documents,
         )  # fmt: skip
     if is_range:
         return _finish_range(
@@ -554,13 +579,26 @@ def _finish_range(
 
 
 def _finish_private(
-    col, q, k, cand, where, layout, rerank_factor, filter, range_plan, scope, rng, run
+    col,
+    q,
+    k,
+    cand,
+    where,
+    layout,
+    rerank_factor,
+    filter,
+    range_plan,
+    scope,
+    rng,
+    run,
+    fetch_documents=False,
 ) -> SearchResult:
     """Re-rank with one RetrieveRecords call (see ombra.private_retrieval).
 
     m = rerank_factor * k rows, times FETCH_FACTOR on a collection with range fields: the same
     fixed rule as the blob fetch. The best candidates by approximate score come first; the rest of
     the m rows are random real rows. Candidates lost to cuckoo failure are counted, never retried.
+    With `fetch_documents`, the documents of the final hits follow (see `_fetch_documents`).
     On range fields each opened row is checked exactly (filter values and raw range values), like
     the record in `_finish_range`. Hits have empty metadata.
     """
@@ -585,7 +623,7 @@ def _finish_private(
         got = out.rows.get(ident)
         if got is None:
             continue
-        vec, ints = got
+        vec, ints = got.vector, got.ints
         if is_range:
             ok = all(int(ints[fi]) in allowed for fi, allowed in eq.items())
             raw = {f.name: int(ints[nf + j]) for j, f in enumerate(col.schema.fields)}
@@ -593,8 +631,14 @@ def _finish_private(
             if not ok:
                 rejected += 1
                 continue
-        scored.append(Hit(ident, float(vec.astype(np.float64) @ q)))
+        scored.append(Hit(ident, float(vec.astype(np.float64) @ q), dict(got.metadata)))
     scored.sort(key=lambda h: (-h.score, h.id))
+    scored = scored[:k]
+    docs = (
+        _fetch_documents(col, scored, out.rows, where, scope, k, rng) if fetch_documents else None
+    )
+    if docs is not None:
+        scored = docs.hits
     return SearchResult(
         hits=scored[:k],
         incomplete=(len(scored) if is_range else len(cand)) < k,
@@ -608,4 +652,71 @@ def _finish_private(
         pir_dropped=out.dropped,
         pir_stale=out.stale,
         pir_bad_rows=out.bad_rows,
+        doc_calls=0 if docs is None else docs.calls,
+        doc_dropped=0 if docs is None else docs.dropped,
+        doc_stale=0 if docs is None else docs.stale,
     )
+
+
+@dataclass
+class _Docs:
+    hits: list[Hit]
+    calls: int = 0
+    dropped: int = 0
+    stale: int = 0
+
+
+def _fetch_documents(
+    col: Any, hits: list[Hit], rows: Mapping[bytes, Any], where, scope, k: int, rng
+) -> _Docs:
+    """The documents of the final hits, privately.
+
+    Every hit's row holds its document's class and its index in the block's column of that class.
+    For each practical class there is exactly one call, with m = k (the k asked for, not the number
+    of hits, so the shape does not depend on the query or the filter), over the scope of the record
+    call. The hits whose document is in the class are wanted; the rest of the rows are random real
+    rows. A class the collection has no document of makes no call (the server's Info says so).
+    """
+    from ombra.documents import DocumentError
+
+    out = _Docs(list(hits))
+    for cls in pir_classes():
+        wanted = []
+        for h in hits:
+            row = rows[h.id]
+            if row.doc_class == cls:
+                cluster, block, _slot = where[h.id]
+                wanted.append(pr.DocWanted(h.id, cluster, block, int(row.doc_index)))
+        res = pr.retrieve_documents(col, cls, wanted, scope=scope, m=k, rng=rng)
+        if res.absent:
+            continue
+        out.calls += 1
+        out.dropped += res.dropped
+        out.stale += res.stale
+        for w in wanted:
+            i = next(j for j, h in enumerate(out.hits) if h.id == w.ident)
+            h = out.hits[i]
+            blob = res.blobs.get(w.ident)
+            if blob is None:
+                out.hits[i] = _with_doc(h, None, None, "dropped")
+                continue
+            try:
+                doc = col.codec.open_document(w.ident, blob)
+            except DocumentError:
+                out.hits[i] = _with_doc(h, None, None, "bad")
+                continue
+            out.hits[i] = _with_doc(h, doc.body, doc.reference, "fetched")
+    for i, h in enumerate(out.hits):
+        if rows[h.id].doc_class == 3:
+            out.hits[i] = _with_doc(h, None, None, "large")
+    return out
+
+
+def pir_classes() -> tuple[int, ...]:
+    from ombra import pir
+
+    return pir.PRACTICAL_CLASSES
+
+
+def _with_doc(h: Hit, body: Any, reference: Any, status: str) -> Hit:
+    return Hit(h.id, h.score, h.metadata, body, reference, status)

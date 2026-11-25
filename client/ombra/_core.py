@@ -77,6 +77,8 @@ class SearchHit:
     id: str
     score: float = field(repr=False)
     metadata: dict[str, Any] = field(repr=False, default_factory=dict)
+    document: str | bytes | None = field(repr=False, default=None)
+    document_status: str = "none"
 
 
 class ClientCore:
@@ -164,6 +166,7 @@ class ClientCore:
         decoy_group_size: int = 1,
         decoy_grouping: str = "neighbours",
         private_retrieval: bool = False,
+        metadata_bytes: int | None = None,
         scrypt_params: tuple[int, int, int] | None = None,
     ) -> str:
         preset = preset or getattr(self._t, "default_preset", presets.DEFAULT_PRESET)
@@ -207,6 +210,7 @@ class ClientCore:
             documents=documents,
             security_level=security_level,
             schema=schema,
+            metadata_bytes=metadata_bytes,
         )
         self._open[name] = (col, names)
         return name
@@ -384,6 +388,7 @@ class ClientCore:
         level: str | None = None,
         n_probe: int | None = None,
         rerank: bool = True,
+        fetch_documents: bool = False,
     ) -> list[SearchHit]:
         col, names = self._get(collection)
         fidx: dict[int, Any] = {}
@@ -406,10 +411,14 @@ class ClientCore:
             level=level,
             n_probe=n_probe,
             rerank=rerank,
+            fetch_documents=fetch_documents,
             **extra,
         )
         hits: list[Hit] = res.hits
-        return [SearchHit(h.id.decode(), h.score, h.metadata) for h in hits]
+        return [
+            SearchHit(h.id.decode(), h.score, h.metadata, h.document, h.document_status)
+            for h in hits
+        ]
 
     def close(self) -> None:
         for col, _ in self._open.values():

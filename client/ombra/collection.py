@@ -29,18 +29,18 @@ from __future__ import annotations
 import os
 import re
 import struct
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
 
-from ombra import _seeding, decoy_groups, presets
+from ombra import _seeding, decoy_groups, pir, presets
 from ombra import private_retrieval as pr
 from ombra import query as oq
 from ombra._decrypt import ExpectedShapes, check_ciphertext, decrypt_values
-from ombra._proto import insert_requests, record_parts
+from ombra._proto import document_parts, insert_requests, record_parts
 from ombra._transport import id_batches
 from ombra.blobstore import KIND_DOCUMENT, KIND_RECORD, BlobStore, BlobStoreError, GrpcBlobStore
 from ombra.clustering import assign, cluster_vectors
@@ -381,8 +381,11 @@ class Collection:
         security_level: str = "fast",
         schema: RangeSchema | None = None,
         private_retrieval: bool = False,
+        metadata_bytes: int | None = None,
     ) -> None:
         self.pb, self.stub = pb, stub
+        # metadata slot of the record rows (row v2); None: v1 rows (a collection made before v2)
+        self.metadata_bytes = metadata_bytes if private_retrieval else None
         # record columns next to the blocks; re-ranking by RetrieveRecords (private_retrieval.py)
         self.private_retrieval = private_retrieval
         self._pir_uploaded: str | None = None  # tag of the retrieval keys uploaded here
@@ -411,9 +414,30 @@ class Collection:
         if self._row_codec is None:
             n_ints = pr.n_ints_for(len(self.cards), self.schema)
             self._row_codec = RowCodec(
-                self.kit.master_key, self.base_name, self.derived.dimension, n_ints
+                self.kit.master_key,
+                self.base_name,
+                self.derived.dimension,
+                n_ints,
+                self.metadata_bytes,
             )
         return self._row_codec
+
+    @property
+    def _v2(self) -> bool:
+        """True if this collection has v2 rows: metadata in the row and private document fetch."""
+        return self.private_retrieval and self.metadata_bytes is not None
+
+    def _check_metadata(self, metadata: Sequence[dict[str, Any]] | None) -> None:
+        """Refuse, before anything is sent, metadata that does not fit the row's slot."""
+        if not self._v2 or metadata is None:
+            return
+        for i, m in enumerate(metadata):
+            n = len(pir.metadata_json(dict(m or {})))
+            if n > self.metadata_bytes:  # type: ignore[operator]
+                raise ValueError(
+                    f"metadata of vector {i} is {n} bytes as JSON, above this collection's "
+                    f"metadata_bytes limit of {self.metadata_bytes}"
+                )
 
     @property
     def cluster_count(self) -> int:
@@ -452,7 +476,9 @@ class Collection:
         decoy_group_size: int = 1,
         decoy_grouping: str = "neighbours",
         private_retrieval: bool = False,
-        exact_rows: dict[bytes, tuple[np.ndarray, np.ndarray]] | None = None,
+        exact_rows: dict[bytes, tuple[np.ndarray, np.ndarray, dict[str, Any]]] | None = None,
+        metadata_bytes: int | None = None,
+        doc_source: Callable[[bytes], bytes | None] | None = None,
     ) -> Collection:
         """Cluster, create the collection, upload the keys once, insert centers and data.
 
@@ -464,7 +490,12 @@ class Collection:
         `private_retrieval` stores a record column with every block and lets a search re-rank
         with one RetrieveRecords call (see ombra.private_retrieval); the key kit then needs the
         retrieval key pair, and one is made if no kit is given. `exact_rows` (id -> float32 vector,
-        int64 values) gives the rows when `store_records` is off (a re-clustering)."""
+        int64 values, metadata) gives the rows when `store_records` is off (a re-clustering);
+        `doc_source(id)` then gives the stored document blob of an id (or None).
+
+        `metadata_bytes` (private retrieval only; default 512) is the fixed slot of each record row
+        that holds the vector's metadata as compact JSON, so a private search returns metadata
+        and `fetch_documents` can follow. An insert whose metadata does not fit is refused."""
         x = np.asarray(vectors, dtype=np.float64)
         # Parameters come only from the presets, which enforce the 128-bit floor.
         derived = presets.derive(preset, x.shape[1])
@@ -484,6 +515,15 @@ class Collection:
             raise ValueError("more clusters than slots: the centers must fit in one block")
         for ident in ids:
             check_user_id(ident)
+        if private_retrieval:
+            n_ints = pr.n_ints_for(len(cards), schema)
+            limit = pir.max_metadata_bytes(derived.dimension, n_ints)
+            if metadata_bytes is None:
+                metadata_bytes = min(pir.DEFAULT_METADATA_BYTES, limit)
+            if not 0 <= metadata_bytes <= limit:
+                raise ValueError(f"metadata_bytes must be between 0 and {limit} for this layout")
+        elif metadata_bytes is not None:
+            raise ValueError("metadata_bytes needs private_retrieval=True")
         g = int(decoy_group_size)
         if g < 1:
             raise ValueError("decoy_group_size must be at least 1")
@@ -525,7 +565,9 @@ class Collection:
             security_level=security_level,
             schema=schema,
             private_retrieval=private_retrieval,
+            metadata_bytes=metadata_bytes,
         )
+        self._check_metadata(metadata)
         spec = pb.CollectionSpec(
             api_version=API_VERSION,
             name=self.name,
@@ -546,15 +588,18 @@ class Collection:
             exact = self._exact_rows(x, ids, f, metadata, exact_rows) if private_retrieval else None
             for c in range(self.cluster_count):
                 rows = np.nonzero(clustering.labels == c)[0]
+                ids_c = [ids[i] for i in rows]
                 self._insert_cluster(
                     c,
                     x[rows],
                     f[rows],
-                    [ids[i] for i in rows],
-                    None if exact is None else (exact[0][rows], exact[1][rows]),
+                    ids_c,
+                    self._subset(exact, rows),
+                    self._cluster_docs(ids_c, documents, rows, doc_source),
                 )
             if store_records:
-                self._put_records(x, ids, metadata, documents, f)
+                # v2: the documents were stored with their blocks, so the blob is the column's
+                self._put_records(x, ids, metadata, None if self._v2 else documents, f)
             self.stats = ClusterStats.build(clustering.labels, len(centers), f, cards)
             if g > 1:  # a fresh salt at every creation, so a re-cluster regroups independently
                 salt = os.urandom(decoy_groups.SALT_LEN)
@@ -570,7 +615,7 @@ class Collection:
             if schema is not None:
                 self.blobs.put(self.name, KIND_RECORD, SCHEMA_ID, schema.seal(self.codec))
             if private_retrieval:
-                marker = self.codec.seal_record(pr.PIR_ID, pr.marker_payload(), {})
+                marker = self.codec.seal_record(pr.PIR_ID, pr.marker_payload(metadata_bytes), {})
                 self.blobs.put(self.name, KIND_RECORD, pr.PIR_ID, marker)
         except Exception:
             stub.DropCollection(pb.DropCollectionRequest(name=self.name))
@@ -634,7 +679,8 @@ class Collection:
             rec = self.codec.open_record(
                 pr.PIR_ID, self.blobs.get(self.name, KIND_RECORD, pr.PIR_ID)
             )
-            self.private_retrieval = pr.is_marker(rec.vector)
+            self.private_retrieval, mb = pr.parse_marker(rec.vector)
+            self.metadata_bytes = mb if self.private_retrieval else None
         except (BlobStoreError, ValueError):
             self.private_retrieval = False
         if self.private_retrieval and kit.pir is None:
@@ -707,14 +753,55 @@ class Collection:
         ids: Sequence[bytes],
         fields: np.ndarray,
         metadata: Sequence[dict[str, Any]] | None,
-        given: dict[bytes, tuple[np.ndarray, np.ndarray]] | None = None,
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """(float32 vectors, int64 values) of the record rows of these vectors."""
+        given: dict[bytes, tuple[np.ndarray, np.ndarray, dict[str, Any]]] | None = None,
+    ) -> tuple[np.ndarray, np.ndarray, list[dict[str, Any]]]:
+        """(float32 vectors, int64 values, user metadata) of the record rows of these vectors."""
         if given is not None:
             vecs = np.stack([given[bytes(i)][0] for i in ids]).astype("<f4")
             ints = np.stack([given[bytes(i)][1] for i in ids]).astype(np.int64)
-            return vecs, ints.reshape(len(ids), -1)
-        return np.asarray(x, dtype="<f4"), pr.exact_ints(fields, metadata, self.schema)
+            metas = [dict(given[bytes(i)][2]) for i in ids]
+            self._check_metadata(metas)
+            return vecs, ints.reshape(len(ids), -1), metas
+        metas = [dict(m or {}) for m in metadata] if metadata is not None else [{}] * len(ids)
+        self._check_metadata(metas)
+        return (
+            np.asarray(x, dtype="<f4"),
+            pr.exact_ints(fields, metadata, self.schema),
+            metas,
+        )
+
+    @staticmethod
+    def _subset(exact: Any, rows: np.ndarray) -> Any:
+        if exact is None:
+            return None
+        return exact[0][rows], exact[1][rows], [exact[2][i] for i in rows]
+
+    def _cluster_docs(
+        self,
+        ids: Sequence[bytes],
+        documents: Sequence[str | bytes | None] | None,
+        rows: np.ndarray,
+        doc_source: Callable[[bytes], bytes | None] | None = None,
+    ) -> list[bytes | None] | None:
+        """v2 only: the stored document blob of each vector of a cluster, for the document columns.
+        New documents are sealed here and put by id at once, so each blob is sealed one time and the
+        column holds the same bytes as the by-id blob."""
+        if not self._v2:
+            return None
+        if documents is not None and len(documents) != 0:
+            out: list[bytes | None] = []
+            for ident, i in zip(ids, rows, strict=True):
+                doc = documents[int(i)]
+                if doc is None:
+                    out.append(None)
+                    continue
+                blob = self.codec.seal_document(ident, doc)
+                self.blobs.put(self.name, KIND_DOCUMENT, ident, blob)
+                out.append(blob)
+            return out
+        if doc_source is not None:
+            return [doc_source(bytes(i)) for i in ids]
+        return None
 
     def _insert_cluster(
         self,
@@ -722,10 +809,11 @@ class Collection:
         vecs: np.ndarray,
         fields: np.ndarray,
         ids: Sequence[bytes],
-        exact: tuple[np.ndarray, np.ndarray] | None = None,
+        exact: tuple[np.ndarray, np.ndarray, list[dict[str, Any]]] | None = None,
+        doc_blobs: Sequence[bytes | None] | None = None,
     ) -> None:
-        """One block per `slots` vectors; with `exact` (vectors, ints) each also gets its record
-        column."""
+        """One block per `slots` vectors; with `exact` (vectors, ints, metadata) each also gets its
+        record column, and with v2 rows its document columns (`doc_blobs`: stored blobs)."""
         blocks = []
         for s in range(0, len(vecs), self.slots):
             part = slice(s, s + self.slots)
@@ -737,9 +825,21 @@ class Collection:
                 columns=self._columns(vecs[part], fields[part]),
             )
             if exact is not None:
-                block.record_column = pr.seal_column(
-                    self.row_codec, cluster, ids[part], exact[0][part], exact[1][part]
+                v2 = self._v2
+                cols = pr.seal_block(
+                    self.row_codec,
+                    cluster,
+                    ids[part],
+                    exact[0][part],
+                    exact[1][part],
+                    exact[2][part] if v2 else None,
+                    (doc_blobs[part] if doc_blobs is not None else [None] * len(ids[part]))
+                    if v2
+                    else None,
                 )
+                block.record_column = cols.record
+                for cls, data in sorted(cols.documents.items()):
+                    block.document_columns.add(doc_class=cls, column=data)
             blocks.append(block)
         self._insert(blocks)
 
@@ -769,17 +869,21 @@ class Collection:
             check_user_id(ident)
         f = _fields(fields, len(x), self.cards)
         labels = assign(x, self.centers)
+        if documents is not None and len(documents) != len(ids):
+            raise ValueError("one documents entry per vector")
         exact = self._exact_rows(x, ids, f, metadata) if self.private_retrieval else None
         for c in np.unique(labels):
             rows = np.nonzero(labels == c)[0]
+            ids_c = [ids[i] for i in rows]
             self._insert_cluster(
                 int(c),
                 x[rows],
                 f[rows],
-                [ids[i] for i in rows],
-                None if exact is None else (exact[0][rows], exact[1][rows]),
+                ids_c,
+                self._subset(exact, rows),
+                self._cluster_docs(ids_c, documents, rows),
             )
-        self._put_records(x, ids, metadata, documents, f)
+        self._put_records(x, ids, metadata, None if self._v2 else documents, f)
         if self.stats is not None:
             self.stats.add(labels, f)
             self._save_stats()
@@ -872,8 +976,10 @@ class Collection:
         return np.frombuffer(rec.vector, dtype="<f4").copy(), meta
 
     def get_document(self, ident: bytes) -> str | bytes | None:
-        """The inline body of a stored document, or None if there is none. A document stored by
-        reference raises ValueError (it lives in your own storage, not here)."""
+        """The inline body of a stored document, or None if there is none, read BY ID: the server
+        sees which id is read (this is the only way to read a document larger than 256 KiB; the
+        smaller ones come back from `search(fetch_documents=True)` without showing the id). A
+        document stored by reference raises ValueError (it lives in your own storage, not here)."""
         try:
             blob = self.blobs.get(self.name, KIND_DOCUMENT, ident)
         except BlobStoreError:
@@ -976,12 +1082,21 @@ class Collection:
             cols = self._columns(vecs, fields)
             after += sum(len(c) for c in cols)
             segments = [b.segment for b in group]
-            record = b""
+            record, docs = b"", {}
             if self.private_retrieval:  # the new block's rows, from the exact record blobs
-                ev, ei = self._exact_from_blobs(ids)
-                record = pr.seal_column(self.row_codec, group[0].cluster, ids, ev, ei)
+                ev, ei, em, ed = self._exact_from_blobs(ids)
+                bc = pr.seal_block(
+                    self.row_codec,
+                    group[0].cluster,
+                    ids,
+                    ev,
+                    ei,
+                    em if self._v2 else None,
+                    ed if self._v2 else None,
+                )
+                record, docs = bc.record, bc.documents
 
-            def msgs(segments=segments, ids=ids, cols=cols, record=record):
+            def msgs(segments=segments, ids=ids, cols=cols, record=record, docs=docs):
                 yield pb.ReplaceBlockRequest(
                     api_version=API_VERSION,
                     header=pb.ReplaceBlockHeader(collection=self.name, segments=segments, ids=ids),
@@ -990,16 +1105,28 @@ class Collection:
                     yield pb.ReplaceBlockRequest(api_version=API_VERSION, column=c)
                 for part in record_parts(record):
                     yield pb.ReplaceBlockRequest(api_version=API_VERSION, record_column=part)
+                for cls, part in document_parts(docs):
+                    doc = pb.DocumentColumnPart(doc_class=cls, data=part)
+                    yield pb.ReplaceBlockRequest(api_version=API_VERSION, document_column=doc)
 
             _check(self.stub.ReplaceBlock(Replayable(msgs)).error)
             n_before += len(group)
             n_after += 1
         return RepackReport(len(groups), n_before, n_after, before, after)
 
-    def _exact_from_blobs(self, ids: Sequence[bytes]) -> tuple[np.ndarray, np.ndarray]:
-        """(float32 vectors, int64 values) of the record rows of stored vectors, read from their
-        record blobs (the exact copies; the ciphertext columns only hold approximations)."""
-        vecs, ints = [], []
+    def _read_doc_blob(self, ident: bytes) -> bytes | None:
+        try:
+            return self.blobs.get(self.name, KIND_DOCUMENT, ident)
+        except BlobStoreError:
+            return None
+
+    def _exact_from_blobs(
+        self, ids: Sequence[bytes]
+    ) -> tuple[np.ndarray, np.ndarray, list[dict[str, Any]], list[bytes | None]]:
+        """(float32 vectors, int64 values, user metadata, document blobs) of the record rows of
+        stored vectors, read from their record and document blobs (the exact copies; the
+        ciphertext columns only hold approximations). Document blobs are read only on v2 rows."""
+        vecs, ints, metas, docs = [], [], [], []
         n_cards = len(self.cards)
         for ident in ids:
             try:
@@ -1010,11 +1137,23 @@ class Collection:
                 ) from None
             vecs.append(np.frombuffer(rec.vector, dtype="<f4"))
             ints.append(pr.ints_from_meta(rec.metadata, self.schema, n_cards))
-        return np.stack(vecs), np.asarray(ints, dtype=np.int64).reshape(len(ids), -1)
+            metas.append({k: v for k, v in rec.metadata.items() if k != FIELDS_KEY})
+            docs.append(self._read_doc_blob(ident) if self._v2 else None)
+        return (
+            np.stack(vecs),
+            np.asarray(ints, dtype=np.int64).reshape(len(ids), -1),
+            metas,
+            docs,
+        )
 
     # ---- re-clustering --------------------------------------------------------------------
     def recluster(
-        self, n_clusters: int | None = None, *, seed: int = 1, openfhe_version: str | None = None
+        self,
+        n_clusters: int | None = None,
+        *,
+        seed: int = 1,
+        openfhe_version: str | None = None,
+        metadata_bytes: int | None = None,
     ) -> Collection:
         """Build the next generation from the live vectors of this one; this one is untouched.
 
@@ -1036,8 +1175,10 @@ class Collection:
             raise ValueError("no live vectors to cluster")
         exact_rows = None
         if self.private_retrieval:  # the new generation's rows are made from the exact records
-            ev, ei = self._exact_from_blobs(ids)
-            exact_rows = {bytes(i): (ev[j], ei[j]) for j, i in enumerate(ids)}
+            ev, ei, em, _ed = self._exact_from_blobs(ids)
+            exact_rows = {bytes(i): (ev[j], ei[j], em[j]) for j, i in enumerate(ids)}
+            if metadata_bytes is None:  # an older collection moves to v2 rows here
+                metadata_bytes = self.metadata_bytes or pir.DEFAULT_METADATA_BYTES
         g = None if self.stats is None else self.stats.groups
         # a grouped collection stays grouped: same size and method, a new keyed grouping
         grouping = {} if g is None else {"decoy_group_size": g.size, "decoy_grouping": g.method}
@@ -1061,6 +1202,8 @@ class Collection:
             schema=self.schema,
             private_retrieval=self.private_retrieval,
             exact_rows=exact_rows,
+            metadata_bytes=metadata_bytes if self.private_retrieval else None,
+            doc_source=self._read_doc_blob if self.private_retrieval else None,
             **grouping,
         )
         try:

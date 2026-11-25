@@ -43,7 +43,8 @@ def document_parts(columns: Any) -> list[tuple[int, bytes]]:
 
 def insert_requests(pb: Any, blocks: Any) -> Any:
     """The Insert request stream of whole `InsertBlock`s: per block one header, then its columns,
-    one per message, then its record column (if any) in parts, then its document columns in parts (the server's receive limit is
+    one per message, then its record column (if any) in parts, then its document columns in parts
+    (the server's receive limit is
     16 MiB, so no message holds a whole block).
     A generator, so a `Replayable` can call it again for a retry; the blocks must stay the same
     objects (the retry sends the same bytes, which is what makes a repeated Insert a no-op)."""

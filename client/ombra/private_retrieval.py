@@ -188,7 +188,9 @@ def seal_block(
             idx = len(cols[cls])
             cols[cls].append(bytes(blob))  # type: ignore[arg-type]
         meta = None if metadata is None else dict(metadata[i])
-        rows.append(codec.seal(cluster, bytes(ids[i]), ROW_VERSION, v32[i], ints[i], meta, cls, idx))
+        rows.append(
+            codec.seal(cluster, bytes(ids[i]), ROW_VERSION, v32[i], ints[i], meta, cls, idx)
+        )
     version = 1 if codec.format == 1 else pir.COLUMN_VERSION
     return BlockColumns(
         pir.pack_column(rows, codec.row_size, version),
@@ -660,7 +662,9 @@ def _plan_document_parts(
             not 1 <= n <= MAX_ROWS
             or info.row_size != size
             or info.n_planes != planes
-            or not (total == n or (total == 0 and n == 1))  # one padding row when the scope is empty
+            or not (
+                total == n or (total == 0 and n == 1)
+            )  # one padding row when the scope is empty
         ):
             raise CollectionError(0, "the server describes a database that does not fit")
         nxt = 0
