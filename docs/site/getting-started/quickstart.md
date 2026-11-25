@@ -1,6 +1,6 @@
 # Quickstart
 
-In about ten minutes you will encrypt a few sentences, search them, and read back the closest match. Everything runs in local mode, with a CPU server inside your Python process, so you need neither a GPU nor a network. Install first, as described in [Install](install.md):
+This page encrypts a few sentences, searches them, and reads back the closest match. It runs in local mode, with a CPU server inside your Python process, so you need no GPU. Install first, see [Install](install.md):
 
 ```bash
 pip install "ombra[local]" sentence-transformers
@@ -8,7 +8,7 @@ pip install "ombra[local]" sentence-transformers
 
 ## Run it
 
-The script embeds six sentences with `sentence-transformers/all-MiniLM-L6-v2` (384 dimensions), encrypts them, then asks which sentence answers "What did the central bank do?". The model downloads about 90 MB on the first run. Save this as `local_search.py`, or take it from `examples/local_search.py`:
+The script embeds six sentences with `all-MiniLM-L6-v2` (384 dimensions, about 90 MB download on first run), encrypts them, and asks which one answers "What did the central bank do?". It is `examples/local_search.py`:
 
 ```python
 """First encrypted search in local mode: python local_search.py"""
@@ -61,7 +61,7 @@ if __name__ == "__main__":  # needed: local mode starts a child process
 python local_search.py
 ```
 
-Output looks like this, give or take the last digit of the scores:
+Output looks like this, give or take the last digit:
 
 ```text
 0.593  The central bank raised its policy rate.
@@ -69,20 +69,14 @@ Output looks like this, give or take the last digit of the scores:
 0.133  A GPU runs thousands of threads in parallel.
 ```
 
-Creating the collection (keys, encryption, upload) takes most of the run time. A single search takes a second or more in local mode; see the [latency page](../performance/latency-and-throughput.md).
+Creating the collection (keys, encryption, upload) takes most of the run time. Search time is TBD, see [Performance](../performance/index.md).
 
 ## Things to know
 
-Ids are stored on the server in plain text, so the script uses random ones (`uuid.uuid4()`). Do not put names, e-mail addresses or file names in ids.
-
-The search level (`security_level` when you create a collection) decides which clusters a query asks the server for. The default is `fast`. `decoy` and `strict` hide more about the cluster choice, and they hide only that: after every search, at every level, the client fetches the best candidate records by id, and the server sees those ids. See [what the server learns](../security/what-the-server-learns.md).
-
-Vectors must have unit length, which `normalize_embeddings=True` does. Scores are exact cosine similarities, higher is better.
-
-The `if __name__ == "__main__":` guard is required, because local mode starts a child process.
-
-Local mode is for trying Ombra, for tests and for collections of a few thousand vectors. It is slow and not for production.
-
-The folder the script prints holds the secret key and the encrypted collection (a few hundred MB). Delete it when you are done.
+- Ids are stored on the server in plain text, so use random ones. Never put names, e-mail addresses or file names in ids.
+- `security_level` at creation decides which clusters a query asks for. The default is `fast`; `decoy` and `strict` hide more about the cluster choice, and only that: the client still fetches the best candidate records by id at every level. See [what the server learns](../security/what-the-server-learns.md).
+- Vectors must have unit length. Scores are exact cosine similarities, higher is better.
+- The `if __name__ == "__main__":` guard is required, because local mode starts a child process. Local mode is for trying Ombra, tests and a few thousand vectors, not production.
+- The printed folder holds the secret key and the encrypted collection (a few hundred MB). Delete it when done.
 
 Next: [Your first search](first-search.md)

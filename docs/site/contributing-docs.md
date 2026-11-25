@@ -4,7 +4,7 @@ The site is built with MkDocs Material from `docs/site/`. Build it with `mkdocs 
 
 ## Values from the code
 
-Never type a constant from the code into a page. Ask for it with a macro from `docs/macros.py`. The page then shows the current value, and the build fails when the name no longer exists:
+Never type a constant from the code into a page. Ask for it with a macro from `docs/macros.py`. The page shows the current value, and the build fails when the name no longer exists:
 
 | Macro | Gives | Example |
 | --- | --- | --- |
@@ -31,4 +31,4 @@ Mark skippable sections with the deep-dive admonition:
 
 ## Style
 
-The style test flags em and en dashes, a hyphen between spaces used as a dash, emoji, and these words and phrases: `seamlessly`, `robust`, `leverage`, `cutting-edge`, `delve`, `unlock`, `empower`, `it's worth noting`, `in today's world`, `not just ... but`, and `open source` (Ombra is source-available). It skips code blocks and inline code. Beyond the test: plain words, short sentences, active voice, numbers instead of adjectives. Say plainly what is not supported or slow. Each formula comes after a sentence that says what it does, and is followed by a small worked example.
+The style test flags em and en dashes, a hyphen between spaces used as a dash, emoji, and these words and phrases: `seamlessly`, `robust`, `leverage`, `cutting-edge`, `delve`, `unlock`, `empower`, `it's worth noting`, `in today's world`, `not just ... but`, and `open source` (Ombra is source-available). It skips code blocks and inline code. Beyond the test: plain words, short sentences, active voice, numbers instead of adjectives. Say plainly what is not supported or slow. Put a sentence before each formula that says what it does, and a small worked example after it.

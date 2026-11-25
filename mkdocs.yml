@@ -90,10 +90,7 @@ nav:
       - security/api-keys.md
       - security/out-of-scope.md
   - Performance:
-      - performance/latency-and-throughput.md
-      - performance/storage.md
-      - performance/choosing-a-preset.md
-      - performance/reproducing.md
+      - performance/index.md
   - Reference:
       - reference/index.md
       - Python API:
