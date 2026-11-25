@@ -10,9 +10,7 @@ Every vector you add also produces encrypted blobs: one record blob with the exa
 
 ## Envelope encryption
 
-Blobs use AES-256-GCM, an authenticated cipher: decryption fails if a single byte changed. Each blob gets its own fresh random 256-bit key, wrapped under one long-lived key, the document master key. Compromising one blob key exposes one blob.
-
-The master key is 32 random bytes, made when the client keys are created, and stored with the OpenFHE secret key in the key file. The file is protected by a passphrase run through scrypt (N = {{ SC[0] }}, r = {{ SC[1] }}, p = {{ SC[2] }}, {{ 128 * SC[0] * SC[1] // 1048576 }} MiB of memory, random {{ const("ombra.keyfile.SALT_LEN") }} byte salt); the result encrypts both keys with AES-256-GCM, and the whole header, scrypt parameters included, is authenticated. The server never sees the master key, the blob keys or the passphrase.
+Blobs use AES-256-GCM, an authenticated cipher: decryption fails if a single byte changed. Each blob gets its own fresh random 256-bit key, wrapped under one long-lived key, the document master key (32 random bytes made with the client keys). The master key is stored with the OpenFHE secret key in the key file. The file is protected by a passphrase run through scrypt (N = {{ SC[0] }}, r = {{ SC[1] }}, p = {{ SC[2] }}, {{ 128 * SC[0] * SC[1] // 1048576 }} MiB of memory, random {{ const("ombra.keyfile.SALT_LEN") }} byte salt); the result encrypts both keys with AES-256-GCM, and the whole header is authenticated. The server never sees the master key, the blob keys or the passphrase.
 
 Blob layout (version 1, integers little-endian):
 
@@ -27,7 +25,7 @@ Blob layout (version 1, integers little-endian):
 
 That is {{ PRE }} bytes of header and a {{ OH-PRE }} byte tag: {{ OH }} bytes of overhead per blob. Inside the body, the plaintext starts with a mode byte (text, bytes, reference or record) and the true length, then the payload, then zero padding.
 
-Both encryptions authenticate the blob's kind, collection name and id, and the body authenticates the whole header. A blob copied under another id or into another collection fails to open. The check does not stop the server from returning an older, valid version of the same blob ([what the server learns](../security/what-the-server-learns.md)).
+Both encryptions authenticate the blob's kind, collection name and id, and the body authenticates the whole header. A blob copied under another id or into another collection fails to open. The server can still return an older, valid version of the same blob ([what the server learns](../security/what-the-server-learns.md)).
 
 ## Size buckets
 
@@ -35,22 +33,19 @@ Blob length would leak how long a document is, so every stored blob has one of f
 
 $$n + {{ OH }} \le B .$$
 
-The server refuses a blob whose size is not a bucket size. Example: a 768 dimension record is 3072 bytes of float32, a 4 byte length and about 60 bytes of JSON, so $n = 3145$ and it goes in the {{ B[0] // 1024 }} KiB bucket. A 100,000 byte document goes in the {{ B[1] // 1024 }} KiB bucket.
+The server refuses a blob whose size is not a bucket size. A 768 dimension record (about 3.1 KB) goes in the {{ B[0] // 1024 }} KiB bucket. Most records therefore cost {{ B[0] // 1024 }} KiB: for 100,000 vectors about {{ (100000 * B[0] / 1e9) | round(1) }} GB of record blobs, before documents (bucket size times count, not measured on a real collection).
 
-The cost is storage: most records cost {{ B[0] // 1024 }} KiB on the server. For 100,000 vectors that is about {{ (100000 * B[0] / 1e9) | round(1) }} GB of record blobs, before documents (bucket size times count; not measured on a real collection).
-
-!!! deep-dive "What the bucket does and does not hide"
-    Within one bucket the server cannot tell a 100 byte document from a 15,000 byte one. Across buckets it can. The collection name, blob kind and the id you chose are also visible, so do not use an id that carries meaning, such as a file name or an email address.
+Within one bucket the server cannot tell a 100 byte document from a 15,000 byte one. Across buckets it can. The collection name, blob kind and the id you chose are also visible, so do not use an id that carries meaning, such as a file name or an email address.
 
 ## References to external files
 
-A document body bigger than the inline threshold ({{ TH // 1048576 }} MiB by default) is stored as a reference: a small encrypted JSON with the file's `uri`, `sha256` and `size`, such as `{"sha256": "...", "size": 5000000, "uri": "s3://bucket/report.pdf"}`. The file stays in your own storage, and the reference lands in the {{ B[0] // 1024 }} KiB bucket. On read, the client decrypts the reference, calls a fetch function you supply with the `uri`, and checks the result against the stored size and SHA-256. A mismatch raises an error.
+A document body bigger than the inline threshold ({{ TH // 1048576 }} MiB by default) is stored as a reference: a small encrypted JSON with the file's `uri`, `sha256` and `size`. The file stays in your own storage, and the reference lands in the {{ B[0] // 1024 }} KiB bucket. On read, the client decrypts the reference, calls a fetch function you supply with the `uri`, and checks the result against the stored size and SHA-256. A mismatch raises an error. Ombra does not hide the request to your storage.
 
-References are not wired into `Collection.add` yet. That call only seals inline documents and raises an error for a body over the threshold. To store a reference today, use `DocumentCodec.seal_reference` and `fetch_document` directly.
+`Collection.add` does not create references yet: it raises an error for a body over the threshold. Use `DocumentCodec.seal_reference` and `fetch_document` directly.
 
 ## Record rows for private retrieval
 
-A collection created with `private_retrieval=True` also stores one sealed row per vector next to every block, fetched with an encrypted call instead of by id (see [Private record retrieval](private-retrieval.md)). A row holds the exact vector as float32 and, with range fields, every filter value and raw range value as int64. It holds no metadata or document.
+A collection created with `private_retrieval=True` also stores one sealed row per vector next to every block, fetched with an encrypted call instead of by id ([Private record retrieval](private-retrieval.md)). A row holds the exact vector as float32 and, with range fields, every filter value and raw range value as int64. It holds no metadata or document.
 
 | Field | Bytes |
 | --- | --- |
@@ -59,8 +54,8 @@ A collection created with `private_retrieval=True` also stores one sealed row pe
 | tag | 16 |
 | zero padding to a multiple of 64 | the rest |
 
-All rows of a collection have the same size, so the size shows only the dimension and the number of filter fields. At 768 dimensions without range fields a row is 3,136 bytes. The row key comes from the document master key through HKDF-SHA256 with its own label, never a blob key. The associated data binds the collection, cluster, id and a row version (1); a row copied elsewhere fails its tag and the client drops and counts it. Every row gets a fresh random nonce, and repacking a block seals its rows again.
+All rows of a collection have the same size, so the size shows only the dimension and the number of filter fields (3,136 bytes at 768 dimensions without range fields). The row key comes from the document master key through HKDF-SHA256 with its own label. The associated data binds the collection, cluster, id and a row version (1); a row copied elsewhere fails its tag and the client drops and counts it. Every row gets a fresh random nonce, and repacking a block seals its rows again.
 
-## What is not protected
+## Losing the keys
 
-The `uri` is encrypted inside the blob, but the fetch is yours: Ombra does not hide the request to your storage. The document master key lives in the key file. Lose the file and the passphrase and every record and document is unreadable, as is the secret key. There is no recovery. Byte layouts: [file formats](../reference/file-formats/index.md).
+The document master key lives in the key file. Lose the file and the passphrase and every record and document is unreadable, as is the secret key. There is no recovery. Byte layouts: [file formats](../reference/file-formats/index.md).

@@ -19,14 +19,11 @@ The server cannot switch stored vectors to a new key: that needs the old and new
 
 ## What the evaluation keys are for
 
-**Relinearization.** A ciphertext $(c_0, c_1)$ decrypts as $c_0 + c_1 s$, where $s$ is the secret key. Multiplying two ciphertexts gives three parts that decrypt as $d_0 + d_1 s + d_2 s^2$, and the next operation expects two. Relinearization folds $d_2$ back into the first two. The multiplication key is an encryption of $s^2$ under $s$, so the server can do the fold without knowing $s$.
+**Relinearization.** Multiplying two ciphertexts gives three parts that decrypt as $d_0 + d_1 s + d_2 s^2$, where $s$ is the secret key, and the next operation expects two. Relinearization folds $d_2$ back into the first two. The multiplication key is an encryption of $s^2$ under $s$, so the server can do the fold without knowing $s$.
 
 **Automorphisms.** An automorphism replaces $X$ with $X^k$ in the polynomial, which is how slots rotate (see [CKKS](ckks.md#slots-and-the-ring)). The result is encrypted under $s(X^k)$ instead of $s(X)$, and the automorphism key for that $k$ switches it back. The client generates one key per rotation the search needs and uploads the set.
 
-Both are cases of **key switching**: turning a ciphertext under one key into one under another, with a public key-switching key.
-
-!!! deep-dive "Hybrid key switching and the special modulus"
-    Key switching adds noise, a lot in the naive version. The hybrid method used by Ombra's presets splits the key into digits and works in a larger modulus $PQ$, where $P$ is an extra special modulus, then divides $P$ back out. The `fast` preset uses {{ preset("fast", "num_large_digits") }} digits. More digits mean less noise but larger keys. The preset fixes this.
+Both are **key switching**: turning a ciphertext under one key into one under another, with a public key-switching key. Naive key switching adds a lot of noise. The hybrid method used by Ombra's presets splits the key into digits and works in a larger modulus with an extra special modulus, then divides it back out. The `fast` preset uses {{ preset("fast", "num_large_digits") }} digits. More digits mean less noise but larger keys. The preset fixes this.
 
 ## What the server can learn from the keys
 
