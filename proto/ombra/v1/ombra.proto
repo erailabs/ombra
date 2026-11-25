@@ -188,9 +188,35 @@ message InsertHeader {
 // block and never opens it (the rows are AES-GCM sealed under a key only the client has). A block
 // without a record column works as before; a repeat of a stored block must carry the same record
 // column bytes (or none, if the stored block has none), else it is a duplicate.
+//
+// Document columns (private fetch of documents, RetrieveDocuments). After the record column a
+// client may send, per document class, a document column: the stored document blobs of the block's
+// vectors whose blob is in that class, in block order, byte for byte (the same sealed bytes as the
+// by-id document blob), in the versioned "ODCL" layout (magic, version 1, class, row size, row
+// count, then the rows; see client/ombra/pir.py). doc_class 1 is the 16 KiB class (row size 16384),
+// 2 the 256 KiB class (262144); no other class has a column. Sent in `document_column` parts, each
+// at most LIMIT_MAX_CHUNK_BYTES, which the server joins in order per class; all parts of one class
+// are contiguous, classes ascending. The server stores them with the block and never opens them.
+// Which vector has which document is only inside the AES-GCM record rows, so the server does not
+// know it. A repeat of a stored block must carry the same document columns, else it is a duplicate.
 message InsertRequest {
   uint32 api_version = 1;       // must be 1 (the block is stored)
-  oneof part { InsertHeader header = 2; bytes column = 3; bytes record_column = 4; }
+  oneof part {
+    InsertHeader header = 2;
+    bytes column = 3;
+    bytes record_column = 4;
+    DocumentColumnPart document_column = 5;
+  }
+}
+// One part of the document column of one class.
+message DocumentColumnPart {
+  uint32 doc_class = 1;         // 1 (16 KiB) or 2 (256 KiB)
+  bytes data = 2;               // the next bytes of the whole ODCL column
+}
+// A whole document column of one class: the form that the local mode stores.
+message DocumentColumn {
+  uint32 doc_class = 1;
+  bytes column = 2;             // whole ODCL document column
 }
 // One whole block: the form that the local mode stores. No call sends it.
 message InsertBlock {
@@ -201,6 +227,7 @@ message InsertBlock {
   repeated bytes columns = 5;   // dimension + sum(cardinality) envelopes, in that column order
   bool is_center = 6;           // cluster-center block (stage 1) instead of data
   bytes record_column = 7;      // whole ORCL record column of a data block; empty: none (see InsertRequest)
+  repeated DocumentColumn document_columns = 8;  // per class, ascending; empty: none (see InsertRequest)
 }
 message InsertResponse { uint64 inserted = 1; Error error = 2; }
 
@@ -284,9 +311,16 @@ message ReplaceBlockHeader {
 // `record_column` parts (after the columns) carry the new block's record column, as in InsertRequest,
 // with one row per id of the header, in the new slot order. The record columns of the old blocks are
 // removed with them; a replacement sent without one leaves the new block without a record column.
+// `document_column` parts (after the record column) carry the new block's document columns, as in
+// InsertRequest, in the new slot order; the old blocks' document columns are removed with them.
 message ReplaceBlockRequest {
   uint32 api_version = 1;   // must be 1 (the block is stored)
-  oneof part { ReplaceBlockHeader header = 2; bytes column = 3; bytes record_column = 4; }
+  oneof part {
+    ReplaceBlockHeader header = 2;
+    bytes column = 3;
+    bytes record_column = 4;
+    DocumentColumnPart document_column = 5;
+  }
 }
 message ReplaceBlockResponse {
   uint32 api_version = 1;
@@ -370,6 +404,70 @@ message RetrieveRecordsResponse {
   oneof part { RetrieveRecordsInfo info = 2; RecordAnswer answer = 3; Error error = 4; }
 }
 
+// Private fetch of documents. The client fetches the documents of its final hits without the server
+// learning which ones: the same batched BFV PIR as RetrieveRecords, over the document columns of one
+// class. One call per class (doc_class 1: 16 KiB, 2: 256 KiB); documents of larger classes are read
+// by id (GetBlob) and have no private call. The database of a call is the concatenation, in the
+// order of RetrieveRecords (clusters ascending, blocks in creation order), of the document columns
+// of that class of the blocks in scope; a block without one counts zero rows. Row i is the i-th
+// stored blob of the class. The record row of a vector (AES-GCM, opened by the client only) holds
+// its document's class and its index in its block's column, so the client's row is span.first_row +
+// index of the span of its block.
+//
+// Planes. A blob of S bytes is split into c = ceil(S / P) chunks of P = 19,456 bytes (the plaintext
+// size of the preset), the last one zero padded; for S <= P the one chunk is the blob (S bytes).
+// Plane p is the PIR database of chunk p of every row. All planes share one shape (rows of
+// min(S, P) bytes), one hash seed and one cuckoo layout, so ONE set of queries serves all planes
+// and the upload does not grow with c. The answers are plane-major: plane 0's `n_buckets` answers
+// in bucket order, then plane 1's, ... (n_planes * n_buckets answers; each tagged).
+//
+// Same stream order as RetrieveRecords: Start, Info(s), the queries (n_queries = 0 in the start; the
+// client half-closes after them), the answers. The checks of the start are those of RetrieveRecords
+// (keys, tags, scope, m, seed). Differences:
+//   - the Info has no record layout but the same spans, counting the rows of the class: every block
+//     in scope has a span, with n_rows 0 if it has no document of the class;
+//   - the collection holds no document of this class at all: Info with n_rows 0, n_buckets 0,
+//     n_planes 0 and the end of the stream, no queries follow (the client then makes no call
+//     for the class);
+//   - the collection has some but the scope has none: the call runs over ONE padding row of zeros
+//     (Info n_rows 1, every span n_rows 0), so its shape does not tell that the scope is empty;
+//   - a block with a document column of another size than its class is ERROR_BLOCK_MISMATCH.
+// Several nodes: one Info per node, as in RetrieveRecords; the answers of a part are plane-major.
+message RetrieveDocumentsStart {
+  string collection = 1;
+  string key_tag = 2;
+  string pir_key_tag = 3;
+  repeated uint32 cluster_ids = 4;  // scope, as in RetrieveRecordsStart
+  bool all_clusters = 5;
+  uint32 m = 6;                     // rows wanted per call (the client sends its k)
+  bytes hash_seed = 7;              // exactly 16 bytes
+  uint32 n_queries = 8;             // 0, or the shape's n_cts
+  uint32 doc_class = 9;             // 1 (16 KiB) or 2 (256 KiB)
+}
+message RetrieveDocumentsRequest {
+  uint32 api_version = 1;           // must be 1
+  oneof part { RetrieveDocumentsStart start = 2; bytes query = 3; }
+}
+message RetrieveDocumentsInfo {
+  uint64 n_rows = 1;                // database size, 1 for the padding row, 0: no document of the class
+  uint32 row_size = 2;              // class size in bytes (16384 or 262144)
+  uint32 n_buckets = 3;             // answers per plane
+  repeated RecordSpan spans = 4;    // as in RetrieveRecordsInfo, counting rows of this class
+  uint32 part = 5;
+  uint32 n_parts = 6;
+  uint32 n_planes = 7;              // ceil(row_size / 19456)
+}
+message DocumentAnswer {
+  uint32 plane = 1;                 // 0 .. n_planes-1
+  uint32 bucket = 2;                // 0 .. n_buckets-1
+  bytes answer = 3;                 // one serialized compressed ciphertext
+  uint32 part = 4;
+}
+message RetrieveDocumentsResponse {
+  uint32 api_version = 1;
+  oneof part { RetrieveDocumentsInfo info = 2; DocumentAnswer answer = 3; Error error = 4; }
+}
+
 // Encrypted blob store. Blobs are opaque client ciphertexts (the client's versioned
 // document layout); the server never parses them. Keyed by (collection, kind, id). The size of
 // every blob must be one of the LIMIT_BLOB_BUCKET_* values, else ERROR_SIZE_LIMIT. Same storage
@@ -429,4 +527,5 @@ service Ombra {
   rpc DropAlias(DropAliasRequest) returns (DropAliasResponse);
   rpc ListAliases(ListAliasesRequest) returns (ListAliasesResponse);
   rpc RetrieveRecords(stream RetrieveRecordsRequest) returns (stream RetrieveRecordsResponse);
+  rpc RetrieveDocuments(stream RetrieveDocumentsRequest) returns (stream RetrieveDocumentsResponse);
 }

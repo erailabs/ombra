@@ -29,9 +29,21 @@ def record_parts(column: bytes) -> list[bytes]:
     return [column[o : o + RECORD_PART] for o in range(0, len(column), RECORD_PART)]
 
 
+def document_parts(columns: Any) -> list[tuple[int, bytes]]:
+    """(class, part) of the document columns of a block, classes ascending, each column cut into
+    parts that each fit one message. `columns` is the block's `document_columns` (or a dict of
+    class -> column)."""
+    items = (
+        sorted(columns.items())
+        if isinstance(columns, dict)
+        else sorted((c.doc_class, c.column) for c in columns)
+    )
+    return [(cls, part) for cls, col in items for part in record_parts(col)]
+
+
 def insert_requests(pb: Any, blocks: Any) -> Any:
     """The Insert request stream of whole `InsertBlock`s: per block one header, then its columns,
-    one per message, then its record column (if any) in parts (the server's receive limit is
+    one per message, then its record column (if any) in parts, then its document columns in parts (the server's receive limit is
     16 MiB, so no message holds a whole block).
     A generator, so a `Replayable` can call it again for a retry; the blocks must stay the same
     objects (the retry sends the same bytes, which is what makes a repeated Insert a no-op)."""
@@ -44,6 +56,9 @@ def insert_requests(pb: Any, blocks: Any) -> Any:
             yield pb.InsertRequest(api_version=b.api_version, column=col)
         for part in record_parts(b.record_column):  # after the columns; none if the block has none
             yield pb.InsertRequest(api_version=b.api_version, record_column=part)
+        for cls, part in document_parts(b.document_columns):  # after the record column
+            doc = pb.DocumentColumnPart(doc_class=cls, data=part)
+            yield pb.InsertRequest(api_version=b.api_version, document_column=doc)
 
 
 def load_stubs(*, grpc_module: bool = True) -> tuple[Any, Any | None]:
