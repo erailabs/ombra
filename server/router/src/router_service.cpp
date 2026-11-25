@@ -8,7 +8,10 @@
 #include <future>
 #include <set>
 
+#include "ombra/pir/layout.hpp"
+#include "ombra/pir/retrieval.hpp"
 #include "ombra/server/log.hpp"
+#include "ombra/server/retrieve.hpp"
 
 namespace ombra::router {
 
@@ -666,6 +669,263 @@ grpc::Status RouterService::Search(
     ns[n]->rw->Finish();
     ns[n]->done = true;
   }
+  return grpc::Status::OK;
+}
+
+// ---- private record retrieval
+// ---------------------------------------------------------------------
+//
+// The scope is split by owner node; every node serves its own clusters as one part. The router
+// learns the shape of each part from the public numbers of its Info (rows, row size, m, seed) and
+// never which rows are wanted: query and answer bytes are forwarded unchanged, and only counts and
+// sizes are logged.
+
+namespace {
+struct NodeRetrieve {
+  grpc::ClientContext cx;
+  std::unique_ptr<grpc::ClientReaderWriter<v1::RetrieveRecordsRequest, v1::RetrieveRecordsResponse>>
+      rw;
+  bool done = false;
+  std::size_t n_cts = 0;
+  std::uint32_t n_buckets = 0;
+  void stop() {
+    if (rw && !done) {
+      cx.TryCancel();
+      rw->Finish();
+      done = true;
+    }
+  }
+  ~NodeRetrieve() { stop(); }
+};
+}  // namespace
+
+grpc::Status RouterService::RetrieveRecords(
+    grpc::ServerContext* ctx,
+    grpc::ServerReaderWriter<v1::RetrieveRecordsResponse, v1::RetrieveRecordsRequest>* in) {
+  BEGIN(RetrieveRecords);
+  const auto send_error = [&](v1::ErrorCode c, const char* msg) {
+    v1::RetrieveRecordsResponse out;
+    out.set_api_version(server::kApiVersion);
+    set_err(out.mutable_error(), c, msg);
+    in->Write(out);
+    return grpc::Status::OK;
+  };
+  const auto send_status = [&](const server::Status& s) {
+    return send_error(static_cast<v1::ErrorCode>(static_cast<int>(s.code)), s.message.c_str());
+  };
+  const auto guard = watchdog_.watch([ctx] { ctx->TryCancel(); }, cfg_.limits.search_idle_ms,
+                                     cfg_.limits.search_total_ms);
+  v1::RetrieveRecordsRequest req;
+  if (!in->Read(&req)) return grpc::Status::OK;
+  guard->touch();
+  if (req.part_case() != v1::RetrieveRecordsRequest::kStart)
+    return send_error(v1::ERROR_BAD_SEQUENCE, "the first message must be RetrieveRecordsStart");
+  const std::string coll = req.start().collection();
+  if (auto d = check_coll(call, coll); !d.ok()) return d;
+  auto ticket = sessions_.try_acquire(call.who.id);
+  if (!ticket.valid())
+    return grpc::Status(grpc::StatusCode::RESOURCE_EXHAUSTED, "too many concurrent retrievals");
+
+  // The cluster count of the collection bounds the scope, as on a node. An empty name is left to
+  // the validator.
+  std::uint32_t cluster_count = 0;
+  const auto held = coll.empty() ? std::vector<std::size_t>{} : m->nodes_of(coll);
+  if (!held.empty()) {
+    grpc::ClientContext cx;
+    arm(cx, call, true);
+    v1::GetCollectionRequest g;
+    g.set_name(coll);
+    v1::GetCollectionResponse gr;
+    if (auto st = stub(*m, held[0])->GetCollection(&cx, g, &gr); !st.ok()) return map_node(st);
+    if (gr.has_error()) {
+      v1::RetrieveRecordsResponse out;
+      out.set_api_version(server::kApiVersion);
+      *out.mutable_error() = gr.error();
+      in->Write(out);
+      return grpc::Status::OK;
+    }
+    cluster_count = gr.info().spec().cluster_count();
+  }
+  server::RetrieveValidator check(cluster_count);
+  if (auto st = check.accept(req); !st.ok()) return send_status(st);
+  const v1::RetrieveRecordsStart& start = *check.start();
+  if (held.empty()) return send_error(v1::ERROR_COLLECTION_NOT_FOUND, "collection not found");
+
+  // Scope: clusters per owning node, in ascending node order.
+  std::map<std::size_t, std::vector<std::uint32_t>> by_node;
+  if (start.all_clusters()) {
+    for (std::uint32_t c = 0; c < cluster_count; ++c) by_node[m->owner(coll, c)].push_back(c);
+  } else {
+    std::vector<std::uint32_t> ids(start.cluster_ids().begin(), start.cluster_ids().end());
+    std::sort(ids.begin(), ids.end());
+    for (auto c : ids) by_node[m->owner(coll, c)].push_back(c);
+  }
+  std::vector<std::unique_ptr<NodeRetrieve>> ns;
+  std::vector<std::size_t> node_of;  // node index of each opened stream
+  guard->busy(true);
+  for (const auto& [n, clusters] : by_node) {
+    auto r = std::make_unique<NodeRetrieve>();
+    arm(r->cx, call, false);
+    r->rw = stub(*m, n)->RetrieveRecords(&r->cx);
+    node_of.push_back(n);
+    ns.push_back(std::move(r));
+  }
+  const auto fail_node = [&](std::size_t i) -> grpc::Status {
+    // Finish() says why the node's stream ended: an overloaded node passes through, anything else
+    // is "a node is missing".
+    ns[i]->cx.TryCancel();
+    const auto st = ns[i]->rw->Finish();
+    ns[i]->done = true;
+    log::warn("node did not answer", {{"node", m->nodes[node_of[i]].id}});
+    if (st.error_code() == grpc::StatusCode::RESOURCE_EXHAUSTED) return map_node(st);
+    return send_error(v1::ERROR_UNAVAILABLE, "a node did not answer; retry");
+  };
+  {
+    std::size_t i = 0;
+    for (const auto& [n, clusters] : by_node) {
+      v1::RetrieveRecordsRequest sub;
+      sub.set_api_version(server::kApiVersion);
+      auto* s = sub.mutable_start();
+      s->set_collection(start.collection());
+      s->set_key_tag(start.key_tag());
+      s->set_pir_key_tag(start.pir_key_tag());
+      for (auto c : clusters) s->add_cluster_ids(c);
+      s->set_m(start.m());
+      s->set_hash_seed(start.hash_seed());
+      s->set_n_queries(0);
+      if (!ns[i]->rw->Write(sub)) return fail_node(i);
+      ++i;
+    }
+  }
+
+  // One Info (or Error) from every node.
+  std::vector<v1::RetrieveRecordsResponse> first(ns.size());
+  {
+    std::vector<std::future<bool>> reads;
+    for (std::size_t i = 0; i < ns.size(); ++i)
+      reads.push_back(
+          std::async(std::launch::async, [&, i] { return ns[i]->rw->Read(&first[i]); }));
+    std::vector<bool> got;
+    for (auto& f : reads) got.push_back(f.get());
+    for (std::size_t i = 0; i < ns.size(); ++i)
+      if (!got[i]) return fail_node(i);
+  }
+  // A node whose part of the scope holds no record is left out of the call (the others still
+  // answer); any other error of a node ends the call and is passed on as it is.
+  std::vector<std::size_t> live;  // indices into ns, ascending node order
+  for (std::size_t i = 0; i < ns.size(); ++i) {
+    if (first[i].has_error()) {
+      const auto& e = first[i].error();
+      if (e.code() == v1::ERROR_INVALID_ARGUMENT && e.message() == server::kEmptyScopeMessage) {
+        ns[i]->stop();
+        continue;
+      }
+      in->Write(first[i]);
+      return grpc::Status::OK;
+    }
+    if (!first[i].has_info()) return send_error(v1::ERROR_INTERNAL, "a node did not send its Info");
+    live.push_back(i);
+  }
+  if (live.empty()) {  // no node has a record in scope: the nodes' own refusal
+    in->Write(first[0]);
+    return grpc::Status::OK;
+  }
+
+  // The shape of every part, from the public numbers of its Info.
+  const std::vector<std::uint8_t> seed(start.hash_seed().begin(), start.hash_seed().end());
+  std::size_t total_cts = 0;
+  for (auto i : live) {
+    const auto& info = first[i].info();
+    if (info.n_rows() == 0 || info.row_size() == 0)
+      return send_error(v1::ERROR_INTERNAL, "a node described an empty database");
+    if (info.row_size() != first[live[0]].info().row_size())
+      return send_error(v1::ERROR_BLOCK_MISMATCH, "the nodes hold records of different row sizes");
+    try {
+      const auto shape =
+          pir::make_shape(info.n_rows(), start.m(), info.row_size(), seed, pir::retrieval_params());
+      if (shape.buckets != info.n_buckets())
+        return send_error(v1::ERROR_INTERNAL, "a node described another number of buckets");
+      ns[i]->n_cts = shape.n_cts;
+      ns[i]->n_buckets = info.n_buckets();
+    } catch (const std::exception&) {
+      return send_error(v1::ERROR_INTERNAL, "a node described an impossible shape");
+    }
+    if (ns[i]->n_cts > server::kMaxRetrieveQueries)
+      return send_error(v1::ERROR_SIZE_LIMIT, "too many queries");
+    total_cts += ns[i]->n_cts;
+  }
+  if (auto st = check.expect_queries(static_cast<std::uint32_t>(total_cts)); !st.ok())
+    return send_status(st);
+
+  // All Infos go out before any query is read.
+  for (std::size_t p = 0; p < live.size(); ++p) {
+    v1::RetrieveRecordsResponse out = first[live[p]];
+    out.set_api_version(server::kApiVersion);
+    out.mutable_info()->set_part(static_cast<std::uint32_t>(p));
+    out.mutable_info()->set_n_parts(static_cast<std::uint32_t>(live.size()));
+    if (!in->Write(out)) return grpc::Status::OK;
+  }
+  guard->busy(false);
+  guard->touch();
+
+  // The queries: the first n_cts of part 0 go to its node, and so on. Bytes are not looked at.
+  std::uint64_t bytes = 0;
+  std::size_t seen = 0, part = 0, in_part = 0;
+  while (!ctx->IsCancelled() && in->Read(&req)) {
+    guard->touch();
+    if (ctx->IsCancelled() || guard->timed_out()) return grpc::Status::OK;
+    if (auto st = check.accept(req); !st.ok()) return send_status(st);
+    while (in_part == ns[live[part]]->n_cts) {  // this part is complete: the next one
+      ++part;
+      in_part = 0;
+    }
+    bytes += req.query().size();
+    v1::RetrieveRecordsRequest sub;
+    sub.set_api_version(server::kApiVersion);
+    sub.mutable_query()->swap(*req.mutable_query());
+    if (!ns[live[part]]->rw->Write(sub)) return fail_node(live[part]);
+    ++in_part;
+    ++seen;
+  }
+  if (ctx->IsCancelled() || guard->timed_out()) return grpc::Status::OK;
+  if (auto st = check.finish(); !st.ok()) return send_status(st);
+  guard->busy(true);
+  for (auto i : live)
+    if (!ns[i]->rw->WritesDone()) return fail_node(i);
+
+  // The answers: part by part, in bucket order inside a part.
+  std::uint64_t buckets = 0;
+  for (std::size_t p = 0; p < live.size(); ++p) {
+    const std::size_t i = live[p];
+    for (std::uint32_t b = 0; b < ns[i]->n_buckets; ++b) {
+      v1::RetrieveRecordsResponse out;
+      if (!ns[i]->rw->Read(&out)) return fail_node(i);
+      if (out.has_error()) {
+        in->Write(out);
+        return grpc::Status::OK;
+      }
+      if (!out.has_answer() || out.answer().bucket() != b)
+        return send_error(v1::ERROR_INTERNAL, "a node answered another bucket");
+      out.set_api_version(server::kApiVersion);
+      out.mutable_answer()->set_part(static_cast<std::uint32_t>(p));
+      bytes += out.answer().answer().size();
+      ++buckets;
+      if (ctx->IsCancelled()) return grpc::Status::OK;
+      if (!in->Write(out)) return grpc::Status::OK;
+    }
+  }
+  for (auto i : live) {
+    v1::RetrieveRecordsResponse extra;
+    if (ns[i]->rw->Read(&extra))
+      return send_error(v1::ERROR_INTERNAL, "a node sent more than its Info announced");
+    ns[i]->rw->Finish();
+    ns[i]->done = true;
+  }
+  guard->busy(false);
+  log::info("retrieve_records routed", {{"parts", static_cast<std::uint64_t>(live.size())},
+                                        {"queries", static_cast<std::uint64_t>(seen)},
+                                        {"buckets", buckets},
+                                        {"bytes", bytes}});
   return grpc::Status::OK;
 }
 

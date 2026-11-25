@@ -11,6 +11,8 @@
 #include <type_traits>
 #include <unordered_set>
 
+#include "ombra/core/file_envelope.hpp"
+#include "ombra/pir/retrieval.hpp"
 #include "ombra/server/log.hpp"
 #include "ombra/server/policy.hpp"
 #include "ombra/server/retrieve.hpp"
@@ -110,6 +112,14 @@ Status classify_current() {
   } catch (const storage::RecordColumnMissing& e) {
     return {Err::BlockMismatch, e.what()};
   } catch (const storage::RecordColumnError& e) {
+    return {Err::InvalidArgument, e.what()};
+  } catch (const pir::PirKeyTagMismatch& e) {
+    return {Err::KeyTagMismatch, e.what()};
+  } catch (const pir::PirContextError& e) {
+    return {Err::InvalidArgument, e.what()};
+  } catch (const pir::PirQueryError& e) {
+    return {Err::InvalidArgument, e.what()};
+  } catch (const pir::PirError& e) {
     return {Err::InvalidArgument, e.what()};
   } catch (const search::ResourceExhausted&) {
     return {Err::SizeLimit, "too many concurrent searches for the server's GPU memory"};
@@ -1413,10 +1423,14 @@ grpc::Status OmbraService::GetBlob(grpc::ServerContext* ctx, const v1::GetBlobRe
   return guarded(ctx, Rpc::GetBlob, resp, [&] { return run_GetBlob(ctx, req, resp); });
 }
 
-// RetrieveRecords: the request stream is read and validated; the answer is not implemented yet.
+// RetrieveRecords. Order (see the proto): the start is checked and the scope and keys are looked
+// up, then the Info goes out, then exactly shape.n_cts queries are read, then the answers go out.
+// The shape depends on the number of rows in scope, which is why the client needs the Info first.
+// Nothing of the call is stored, and nothing but counts is logged.
 grpc::Status OmbraService::run_RetrieveRecords(
     grpc::ServerContext* ctx,
     grpc::ServerReaderWriter<v1::RetrieveRecordsResponse, v1::RetrieveRecordsRequest>* stream) {
+  const auto t0 = Clock::now();
   const auto send_error = [&](const Status& s) {
     v1::RetrieveRecordsResponse out;
     out.set_api_version(kApiVersion);
@@ -1426,28 +1440,115 @@ grpc::Status OmbraService::run_RetrieveRecords(
   };
   RetrieveValidator check;
   v1::RetrieveRecordsRequest m;
-  bool first = true;
-  while (stream->Read(&m)) {
-    if (first) {
-      first = false;
-      if (m.part_case() == v1::RetrieveRecordsRequest::kStart) {
-        const std::string& name = m.start().collection();
-        if (auto d = check_collection(ctx, name); !d.ok()) return d;
-        // An empty name is left to the validator (INVALID_ARGUMENT). Otherwise the collection
-        // must exist, and its cluster count bounds the cluster ids of the scope.
-        if (!name.empty()) {
-          storage::CollectionSpec spec;
-          if (!store_.get_collection(name, &spec))
-            return send_error({Err::CollectionNotFound, "collection not found"});
-          check = RetrieveValidator(spec.cluster_count);
-        }
-      }
+  if (!stream->Read(&m)) return grpc::Status::OK;  // the client closed without a start
+  if (m.part_case() == v1::RetrieveRecordsRequest::kStart) {
+    const std::string& name = m.start().collection();
+    if (auto d = check_collection(ctx, name); !d.ok()) return d;
+    // An empty name is left to the validator (INVALID_ARGUMENT). Otherwise the collection must
+    // exist, and its cluster count bounds the cluster ids of the scope.
+    if (!name.empty()) {
+      storage::CollectionSpec spec;
+      if (!store_.get_collection(name, &spec))
+        return send_error({Err::CollectionNotFound, "collection not found"});
+      check = RetrieveValidator(spec.cluster_count);
     }
+  }
+  if (auto st = check.accept(m); !st.ok()) return send_error(st);
+  const v1::RetrieveRecordsStart& start = *check.start();
+
+  // ---- Before the Info: key tag, stored keys, scope, shape, key and context checks -------------
+  storage::RecordScopeColumns scope;
+  pir::PirShape shape;
+  pir::PirKeyFiles files;
+  try {
+    storage::CollectionSpec spec;
+    if (!store_.get_collection(start.collection(), &spec))
+      return send_error({Err::CollectionNotFound, "collection not found"});
+    if (start.key_tag() != spec.key_tag)
+      return send_error({Err::KeyTagMismatch, "request key tag differs from the collection's"});
+    const auto read_key = [&](const char* kind, core::EnvelopeKind k,
+                              std::vector<std::uint8_t>* out) {
+      std::vector<std::uint8_t> env;
+      if (!store_.get_key_file(start.collection(), kind, &env)) return false;
+      *out = core::read_envelope(env, k, storage::kPirPreset, store_.openfhe_version()).payload;
+      return true;
+    };
+    if (!read_key(storage::kKeyPirContext, core::EnvelopeKind::Context, &files.context) ||
+        !read_key(storage::kKeyPirEvalMult, core::EnvelopeKind::PublicEvalKey, &files.eval_mult) ||
+        !read_key(storage::kKeyPirAutomorphism, core::EnvelopeKind::PublicEvalKey,
+                  &files.automorphism))
+      return send_error({Err::KeysMissing, "retrieval keys are not uploaded"});
+
+    std::vector<std::uint32_t> clusters(start.cluster_ids().begin(), start.cluster_ids().end());
+    scope = store_.read_record_columns(start.collection(), clusters, start.all_clusters());
+    if (scope.n_rows == 0) return send_error({Err::InvalidArgument, kEmptyScopeMessage});
+    shape = pir::make_shape(
+        scope.n_rows, start.m(), scope.row_size,
+        std::vector<std::uint8_t>(start.hash_seed().begin(), start.hash_seed().end()),
+        pir::retrieval_params());
+    if (auto st = check.expect_queries(static_cast<std::uint32_t>(shape.n_cts)); !st.ok())
+      return send_error(st);
+    {
+      // The key stores of OpenFHE are process-wide: serialized with every key load. The keys are
+      // loaded and unloaded here only to refuse a bad context or tag before the Info; the call
+      // loads them again for the answer, so no lock is held while the client sends its queries.
+      std::lock_guard lk(load_mu_);
+      pir::check_retrieval_keys(files, start.pir_key_tag(), shape);
+    }
+  } catch (...) {
+    return send_error(classify_current());
+  }
+
+  v1::RetrieveRecordsResponse info;
+  info.set_api_version(kApiVersion);
+  auto* in = info.mutable_info();
+  in->set_n_rows(scope.n_rows);
+  in->set_row_size(scope.row_size);
+  in->set_n_buckets(static_cast<std::uint32_t>(shape.buckets));
+  for (const auto& sp : scope.spans) {
+    auto* o = in->add_spans();
+    o->set_cluster_id(sp.cluster);
+    o->set_segment(sp.segment);
+    o->set_first_row(sp.first_row);
+    o->set_n_rows(sp.n_rows);
+  }
+  in->set_part(0);
+  in->set_n_parts(1);
+  if (!stream->Write(info)) return grpc::Status::OK;
+
+  // ---- The queries ---------------------------------------------------------------------------
+  std::vector<std::string> queries;
+  queries.reserve(shape.n_cts);
+  while (stream->Read(&m)) {
     if (auto st = check.accept(m); !st.ok()) return send_error(st);
+    queries.push_back(m.query());
   }
   if (ctx->IsCancelled()) return grpc::Status(grpc::StatusCode::CANCELLED, "call cancelled");
   if (auto st = check.finish(); !st.ok()) return send_error(st);
-  return grpc::Status(grpc::StatusCode::UNIMPLEMENTED, "RetrieveRecords is not implemented yet");
+
+  // ---- The answers ---------------------------------------------------------------------------
+  // Computed under the key lock (the key stores are global and are read by tag all through the
+  // computation), then written without it, so a slow reader cannot hold up key uploads.
+  std::vector<std::string> answers;
+  try {
+    std::lock_guard lk(load_mu_);
+    answers = pir::answer_call(files, start.pir_key_tag(), shape,
+                               scope.column.data() + storage::kRecordColumnHeaderLen, queries);
+  } catch (...) {
+    return send_error(classify_current());
+  }
+  for (std::size_t b = 0; b < answers.size(); ++b) {
+    if (ctx->IsCancelled()) return grpc::Status(grpc::StatusCode::CANCELLED, "call cancelled");
+    v1::RetrieveRecordsResponse out;
+    out.set_api_version(kApiVersion);
+    auto* a = out.mutable_answer();
+    a->set_bucket(static_cast<std::uint32_t>(b));
+    a->set_answer(std::move(answers[b]));
+    a->set_part(0);
+    if (!stream->Write(out)) return grpc::Status::OK;
+  }
+  log_line("retrieve_records", shape.buckets, scope.n_rows, ms_since(t0));
+  return grpc::Status::OK;
 }
 
 grpc::Status OmbraService::RetrieveRecords(

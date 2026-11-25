@@ -152,7 +152,7 @@ add_executable(ombra_server src/ombra_server.cpp src/service.cpp src/rest_server
                src/rest_admin.cpp)
 target_include_directories(ombra_server PRIVATE src)
 target_link_libraries(ombra_server PRIVATE ombra_server_policy ombra_server_retrieve ombra_server_rest ombra_server_admin ombra_gpu_info
-                                           ombra_search ombra_proto OpenSSL::SSL OpenSSL::Crypto)
+                                           ombra_search ombra_pir_answer ombra_proto OpenSSL::SSL OpenSSL::Crypto)
 target_compile_definitions(ombra_server PRIVATE OMBRA_VERSION="${PROJECT_VERSION}")
 if(NOT OMBRA_ENABLE_CUDA)
   target_compile_definitions(ombra_server PRIVATE OMBRA_NO_GPU=1)
@@ -167,5 +167,6 @@ endif()
 # ---- ombra_router: CPU only, no OpenFHE, no GPU ---------------------------------
 add_executable(ombra_router ../router/src/ombra_router.cpp ../router/src/router_service.cpp)
 target_include_directories(ombra_router PRIVATE ../router/src)
-target_link_libraries(ombra_router PRIVATE ombra_router_placement ombra_server_admin ombra_proto)
+target_link_libraries(ombra_router PRIVATE ombra_router_placement ombra_server_admin
+                                           ombra_server_retrieve ombra_pir_layout ombra_proto)
 target_compile_definitions(ombra_router PRIVATE OMBRA_VERSION="${PROJECT_VERSION}")

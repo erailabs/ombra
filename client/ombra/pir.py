@@ -30,6 +30,7 @@ import struct
 from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -439,18 +440,76 @@ class EvalKeys:
         return len(self.mult) + len(self.automorphism)
 
 
-class PirClient:
-    """Holds the secret key. Produces queries and decodes answers; never talks to a server."""
+ALL_LEVELS = 13  # automorphism levels of a full key set: N / 2^j + 1 for j < 13 (N = 8192)
+_KEY_MAGIC = b"OPKB"
+_KEY_VERSION = 1
+_KEY_HEAD = struct.Struct("<4sHI")
 
-    def __init__(self, shape: PirShape, cc: Any | None = None, keys: Any | None = None) -> None:
+
+def all_automorphism_indices(pp: PirParams | None = None) -> list[int]:
+    """The automorphism indices of a complete key set, which serves a shape of any size."""
+    n = (pp or preset_params()).ring_dim
+    return [n // (1 << j) + 1 for j in range(ALL_LEVELS)]
+
+
+class PirClient:
+    """Holds the secret key. Produces queries and decodes answers; never talks to a server.
+
+    The key pair does not depend on a shape: one pair serves every call, and its evaluation keys
+    cover all 13 expansion levels. A client made without a shape can generate keys, save and
+    restore them (`secret_blob`, `restore`) and build key files; `with_shape` gives the view of
+    the same keys for one call.
+    """
+
+    def __init__(
+        self, shape: PirShape | None = None, cc: Any | None = None, keys: Any | None = None
+    ) -> None:
         import openfhe as ofhe
 
         self._ofhe = ofhe
-        self.shape = shape
+        self.shape = shape  # type: ignore[assignment]
         if cc is None:
             _, cc = _params.make_bfv_context(PIR_PRESET)
         self.cc = cc
         self._keys = keys or cc.KeyGen()
+
+    @classmethod
+    def restore(cls, blob: bytes) -> PirClient:
+        """The client of a key pair saved with `secret_blob` (on a fresh context of the preset)."""
+        import openfhe as ofhe
+
+        if len(blob) < _KEY_HEAD.size:
+            raise PirError("key blob is truncated")
+        magic, version, n = _KEY_HEAD.unpack_from(blob)
+        if magic != _KEY_MAGIC or version != _KEY_VERSION:
+            raise PirError("key blob has an unknown format or version")
+        sk_raw, pk_raw = blob[_KEY_HEAD.size : _KEY_HEAD.size + n], blob[_KEY_HEAD.size + n :]
+        try:
+            keys = SimpleNamespace(
+                secretKey=ofhe.DeserializePrivateKeyString(sk_raw, ofhe.BINARY),
+                publicKey=ofhe.DeserializePublicKeyString(pk_raw, ofhe.BINARY),
+            )
+        except Exception as exc:
+            raise PirError("key could not be deserialized") from exc
+        if keys.secretKey.GetKeyTag() != keys.publicKey.GetKeyTag():
+            raise PirError("the secret key and the public key do not match")
+        return cls(None, None, keys)
+
+    def secret_blob(self) -> bytes:
+        """The key pair as bytes, in memory only: for the passphrase-protected key file."""
+        ofhe = self._ofhe
+        sk = ofhe.Serialize(self._keys.secretKey, ofhe.BINARY)
+        pk = ofhe.Serialize(self._keys.publicKey, ofhe.BINARY)
+        return _KEY_HEAD.pack(_KEY_MAGIC, _KEY_VERSION, len(sk)) + sk + pk
+
+    @property
+    def key_tag(self) -> str:
+        """Tag of the public key; public (the server compares it with its stored keys)."""
+        return str(self._keys.publicKey.GetKeyTag())
+
+    def with_shape(self, shape: PirShape) -> PirClient:
+        """The same keys, for the queries and answers of one call."""
+        return PirClient(shape, self.cc, self._keys)
 
     def __repr__(self) -> str:
         return "PirClient(<redacted>)"
@@ -458,28 +517,35 @@ class PirClient:
     def context_bytes(self) -> bytes:
         return self._ofhe.Serialize(self.cc, self._ofhe.BINARY)
 
-    def eval_keys(self) -> EvalKeys:
-        """Relinearization key and automorphism keys for exactly the indices the shape needs."""
+    def eval_keys(self, *, all_levels: bool = False) -> EvalKeys:
+        """Relinearization key and automorphism keys: for exactly the indices the shape needs, or
+        (`all_levels`, and always without a shape) for all 13 levels, which serve any shape."""
         ofhe = self._ofhe
+        full = all_levels or self.shape is None
+        if full and getattr(self, "_full_keys", None) is not None:
+            return self._full_keys  # type: ignore[no-any-return]
         self.cc.EvalMultKeyGen(self._keys.secretKey)
-        idx = self.shape.eval_automorphism_indices()
+        idx = all_automorphism_indices() if full else self.shape.eval_automorphism_indices()
         if idx:
             self.cc.EvalAutomorphismKeyGen(self._keys.secretKey, idx)
         tag = self._keys.publicKey.GetKeyTag()
-        return EvalKeys(
+        out = EvalKeys(
             ofhe.SerializeEvalMultKeyString(ofhe.BINARY, tag),
             ofhe.SerializeEvalAutomorphismKeyString(ofhe.BINARY, tag) if idx else b"",
         )
+        if full:
+            self._full_keys = out
+        return out
 
     def key_files(self, openfhe_version: str) -> dict[str, bytes]:
-        """The three public key files as the server stores them, keyed by their server kind names.
+        """The three public key files (all 13 levels), keyed by their server kind names.
 
         Each is a file envelope (the same format and version as the search keys) with the preset
         `pir_bfv_n8192`: the context is a context file, the other two are public evaluation keys.
         They go in one UploadKeys stream (KEY_KIND_PIR_CONTEXT, _EVAL_MULT, _AUTOMORPHISM), apart
         from the search keys. Only public material; the secret key stays in this object.
         """
-        keys = self.eval_keys()
+        keys = self.eval_keys(all_levels=True)
         return {
             "pir_context": write_envelope(
                 Kind.CONTEXT, PIR_PRESET, openfhe_version, self.context_bytes()

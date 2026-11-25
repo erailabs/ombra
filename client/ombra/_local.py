@@ -31,12 +31,14 @@ Files are kept under the directory given to `Client.local(path)` (format "ombra-
 from __future__ import annotations
 
 import atexit
+import io
 import json
 import multiprocessing
 import multiprocessing.connection as mpc
 import os
 import secrets
 import shutil
+import struct
 import sys
 import tempfile
 import threading
@@ -72,6 +74,9 @@ MAX_KEY_FILE = 1 << 30
 BUCKETS = (16384, 262144, 2097152, 16777216)
 LAMBDA = 4.0
 KEY_KINDS = {1: "context", 2: "evalmult", 3: "automorphism"}
+PIR_KEY_KINDS = {4: "pir_context", 5: "pir_evalmult", 6: "pir_automorphism"}  # their own set
+MAX_RETRIEVE_M = 3000
+MAX_RETRIEVE_QUERIES = 4500
 CACHE_BYTES = 4 << 30  # deserialized columns kept between searches (least recently used out)
 
 
@@ -224,7 +229,7 @@ class LocalTransport:
             self._release(ch)
             raise
         gen = self._drive(ch, requests, resp_cls)
-        if streams_out and method == "Search":
+        if streams_out and method in ("Search", "RetrieveRecords"):
             return gen  # interactive: the caller's next request depends on the last response
         out = list(gen)
         if streams_out:
@@ -412,6 +417,8 @@ class _Coll:
         self.tombstones: set[bytes] = set()
         self.next_seg = 0
         self.ctx: Any = None  # the ombra._native.Engine once the keys are installed
+        self.pir_keys: dict[str, bytes] = {}  # retrieval keys: the three envelopes (public)
+        self.pir_tag = ""  # key tag of the retrieval keys
 
 
 class LocalServer:
@@ -454,6 +461,13 @@ class LocalServer:
         for k in KEY_KINDS.values():
             if (d / "keys" / k).exists():
                 c.keys[k] = (d / "keys" / k).read_bytes()
+        for k in PIR_KEY_KINDS.values():
+            if (d / "keys" / k).exists():
+                c.pir_keys[k] = (d / "keys" / k).read_bytes()
+        if (d / "keys" / "pir_tag").exists():
+            c.pir_tag = (d / "keys" / "pir_tag").read_text()
+        if len(c.pir_keys) != 3:
+            c.pir_keys, c.pir_tag = {}, ""
         if (d / "seg_counter").exists():
             c.next_seg = int((d / "seg_counter").read_text())
         for f in sorted((d / "blocks").glob("*.pb")) if (d / "blocks").exists() else []:
@@ -613,14 +627,15 @@ class LocalServer:
                     self._coll(name)
                 elif c.collection and c.collection != name:
                     raise Refuse(pb.ERROR_INVALID_ARGUMENT, "collection changed")
-                if c.kind not in KEY_KINDS:
+                if c.kind not in KEY_KINDS and c.kind not in PIR_KEY_KINDS:
                     raise Refuse(pb.ERROR_INVALID_ARGUMENT, "unknown key kind")
+                kind_name = KEY_KINDS.get(c.kind) or PIR_KEY_KINDS[c.kind]
                 if cur and c.kind != cur:
                     raise Refuse(pb.ERROR_BAD_SEQUENCE, "key kind changed before last")
                 if not cur:
                     if c.offset != 0:
                         raise Refuse(pb.ERROR_BAD_SEQUENCE, "offset must start at 0")
-                    if KEY_KINDS[c.kind] in staged:
+                    if kind_name in staged:
                         raise Refuse(pb.ERROR_INVALID_ARGUMENT, "key kind uploaded twice")
                     cur, buf = c.kind, bytearray()
                 if c.offset != len(buf):
@@ -631,14 +646,21 @@ class LocalServer:
                     raise Refuse(pb.ERROR_SIZE_LIMIT, "key file is too large")
                 buf += c.data
                 if c.last:
-                    staged[KEY_KINDS[cur]] = bytes(buf)
+                    staged[KEY_KINDS.get(cur) or PIR_KEY_KINDS[cur]] = bytes(buf)
                     cur = 0
             if n == 0:
                 raise Refuse(pb.ERROR_BAD_SEQUENCE, "no chunks")
             if cur:
                 raise Refuse(pb.ERROR_BAD_SEQUENCE, "stream ended before last chunk")
+            if set(staged) == set(PIR_KEY_KINDS.values()):
+                self._install_pir_keys(self._coll(name), staged)
+                return pb.UploadKeysResponse()
             if set(staged) != set(KEY_KINDS.values()):
-                raise Refuse(pb.ERROR_INVALID_ARGUMENT, "an upload needs all three key kinds")
+                raise Refuse(
+                    pb.ERROR_INVALID_ARGUMENT,
+                    "an upload is one complete set: the three search kinds or the three "
+                    "retrieval kinds",
+                )
             c = self._coll(name)
             engine = self._engine(c, staged)
             for k, v in staged.items():
@@ -647,6 +669,37 @@ class LocalServer:
         except Refuse as e:
             return pb.UploadKeysResponse(error=self._err(e))
         return pb.UploadKeysResponse()
+
+    def _install_pir_keys(self, c: _Coll, files: dict[str, bytes]) -> None:
+        """Check the retrieval envelopes and the key tag of the keys, then store them (public)."""
+        from ombra.pir import PIR_PRESET
+
+        for name, kind in (
+            ("pir_context", Kind.CONTEXT),
+            ("pir_evalmult", Kind.PUBLIC_EVAL_KEY),
+            ("pir_automorphism", Kind.PUBLIC_EVAL_KEY),
+        ):
+            try:
+                payload = read_envelope(files[name], kind, PIR_PRESET, self.version).payload
+            except EnvelopeError as ex:
+                raise Refuse(self.pb.ERROR_PRESET_MISMATCH, str(ex)) from None
+            files[name + ".payload"] = payload
+        got = _run_pir_worker(
+            b"tag",
+            files["pir_context.payload"],
+            files["pir_evalmult.payload"],
+            files["pir_automorphism.payload"],
+        )
+        if got is None:
+            raise Refuse(self.pb.ERROR_INVALID_ARGUMENT, "cannot read the retrieval keys")
+        tag = got[0].decode()
+        if not tag:
+            raise Refuse(self.pb.ERROR_KEY_TAG_MISMATCH, "the retrieval keys differ in key tag")
+        stored = {k: files[k] for k in PIR_KEY_KINDS.values()}
+        for k, v in stored.items():
+            _atomic(c.root / "keys" / k, v)
+        _atomic(c.root / "keys" / "pir_tag", tag.encode())
+        c.pir_keys, c.pir_tag = stored, tag
 
     def _engine(self, c: _Coll, files: dict[str, bytes]) -> Any:
         """Open the three envelopes and deserialize the keys in C++; the key tag is checked from
@@ -671,6 +724,7 @@ class LocalServer:
         cur: Any = None  # the block under assembly
         want = 0
         started = 0
+        rec = bytearray()  # record column parts of the block under assembly
 
         def close() -> None:
             nonlocal cur, n
@@ -682,6 +736,10 @@ class LocalServer:
                 )
             for col in cur.columns:
                 self._column(c, col)
+            if rec:
+                self._check_record_column(cur, bytes(rec))
+                cur.record_column = bytes(rec)
+                rec.clear()
             if not self._is_repeat(c, cur):  # a repeated block is a success that stores nothing
                 known = {i for s in c.segments.values() for i in s.ids}
                 if any(i in known for i in cur.ids):
@@ -740,6 +798,12 @@ class LocalServer:
                     if len(cur.columns) >= want:
                         raise Refuse(pb.ERROR_SIZE_LIMIT, "more columns than the layout has")
                     cur.columns.append(m.column)
+                elif which == "record_column":
+                    if cur is None:
+                        raise Refuse(pb.ERROR_BAD_SEQUENCE, "a record column before the header")
+                    if len(m.record_column) > MAX_CHUNK:
+                        raise Refuse(pb.ERROR_SIZE_LIMIT, "chunk is larger than the limit")
+                    rec += m.record_column
                 else:
                     raise Refuse(pb.ERROR_INVALID_ARGUMENT, "empty message")
             if started == 0:
@@ -749,6 +813,19 @@ class LocalServer:
             return pb.InsertResponse(inserted=n, error=self._err(e))
         return pb.InsertResponse(inserted=n)
 
+    def _check_record_column(self, block: Any, raw: bytes) -> None:
+        """A record column is well formed and has one row per id of a data block."""
+        from ombra.pir import PirError, parse_column
+
+        if block.is_center:
+            raise Refuse(self.pb.ERROR_INVALID_ARGUMENT, "a center block has no record column")
+        try:
+            col = parse_column(raw)
+        except PirError as ex:
+            raise Refuse(self.pb.ERROR_INVALID_ARGUMENT, str(ex)) from None
+        if col.n_rows != len(block.ids):
+            raise Refuse(self.pb.ERROR_INVALID_ARGUMENT, "one record row per id is needed")
+
     @staticmethod
     def _is_repeat(c: _Coll, b: Any) -> bool:
         """True if a stored block of the same cluster has exactly these ids and columns."""
@@ -756,6 +833,7 @@ class LocalServer:
             s.cluster_id == b.cluster_id
             and list(s.ids) == list(b.ids)
             and list(s.columns) == list(b.columns)
+            and s.record_column == b.record_column
             for s in c.segments.values()
         )
 
@@ -851,11 +929,17 @@ class LocalServer:
     def ReplaceBlock(self, msgs: Iterable[Any]) -> Any:
         pb = self.pb
         try:
-            header, cols = None, []
+            header, cols, rec = None, [], bytearray()
             for m in msgs:
                 self._version(m.api_version)
                 part = m.WhichOneof("part")
-                if part == "header":
+                if part == "record_column":
+                    if header is None:
+                        raise Refuse(pb.ERROR_BAD_SEQUENCE, "a record column before the header")
+                    if len(m.record_column) > MAX_CHUNK:
+                        raise Refuse(pb.ERROR_SIZE_LIMIT, "chunk is larger than the limit")
+                    rec += m.record_column
+                elif part == "header":
                     if header is not None:
                         raise Refuse(pb.ERROR_BAD_SEQUENCE, "second header")
                     header = m.header
@@ -901,11 +985,14 @@ class LocalServer:
                 raise Refuse(pb.ERROR_BLOCK_MISMATCH, "ids are not exactly the live ids")
             for col in cols:
                 self._column(c, col)
-            for s in segs:
-                self._drop_segment(c, s)
             new = pb.InsertBlock(api_version=API, collection=c.spec.name, cluster_id=cluster)
             new.ids.extend(ids)
             new.columns.extend(cols)
+            if rec:
+                self._check_record_column(new, bytes(rec))
+                new.record_column = bytes(rec)
+            for s in segs:
+                self._drop_segment(c, s)
             seg = self._put_segment(c, new)
             self._purge(c)
             return pb.ReplaceBlockResponse(api_version=API, segment=seg)
@@ -1091,6 +1178,171 @@ class LocalServer:
                     yield pb.SearchResponse(scores=msg)
         except Refuse as e:
             yield error(e)
+
+    # ---- private record retrieval --------------------------------------------------------
+    def RetrieveRecords(self, requests: Iterable[Any]) -> Iterator[Any]:
+        """Same stream as the server: Start, then Info at once, then the queries, then one answer
+        per bucket. The answers come from `PirServerReference` in a helper process. Always one
+        part."""
+        pb = self.pb
+        it = iter(requests)
+
+        def error(e: Refuse) -> Any:
+            return pb.RetrieveRecordsResponse(api_version=API, error=self._err(e))
+
+        try:
+            first = next(it, None)
+            if first is None:
+                return
+            self._version(first.api_version)
+            if first.WhichOneof("part") != "start":
+                raise Refuse(
+                    pb.ERROR_BAD_SEQUENCE, "the first message must be RetrieveRecordsStart"
+                )
+            st = first.start
+            if not 1 <= st.m <= MAX_RETRIEVE_M:
+                raise Refuse(pb.ERROR_SIZE_LIMIT, "m is out of range")
+            if len(st.hash_seed) != 16:
+                raise Refuse(pb.ERROR_INVALID_ARGUMENT, "hash_seed must be 16 bytes")
+            if st.n_queries > MAX_RETRIEVE_QUERIES:
+                raise Refuse(pb.ERROR_SIZE_LIMIT, "too many queries")
+            if bool(st.all_clusters) == bool(st.cluster_ids):
+                raise Refuse(
+                    pb.ERROR_INVALID_ARGUMENT, "name the clusters, or all_clusters, not both"
+                )
+            with self.lock:
+                snap = self._retrieval_snapshot(st)
+            column, spans, keys = snap
+            from ombra.pir import make_shape, parse_column
+
+            col = parse_column(column)
+            shape = make_shape(col.n_rows, st.m, col.row_size, bytes(st.hash_seed))
+            info = pb.RetrieveRecordsInfo(
+                n_rows=col.n_rows,
+                row_size=col.row_size,
+                n_buckets=shape.buckets,
+                part=0,
+                n_parts=1,
+            )
+            for cl, seg, first_row, n_rows in spans:
+                info.spans.add(cluster_id=cl, segment=seg, first_row=first_row, n_rows=n_rows)
+            yield pb.RetrieveRecordsResponse(api_version=API, info=info)
+            if st.n_queries not in (0, shape.n_cts):
+                raise Refuse(pb.ERROR_INVALID_ARGUMENT, "n_queries differs from the shape's")
+            queries = []
+            for _ in range(shape.n_cts):
+                req = next(it, None)
+                if req is None or req.WhichOneof("part") != "query":
+                    raise Refuse(pb.ERROR_BAD_SEQUENCE, "the query ciphertexts did not follow")
+                self._version(req.api_version)
+                if not req.query or len(req.query) > MAX_CHUNK:
+                    raise Refuse(pb.ERROR_INVALID_ARGUMENT, "a query is empty or too large")
+                queries.append(bytes(req.query))
+            if next(it, None) is not None:  # like the server: answers only after the half-close
+                raise Refuse(pb.ERROR_BAD_SEQUENCE, "more queries than the shape needs")
+            answers = _run_pir_worker(
+                b"answer",
+                keys["pir_context.payload"],
+                keys["pir_evalmult.payload"],
+                keys["pir_automorphism.payload"],
+                column,
+                struct.pack("<Q", st.m),
+                bytes(st.hash_seed),
+                *queries,
+            )
+            if answers is None or len(answers) != shape.buckets:
+                raise Refuse(pb.ERROR_INVALID_ARGUMENT, "the queries could not be answered")
+            for b, a in enumerate(answers):
+                yield pb.RetrieveRecordsResponse(
+                    api_version=API, answer=pb.RecordAnswer(bucket=b, answer=a, part=0)
+                )
+        except Refuse as e:
+            yield error(e)
+
+    def _retrieval_snapshot(self, st: Any) -> tuple[bytes, list[tuple[int, str, int, int]], Any]:
+        """Under the lock: the record column of the scope (blocks of ascending clusters, each
+        cluster's blocks in creation order), where each block sits, and the retrieval keys."""
+        from ombra.pir import PirError, pack_column, parse_column
+
+        pb = self.pb
+        c = self._coll(st.collection)
+        if st.key_tag != c.spec.key_tag:
+            raise Refuse(pb.ERROR_KEY_TAG_MISMATCH, "request key tag differs")
+        if not c.pir_keys:
+            raise Refuse(pb.ERROR_KEYS_MISSING, "retrieval keys are not uploaded")
+        if st.pir_key_tag != c.pir_tag:
+            raise Refuse(pb.ERROR_KEY_TAG_MISMATCH, "retrieval key tag differs")
+        count = c.spec.cluster_count
+        if st.all_clusters:
+            clusters = list(range(count))
+        else:
+            clusters = list(st.cluster_ids)
+            if len(set(clusters)) != len(clusters) or any(x >= count for x in clusters):
+                raise Refuse(
+                    pb.ERROR_INVALID_ARGUMENT, "cluster ids must be distinct data clusters"
+                )
+            clusters.sort()
+        rows: list[bytes] = []
+        spans: list[tuple[int, str, int, int]] = []
+        size = 0
+        for cl in clusters:
+            for seg in c.order:
+                b = c.segments[seg]
+                if b.cluster_id != cl:
+                    continue
+                if not b.record_column:
+                    raise Refuse(pb.ERROR_BLOCK_MISMATCH, "a block in scope has no record column")
+                try:
+                    col = parse_column(b.record_column)
+                except PirError:
+                    raise Refuse(pb.ERROR_INTERNAL, "a stored record column is damaged") from None
+                if size and col.row_size != size:
+                    raise Refuse(pb.ERROR_BLOCK_MISMATCH, "blocks in scope differ in row size")
+                size = col.row_size
+                spans.append((cl, seg, len(rows), col.n_rows))
+                rows += [col.row(i) for i in range(col.n_rows)]
+        if not rows:
+            raise Refuse(pb.ERROR_INVALID_ARGUMENT, "the scope has no records")
+        from ombra.pir import PIR_PRESET
+
+        def payload(name: str, kind: Kind) -> bytes:
+            return read_envelope(c.pir_keys[name], kind, PIR_PRESET, self.version).payload
+
+        keys = {
+            "pir_context.payload": payload("pir_context", Kind.CONTEXT),
+            "pir_evalmult.payload": payload("pir_evalmult", Kind.PUBLIC_EVAL_KEY),
+            "pir_automorphism.payload": payload("pir_automorphism", Kind.PUBLIC_EVAL_KEY),
+        }
+        return pack_column(rows, size), spans, keys
+
+
+def _run_pir_worker(mode: bytes, *frames: bytes) -> list[bytes] | None:
+    """Run `ombra._pir_worker` (a fresh process with openfhe-python) on public material. None if it
+    fails. Nothing is printed or logged."""
+    import subprocess
+
+    from ombra import _pir_worker
+
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(p for p in sys.path if p)
+    buf = io.BytesIO()
+    _pir_worker.write_frames(buf, [mode, *frames])
+    try:
+        r = subprocess.run(  # noqa: S603  # our own module, fixed arguments
+            [sys.executable, "-m", "ombra._pir_worker"],
+            input=buf.getvalue(),
+            capture_output=True,
+            env=env,
+            check=False,
+        )
+    except OSError:
+        return None
+    if r.returncode != 0:
+        return None
+    try:
+        return _pir_worker.read_frames(r.stdout)
+    except ValueError:
+        return None
 
 
 def _locked(fn: Any) -> Any:

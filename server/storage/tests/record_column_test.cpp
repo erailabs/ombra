@@ -270,6 +270,20 @@ void scope_read() {
   CHECK(all.spans[1].cluster == 2 && all.spans[1].segment == b2a && all.spans[1].first_row == 1 &&
         all.spans[1].n_rows == 2);
   CHECK(all.spans[2].segment == b2b && all.spans[2].first_row == 3 && all.spans[2].n_rows == 1);
+  // The block order inside a cluster is the one the search engine scores in (it walks
+  // snapshot().segments, keeping the rows of the cluster): the client maps a search block index to
+  // a database row through these spans.
+  {
+    const auto snap = s.snapshot("docs");
+    for (std::uint32_t cl = 0; cl < 4; ++cl) {
+      std::vector<std::string> search_order, span_order;
+      for (const auto& r : snap.segments)
+        if (r.cluster == cl) search_order.push_back(r.file);
+      for (const auto& sp : s.read_record_columns("docs", {cl}, false).spans)
+        span_order.push_back(sp.segment);
+      CHECK(search_order == span_order);
+    }
+  }
   // It is itself a valid column, rows in that order.
   const auto info = parse_record_column(all.column);
   CHECK(info.n_rows == 4 && info.row_size == 128);

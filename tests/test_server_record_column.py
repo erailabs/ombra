@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0 OR LicenseRef-Ombra-Commercial
 """Record columns on the CPU `ombra_server`: Insert with a column (in parts), a refused column,
-survival over a kill and restart, the RetrieveRecords stub. Synthetic data only.
+survival over a kill and restart, the checks of a RetrieveRecords start. Synthetic data only.
 
 There is no call that returns a stored column yet, so the test reads the server's own file
 (`records/<segment>.orec`), whose layout is fixed (container header, then the ORCL column).
@@ -105,7 +105,8 @@ def test_insert_with_record_column(tmp_path) -> None:
         assert insert([b"n1", b"n2"], good).inserted == 2
         assert insert([b"n1", b"n2"], _column(128, 2, 1)).error.code == pb.ERROR_INVALID_ARGUMENT
 
-        # the stub: a valid call is read to the end, then UNIMPLEMENTED; a bad one gets an error
+        # RetrieveRecords: the start is checked before anything else. The stored-key checks and the
+        # answer are in test_server_pir_retrieve.py.
         def call(start: pb.RetrieveRecordsStart, n_queries: int):
             def gen():
                 yield pb.RetrieveRecordsRequest(api_version=1, start=start)
@@ -116,11 +117,10 @@ def test_insert_with_record_column(tmp_path) -> None:
 
         start = pb.RetrieveRecordsStart(
             collection=NAME, key_tag="t", pir_key_tag="p", all_clusters=True, m=4,
-            hash_seed=b"s" * 16, n_queries=1,
+            hash_seed=b"s" * 16, n_queries=0,
         )  # fmt: skip
-        with pytest.raises(grpc.RpcError) as e:
-            call(start, 1)
-        assert e.value.code() == grpc.StatusCode.UNIMPLEMENTED
+        out = call(start, 0)  # the collection's key tag is another one
+        assert out[0].error.code == pb.ERROR_KEY_TAG_MISMATCH
         start.hash_seed = b"short"
         out = call(start, 1)
         assert out[0].error.code == pb.ERROR_INVALID_ARGUMENT

@@ -5,6 +5,8 @@ add_subdirectory(storage)
 add_subdirectory(cache)
 # Search engine: pure logic on the CPU, the engine with OMBRA_ENABLE_CUDA.
 add_subdirectory(search)
+# Private retrieval: layout on the CPU, the OpenFHE answer when OpenFHE 1.6.1 is installed.
+add_subdirectory(pir)
 # gRPC server: policy on the CPU, service and executable with CUDA and gRPC for C++.
 add_subdirectory(grpc)
 # Router over several nodes: placement logic on the CPU, ombra_router with gRPC for C++.

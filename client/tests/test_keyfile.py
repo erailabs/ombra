@@ -49,7 +49,7 @@ def test_every_changed_byte_refused():
 
 def test_unknown_version_refused():
     blob = bytearray(keyfile.export_key_bytes(material(), PASS, scrypt_params=FAST))
-    blob[4] = 2
+    blob[4] = 3
     with pytest.raises(KeyFileError, match="version"):
         keyfile.import_key_bytes(bytes(blob), PASS)
 
