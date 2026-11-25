@@ -1,52 +1,40 @@
 # Filters
 
-The server cannot read your metadata, so it cannot filter on it. Ombra moves the filter into the score. Each vector carries its filter values as extra encrypted columns, the query asks for them with a weight, and a vector that fails the filter ends up in a different range of score values. The client decrypts the scores, reads the range and drops the vectors that failed. The server never learns which fields were filtered.
+The server cannot read your metadata, so it cannot filter on it. Ombra moves the filter into the score. Each vector carries its filter values as extra encrypted columns, the query asks for them with a weight, and a vector that fails the filter lands in a different range of score values. The client decrypts the scores, reads the range and drops the failures. The server never learns which fields were filtered.
 
 ## The additive penalty
 
-A collection can have $F$ filter fields. Field $f$ takes one of $m_f$ values, numbered $0$ to $m_f-1$ (a language field with 5 languages has $m_f = 5$). Each field becomes $m_f$ extra columns next to the $d$ vector columns, a one-hot encoding: the column for value $v$ holds 1 for the vectors whose field equals $v$ and 0 for the rest (see [encoding](encoding.md)). The query vector grows the same way, to $d + \sum_f m_f$ entries.
-
-For the $d$ vector entries the query holds the normal query values $q_j$. For the filter entries it holds the weight $\lambda = {{ const("ombra.presets.FILTER_LAMBDA") }}$ at each allowed value of a filtered field and 0 at the others. A field you do not filter has $\lambda$ at every value, so every vector matches it. The server computes the same sum over all columns for every query ([encrypted search](encrypted-search.md)), so it cannot tell a filtered query from an unfiltered one by the shape of the work.
-
-What comes out for one vector is
+A collection can have $F$ filter fields. Field $f$ takes one of $m_f$ values, numbered $0$ to $m_f-1$. Each field becomes $m_f$ extra one-hot columns next to the $d$ vector columns: the column for value $v$ holds 1 for vectors whose field equals $v$ ([encoding](encoding.md)). The query grows the same way, to $d + \sum_f m_f$ entries: the normal $q_j$, then the weight $\lambda = {{ const("ombra.presets.FILTER_LAMBDA") }}$ at each allowed value of a filtered field and 0 at the others. A field you do not filter has $\lambda$ at every value. The server computes the same sum for every query ([encrypted search](encrypted-search.md)), so it cannot tell a filtered query by the shape of the work. One vector comes out as
 
 $$\text{slot} = \underbrace{\sum_{j} q_j v_j}_{\text{score}} + \lambda c$$
 
-where $c$ is the number of fields on which the vector matches the filter. A field that is not filtered always counts as matching. A vector passes the filter when $c = F$.
-
-Example with $\lambda = {{ const("ombra.presets.FILTER_LAMBDA") }}$ and two fields, language (3 values) and year (2 values). The filter is language in {0, 2} and year = 1. The query extension is $[4, 0, 4,\ 0, 4]$. A vector with language 2, year 1 gets $4 + 4 = 8$ on top of its score, so $c = 2$. A vector with language 1, year 1 gets $0 + 4$, so $c = 1$. A vector with language 0, year 0 gets $4 + 0$, also $c = 1$.
-
-Matching inside a field is OR, across fields it is AND. Fields and values are numbered integers; there is no text matching. Integer ranges are built on top of this, see [Range fields](#range-fields).
+where $c$ is the number of fields on which the vector matches (an unfiltered field always matches). A vector passes when $c = F$. Matching inside a field is OR, across fields AND. Fields and values are numbered integers; there is no text matching. Example: language (3 values) and year (2 values), filter language in {0, 2} and year = 1: the query extension is $[4, 0, 4,\ 0, 4]$, so language 2, year 1 gets $c = 2$ and language 1, year 1 gets $c = 1$.
 
 ## Bands
 
-The client has the decrypted slot value, which is the score (a cosine in $[-1, 1]$) plus a multiple of $\lambda$. Because $\lambda$ is larger than the score range, each value of $c$ owns its own band of width $\lambda$ and the two parts can be separated:
+Because $\lambda$ is larger than the score range, each value of $c$ owns a band of width $\lambda$:
 
 $$c = \left\lfloor \frac{\text{slot} + 2}{\lambda} \right\rfloor \qquad \text{score} = \text{slot}-\lambda c$$
 
-The shift by 2 centers each band on $\lambda c$, so it covers $[\lambda c-2,\ \lambda c + 2)$. A score of at most 1 in size leaves a margin of 1 on each side for the small noise CKKS adds (see [CKKS](../concepts/ckks.md)).
+The shift by 2 centers each band on $\lambda c$. A score of at most 1 in size leaves a margin of 1 on each side for CKKS noise. Slot 8.3 gives $c = 2$ and score $0.3$. The score kept is approximate; the final ranking uses the exact vectors from the record blobs.
 
-Example with $\lambda = {{ const("ombra.presets.FILTER_LAMBDA") }}$. Slot value 8.3 gives $c = \lfloor 10.3 / 4 \rfloor = 2$ and score $8.3-8 = 0.3$. Slot value 3.7 gives $c = \lfloor 5.7 / 4 \rfloor = 1$ and score $3.7-4 = -0.3$. With two fields only the first one passes, and the client keeps vectors with $c = 2$. The score it keeps is approximate; the final ranking uses the exact vectors from the record blobs.
-
-## Where tombstones fit
-
-A deleted vector stays in its block until the block is rewritten. The server adds $-\lambda(F + 1)$ to its slot. With $c$ between 0 and $F$, the band index drops to at most $-1$, below every live vector, and never equals $F$. So a deleted vector can never pass the filter, with or without a filter in the query. See [Deletes and compaction](deletes.md).
+A deleted vector stays in its block until the block is rewritten. The server adds $-\lambda(F + 1)$ to its slot, so its band is at most $-1$ and never equals $F$: it can never pass, with or without a filter ([Deletes and compaction](deletes.md)).
 
 ## Limits per preset
 
-The decrypted slot must stay inside the range CKKS can represent at the lowest level. For a first modulus of $q_0$ bits and a scale of $\Delta$ bits, that range is values below $2^{q_0-\Delta-1}$. The client takes 3 bits less as a margin:
+The decrypted slot must stay below $2^{q_0-\Delta-1}$ (first modulus $q_0$ bits, scale $\Delta$ bits). The client takes 3 bits less as a margin:
 
 $$A = 2^{\,q_0-\Delta-4} \qquad F_{max} = \min\!\left(F_{cap},\ \left\lfloor \frac{A-1}{\lambda} \right\rfloor-1\right)$$
 
-where $F_{cap}$ is the server's cap on filter fields, {{ const("ombra.presets.MAX_FILTER_FIELDS") }}. A field adds at most $\lambda$ to the slot, so $F$ fields add at most $\lambda F$, and the extra $-1$ leaves room for the tombstone penalty.
+where $F_{cap}$ is the server's cap, {{ const("ombra.presets.MAX_FILTER_FIELDS") }}. $F$ fields add at most $\lambda F$, and the extra $-1$ leaves room for the tombstone penalty.
 
-{% set fq = preset("fast", "first_mod_size") %}{% set fs = preset("fast", "scaling_mod_size") %}{% set bq = preset("balanced", "first_mod_size") %}{% set bs = preset("balanced", "scaling_mod_size") %}{% set lam = const("ombra.presets.FILTER_LAMBDA") %}Fast has $q_0 = {{ fq }}$ and $\Delta = {{ fs }}$, so $A = 2^{ {{ fq-fs-4 }} } = {{ 2 ** (fq-fs-4) }}$ and the formula gives $\lfloor {{ 2 ** (fq-fs-4)-1 }} / {{ lam }} \rfloor-1 = {{ (2 ** (fq-fs-4)-1) // lam-1 }}$, which the cap brings down to $F_{max} = {{ fmax("fast") }}$. Balanced has $q_0 = {{ bq }}$ and $\Delta = {{ bs }}$, so $A = 2^{ {{ bq-bs-4 }} } = {{ 2 ** (bq-bs-4) }}$ and $\lfloor {{ 2 ** (bq-bs-4)-1 }} / {{ lam }} \rfloor-1 = {{ (2 ** (bq-bs-4)-1) // lam-1 }}$, so $F_{max} = {{ fmax("balanced") }}$. Balanced has the larger scale, so less room is left for the filter weight.
+{% set fq = preset("fast", "first_mod_size") %}{% set fs = preset("fast", "scaling_mod_size") %}{% set bq = preset("balanced", "first_mod_size") %}{% set bs = preset("balanced", "scaling_mod_size") %}{% set lam = const("ombra.presets.FILTER_LAMBDA") %}Fast ($q_0 = {{ fq }}$, $\Delta = {{ fs }}$): $A = {{ 2 ** (fq-fs-4) }}$, so $F_{max} = {{ fmax("fast") }}$ after the cap. Balanced ($q_0 = {{ bq }}$, $\Delta = {{ bs }}$): $A = {{ 2 ** (bq-bs-4) }}$, so $F_{max} = {{ fmax("balanced") }}$. Balanced has the larger scale, so less room is left for the weight.
 
-Creating a collection with more than $F_{max}$ fields fails. Two more limits apply: a field has between 1 and {{ const("ombra.presets.MAX_FILTER_CARDINALITY") }} values, and $d + \sum_f m_f$ must be at most half the ring dimension ({{ preset("fast", "ring_dim") // 2 }} for Fast, {{ preset("balanced", "ring_dim") // 2 }} for Balanced). A field with many distinct values, such as a user id, does not fit. Bucket it into at most {{ const("ombra.presets.MAX_FILTER_CARDINALITY") }} values or keep it out of the filter.
+Creating a collection with more than $F_{max}$ fields fails. A field has 1 to {{ const("ombra.presets.MAX_FILTER_CARDINALITY") }} values, and $d + \sum_f m_f$ must be at most half the ring dimension ({{ preset("fast", "ring_dim") // 2 }} for Fast, {{ preset("balanced", "ring_dim") // 2 }} for Balanced). A field with many distinct values, such as a user id, does not fit: bucket it into at most {{ const("ombra.presets.MAX_FILTER_CARDINALITY") }} values or keep it out of the filter.
 
 ## Range fields
 
-A filter such as `year >= 2020` or `price` between two numbers is still a sum of one-hot columns. The server sees ordinary filter fields and never learns that a field is a range. You declare range fields when you create the collection and put the raw integer in each record's metadata:
+A filter such as `year >= 2020` is still a sum of one-hot columns; the server never learns that a field is a range. Declare range fields at creation and put the raw integer in each record's metadata:
 
 ```python
 client.create_collection(
@@ -57,47 +45,36 @@ client.create_collection(
 hits = client.search("shop", query, filter={"year": {"gte": 2015, "lt": 2022}})
 ```
 
-A bound is `gte`, `gt`, `lte` or `lt`, alone or two together. A plain integer means equality. Ranges and equality fields combine with AND like any other filter.
+A bound is `gte`, `gt`, `lte` or `lt`, alone or two together. A plain integer means equality. Ranges and equality fields combine with AND.
 
-**Buckets (the default).** A range field has 64 values, called buckets. You give up to 63 cut points; bucket $b$ holds the values from cut point $b-1$ up to, not including, cut point $b$. The client stores the cut points in an encrypted blob next to the cluster statistics (a client format, version 1, under a reserved id). A record goes in its bucket, and its raw integer stays in its encrypted record. A range turns into the list of buckets it touches, and the query is the ordinary equality query on that list. A range with both ends on cut points is exact. Otherwise the two edge buckets also hold some values outside the range. The client reads the raw integer of every candidate it fetches for re-ranking and drops those. `ombra.ranges.quantile_edges` gives cut points with about the same number of records per bucket, and `equal_width_edges` gives equal widths. Quantile buckets keep the edge buckets small when the values are skewed.
+**Buckets (the default).** A range field has 64 values, called buckets. You give up to 63 cut points; bucket $b$ holds values from cut point $b-1$ up to, not including, cut point $b$. The client stores the cut points in an encrypted blob next to the cluster statistics (client format, version 1, under a reserved id). A record goes in its bucket, and its raw integer stays in its encrypted record. A range becomes the list of buckets it touches, queried as an equality filter. A range with both ends on cut points is exact. Otherwise the edge buckets also hold values outside the range, and the client drops those after reading the raw integer of each candidate it fetches for re-ranking. `ombra.ranges.quantile_edges` gives cut points with about equal records per bucket (best for skewed values); `equal_width_edges` gives equal widths. Example: cut points 10, 20, 30 give four buckets; the range 12 to 25 asks for buckets 1 and 2, and a record with value 11 comes back and is dropped.
 
-Example: cut points 10, 20, 30 give the buckets below 10, 10 to 19, 20 to 29 and 30 and above. The range 12 to 25 asks for buckets 1 and 2. A record with value 11 comes back from the server as a match and the client drops it.
+**Two digits (prototype).** `{"kind": "two_digit"}` stores a value from 0 to 4095 in two 64-value fields, the coarse digit $v \div 64$ and the fine digit $v \bmod 64$. The query gives weight 2 to every coarse digit strictly inside the range, weight 1 to the two edge coarse digits, and weight 1 to the fine digits the edges need. A record in range scores 2 or 3 units for the field and one outside scores at most 1; with a range over several coarse digits the shared fine weights let a few outside records reach 2. The client accepts totals from $F$ to $F+m$ (with $m$ digit fields in the filter) and checks the raw value. The field counts as 3 units toward $F_{max}$.
 
-**Two digits (prototype).** `{"kind": "two_digit"}` stores a value from 0 to 4095 in two 64-value fields, the coarse digit $v \div 64$ and the fine digit $v \bmod 64$. The query gives weight 2 to every coarse digit strictly inside the range, weight 1 to the two edge coarse digits, and weight 1 to the fine digits the edges need. A record in range scores 2 or 3 units for the field and a record outside scores at most 1; with a range over several coarse digits the shared fine weights let a few outside records reach 2. The client accepts totals from $F$ to $F+m$ (with $m$ digit fields in the filter) and checks the raw value. The field counts as 3 units toward $F_{max}$.
+**Fetch count.** Every search in a collection with range fields fetches the same number of record blobs, {{ const("ombra.presets.RANGE_FETCH_FACTOR") }} times the usual $3k$, whatever the filter, so the count does not reveal selectivity. If fewer candidates exist, the client fetches other ids it saw in the probed clusters and discards them, in random order. If fewer than $k$ verified matches remain, the result says `incomplete`.
 
-**Fetch count.** Dropping edge candidates needs their records, and the number of records fetched must not tell the server how selective a filter is. In a collection with range fields every search fetches the same number of record blobs, {{ const("ombra.presets.RANGE_FETCH_FACTOR") }} times the usual $3k$, whatever the filter. If fewer candidates exist, the client fetches other ids it saw in the probed clusters and throws those records away, in random order. If fewer than $k$ verified matches remain, the result says `incomplete`.
+**Without re-ranking.** `rerank=False` fetches no record, so the client cannot read raw values. It allows a range filter only when the band alone is exact: for buckets, every bound sits on a cut point or is open; for two digits, bounds sit on multiples of 64 and the range is the only filtered field. Any other range raises `ValueError`.
 
-**Without re-ranking.** `rerank=False` fetches no record, so the client cannot read raw values. It allows a range filter only when the band alone is exact: for buckets, every bound sits on a cut point or is open; for two digits, the bounds sit on multiples of 64 and the range is the only filtered field. Any other range raises `ValueError` rather than return records outside the range.
-
-**What the server learns.** The same as for equality fields: the number of fields and their size. Every range field has 64 values (two fields of 64 for two digits), so its size does not stand out. It sees the fixed fetch count and, in Fast, the round count. It does not see the bounds, the cut points or the values.
+**What the server learns.** The same as for equality fields: the number of fields and their size. Every range field has 64 values (two of 64 for two digits), so it does not stand out. It sees the fixed fetch count and, in Fast, the round count. It does not see the bounds, cut points or values.
 
 ## Choosing clusters for a filter
 
-With a filter, the best clusters by center score may hold no matching vectors at all. The client keeps statistics for this: per cluster the number of live vectors, and per field and value how many of them have that value. The statistics are stored as an encrypted blob. The server does not see them. The client updates them on insert and delete and rebuilds them when it re-clusters.
-
-From these counts it estimates the matches in cluster $i$ as
+With a filter, the best clusters by center score may hold no matches. The client keeps statistics, stored as an encrypted blob the server cannot read: per cluster the number of live vectors, and per field and value how many have that value. It updates them on insert and delete and rebuilds them when it re-clusters. It estimates the matches in cluster $i$ as
 
 $$E_i = n_i \prod_{f \in \text{filtered}} \frac{n_{i,f,A_f}}{n_i}$$
 
-where $n_i$ is the number of live vectors in the cluster, and $n_{i,f,A_f}$ the number of them whose field $f$ is in the allowed set $A_f$. The product treats the fields as independent. When they are correlated the estimate is off. The result is still correct, since every candidate is checked by its band; only the cluster choice suffers.
-
-Example: a cluster of $n_i = 1000$ vectors, 100 with language in {0, 2} and 500 with year 1. $E_i = 1000 \times 0.1 \times 0.5 = 50$.
-
-The first round goes down the clusters in center-score order. It skips clusters with $E_i = 0$ and adds clusters until the running sum of $E_i$ reaches $3k$ ($k$ is the number of results asked for), but never fewer clusters than an unfiltered query would take. With $k = 10$ it aims for 30 expected matches. In Decoy the real part of round 1 is capped at $2p$ clusters (see [clusters](clusters.md)).
+where $n_i$ is the number of live vectors and $n_{i,f,A_f}$ the number whose field $f$ is in the allowed set $A_f$. The product treats fields as independent; when they are correlated the estimate is off, which hurts only the cluster choice, since every candidate is checked by its band.
+Round 1 goes down the clusters in center-score order, skips clusters with $E_i = 0$ and adds clusters until the running sum of $E_i$ reaches $3k$, but never fewer than an unfiltered query would take. In Decoy the real part of round 1 is capped at $2p$ clusters ([clusters](clusters.md)).
 
 ## The extra round
 
-A filtered query always makes a second round: the next clusters with $E_i > 0$, twice as many as round 1 used. It runs even if round 1 found enough matches. That keeps the round count the same for every filtered query at a level. The cost is a second trip to the server and more scoring. There is no third round. If fewer than $k$ vectors passed the filter after two rounds, the result says `incomplete` and is not padded.
+A filtered query always makes a second round: the next clusters with $E_i > 0$, twice as many as round 1 used. It runs even if round 1 found enough matches, which keeps the round count the same for every filtered query at a level. There is no third round. If fewer than $k$ vectors passed after two rounds, the result says `incomplete` and is not padded.
 
-Without statistics (a collection opened without its stats blob), a filtered query still makes two rounds, but picks clusters by center score only, as an unfiltered Decoy query does: the first $p$ clusters, then the next $2p$.
-
-If the estimated selectivity, $\sum_i E_i / \sum_i n_i$, is under 0.5%, Fast and Decoy give up planning and scan all clusters in two rounds with no decoys. That is slow, and the server sees it; see [Clusters](clusters.md) and [what the server learns](../security/what-the-server-learns.md).
-
-In Fast, an unfiltered query normally makes one round and a filtered query two, so the server can tell them apart there. Decoy and Strict use two rounds for every query.
+Without statistics (a collection opened without its stats blob), a filtered query still makes two rounds but picks clusters by center score only: the first $p$, then the next $2p$. If the estimated selectivity, $\sum_i E_i / \sum_i n_i$, is under 0.5%, Fast and Decoy scan all clusters in two rounds with no decoys, and the server sees it ([Clusters](clusters.md), [what the server learns](../security/what-the-server-learns.md)). In Fast, an unfiltered query normally makes one round and a filtered query two, so the server can tell them apart. Decoy and Strict use two rounds for every query.
 
 ## What the server sees of the filter
 
-The server does not see field values, names or which values a query allows. It does see the number of filter fields and the number of values of each field, exactly. A field with a distinctive number of values can say something about what it holds. Reducing that leak, for example by declaring a larger value count than you need so that fields look alike, is up to you: the client does not bucket the counts. In Fast, the round count also shows whether a query was filtered, as above.
+Not field values, names or which values a query allows. It does see the number of filter fields and the number of values of each field, exactly, and a distinctive value count can say something about what a field holds. The client does not bucket the counts; declaring a larger count than you need so fields look alike is up to you.
 
 !!! deep-dive "Why not stop at k matches in round 1"
-    The first version stopped as soon as the first round had $k$ matches. At around 1% selectivity this lost recall, because the matches found first were not the nearest ones. The planner now works from the statistics and always takes a second round. Its weak spot is the independence assumption above.
+    The first version stopped as soon as round 1 had $k$ matches. At around 1% selectivity this lost recall, because the matches found first were not the nearest. The planner now works from the statistics and always takes a second round. Its weak spot is the independence assumption.
