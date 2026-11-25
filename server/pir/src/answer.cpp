@@ -2,6 +2,7 @@
 #include "ombra/pir/answer.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -24,6 +25,11 @@ using Ctx = CryptoContext<DCRTPoly>;
 using Impl = CryptoContextImpl<DCRTPoly>;
 
 namespace {
+
+using Clock = std::chrono::steady_clock;
+double ms_since(Clock::time_point t) {
+  return std::chrono::duration<double, std::milli>(Clock::now() - t).count();
+}
 
 SecurityLevel security_level(const std::string& s) {
   if (s == "HEStd_128_classic") return HEStd_128_classic;
@@ -213,8 +219,8 @@ namespace {
 class Answerer {
  public:
   Answerer(const PirContext& cc, const PirShape& shape, const std::uint8_t* body,
-           const std::string& tag)
-      : cc_(cc), s_(shape), body_(body), tag_(tag), t_(shape.pp.plain_modulus) {
+           const std::string& tag, PirStageTimes* times = nullptr)
+      : cc_(cc), s_(shape), body_(body), tag_(tag), t_(shape.pp.plain_modulus), times_(times) {
     zero_ = plain(std::vector<std::int64_t>(s_.pp.ring_dim, 0));
   }
 
@@ -308,10 +314,18 @@ class Answerer {
     return inner;
   }
 
+  // Adds the time since `t` to `*slot` (if timing) and restarts the clock.
+  void lap(Clock::time_point& t, double PirStageTimes::*slot) const {
+    if (!times_) return;
+    times_->*slot += ms_since(t);
+    t = Clock::now();
+  }
+
   std::string answer_bucket(const std::map<std::size_t, Ciphertext<DCRTPoly>>& sel,
                             std::size_t base, std::size_t bucket,
                             const InnerSums& hook = nullptr) const {
     const auto& rows = s_.contents[bucket];
+    auto t0 = Clock::now();
     std::vector<Ciphertext<DCRTPoly>> hooked;
     std::vector<Plaintext> cells;
     if (hook) {
@@ -320,24 +334,31 @@ class Answerer {
       cells.reserve(s_.r1 * s_.r2);
       for (std::size_t p = 0; p < s_.r1 * s_.r2; ++p) cells.push_back(cell(rows, p));
     }
+    if (hook) lap(t0, &PirStageTimes::first_dim_ms);
     Ciphertext<DCRTPoly> total;
     for (std::size_t b = 0; b < s_.r2; ++b) {
       Ciphertext<DCRTPoly> inner;
       if (hook) {
         inner = hooked[b];
       } else {
+        if (b == 0) lap(t0, &PirStageTimes::first_dim_ms);  // cell encoding
         for (std::size_t a = 0; a < s_.r1; ++a) {
           const auto term = cc_->EvalMult(sel.at(base + a), cells[a * s_.r2 + b]);
           inner = inner ? cc_->EvalAdd(inner, term) : term;
         }
+        lap(t0, &PirStageTimes::first_dim_ms);
       }
       const auto prod = cc_->EvalMultNoRelin(sel.at(base + s_.r1 + b), inner);
       total = total ? cc_->EvalAdd(total, prod) : prod;
+      lap(t0, &PirStageTimes::second_dim_ms);
     }
     const auto ans = cc_->Compress(cc_->Relinearize(total), 1);
+    lap(t0, &PirStageTimes::compress_ms);
     std::ostringstream out(std::ios::out | std::ios::binary);
     Serial::Serialize(ans, out, SerType::BINARY);
-    return out.str();
+    std::string bytes = out.str();
+    lap(t0, &PirStageTimes::serialize_ms);
+    return bytes;
   }
 
  private:
@@ -347,29 +368,43 @@ class Answerer {
   std::string tag_;
   std::uint64_t t_;
   Plaintext zero_;
+  PirStageTimes* times_;
 };
 
 }  // namespace
 
 void answer_queries(const PirContext& cc, const PirKeys& keys, const PirShape& shape,
                     const std::uint8_t* column_body, const std::vector<std::string>& queries,
-                    const AnswerSink& sink, const InnerSums& inner_sums) {
+                    const AnswerSink& sink, const InnerSums& inner_sums, PirStageTimes* times) {
+  const auto call_start = Clock::now();
   if (queries.size() != shape.n_cts) throw PirError("wrong number of query ciphertexts");
   if (keys.tag().empty()) throw PirKeyTagMismatch("no retrieval keys are loaded");
-  Answerer a(cc, shape, column_body, keys.tag());
+  if (times) {
+    *times = PirStageTimes{};
+    times->rows = shape.n_rows;
+    times->buckets = shape.buckets;
+    times->n_cts = shape.n_cts;
+    times->r1 = shape.r1;
+    times->r2 = shape.r2;
+  }
+  Answerer a(cc, shape, column_body, keys.tag(), times);
   // Every query is read and checked before the first answer, so a bad one never follows answers.
   std::vector<Ciphertext<DCRTPoly>> cts;
   cts.reserve(queries.size());
   for (const auto& q : queries) cts.push_back(a.read_query(q));
+  if (times) times->read_ms = ms_since(call_start);
   for (std::size_t c = 0; c < cts.size(); ++c) {
     const auto& ct = cts[c];
     const std::size_t nb = shape.buckets_in_ct(c);
+    const auto t_exp = Clock::now();
     const auto sel = a.expand(ct, nb * shape.coeffs_per_bucket());
+    if (times) times->expand_ms += ms_since(t_exp);
     for (std::size_t slot = 0; slot < nb; ++slot) {
       const std::size_t bucket = c * shape.per_ct + slot;
       sink(bucket, a.answer_bucket(sel, slot * shape.coeffs_per_bucket(), bucket, inner_sums));
     }
   }
+  if (times) times->total_ms = ms_since(call_start);
 }
 
 }  // namespace ombra::pir
@@ -398,19 +433,27 @@ std::vector<std::string> answer_call_with_hook(const PirKeyFiles& files, const s
                                                const PirShape& shape,
                                                const std::uint8_t* column_body,
                                                const std::vector<std::string>& queries,
-                                               const InnerSums& inner_sums) {
+                                               const InnerSums& inner_sums,
+                                               PirStageTimes* times) {
+  const auto call_start = Clock::now();
   const PirContext cc = read_pir_context(files.context);
   PirKeys keys(cc, files.eval_mult, files.automorphism, key_tag, shape);
+  const double setup_ms = ms_since(call_start);
   std::vector<std::string> out(shape.buckets);
   answer_queries(
       cc, keys, shape, column_body, queries,
-      [&](std::size_t b, std::string&& a) { out.at(b) = std::move(a); }, inner_sums);
+      [&](std::size_t b, std::string&& a) { out.at(b) = std::move(a); }, inner_sums, times);
+  if (times) {
+    times->setup_ms = setup_ms;
+    times->total_ms = ms_since(call_start);
+  }
   return out;
 }
 
 std::vector<std::string> answer_call(const PirKeyFiles& files, const std::string& key_tag,
                                      const PirShape& shape, const std::uint8_t* column_body,
-                                     const std::vector<std::string>& queries, PirBackend backend) {
+                                     const std::vector<std::string>& queries, PirBackend backend,
+                                     PirStageTimes* times) {
   InnerSums hook;
   if (backend == PirBackend::kGpu) {
     InnerSumsFactory f;
@@ -420,7 +463,7 @@ std::vector<std::string> answer_call(const PirKeyFiles& files, const std::string
     }
     if (f) hook = f();
   }
-  return answer_call_with_hook(files, key_tag, shape, column_body, queries, hook);
+  return answer_call_with_hook(files, key_tag, shape, column_body, queries, hook, times);
 }
 
 }  // namespace ombra::pir

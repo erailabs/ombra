@@ -27,6 +27,28 @@ struct PirKeyFiles {
 // The layout numbers of the retrieval preset.
 PirParams retrieval_params();
 
+// Where the time of one answer call went, in milliseconds (steady clock, summed over the buckets of
+// the call), and the sizes of the call. Counts and durations only: nothing of any ciphertext,
+// plaintext, row or id. Stage meanings (the CPU path; with a GPU hook the first-dimension stage is
+// the hook, including the packing of the cells for it):
+//   setup       reading the context and loading the keys (answer_call only)
+//   read        reading and checking the query ciphertexts
+//   expand      query expansion
+//   first_dim   cell encoding and the first-dimension inner sums
+//   second_dim  the second-dimension products and their sum
+//   compress    relinearization and modulus drop of the bucket answer
+//   serialize   serializing the answer
+// total_ms is the whole call, so the stages add up to at most total_ms.
+struct PirStageTimes {
+  double setup_ms = 0, read_ms = 0, expand_ms = 0, first_dim_ms = 0, second_dim_ms = 0,
+         compress_ms = 0, serialize_ms = 0, total_ms = 0;
+  std::uint64_t rows = 0, buckets = 0, n_cts = 0, r1 = 0, r2 = 0;
+  double stages_ms() const {
+    return setup_ms + read_ms + expand_ms + first_dim_ms + second_dim_ms + compress_ms +
+           serialize_ms;
+  }
+};
+
 // Reads the context, checks it against the preset, loads the keys and unloads them again. Throws
 // PirContextError, PirKeyTagMismatch.
 void check_retrieval_keys(const PirKeyFiles& files, const std::string& key_tag,
@@ -42,10 +64,11 @@ void register_gpu_inner_sums();
 
 // Loads the keys, answers every query, unloads. `column_body` points at n_rows * row_size bytes.
 // Returns one serialized answer per bucket, in bucket order. Throws PirContextError,
-// PirKeyTagMismatch, PirQueryError, PirError.
+// PirKeyTagMismatch, PirQueryError, PirError. If `times` is not null it receives the stage times.
 std::vector<std::string> answer_call(const PirKeyFiles& files, const std::string& key_tag,
                                      const PirShape& shape, const std::uint8_t* column_body,
                                      const std::vector<std::string>& queries,
-                                     PirBackend backend = PirBackend::kCpu);
+                                     PirBackend backend = PirBackend::kCpu,
+                                     PirStageTimes* times = nullptr);
 
 }  // namespace ombra::pir
