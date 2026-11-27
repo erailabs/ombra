@@ -1,16 +1,12 @@
 # Collections
 
-Create, inspect, list and drop collections. `CollectionSpec`, `CollectionInfo`, `FilterField` and `Error` are on the [Messages](messages.md) page. The same four operations exist on the [REST API](../rest/index.md).
+Messages are on the [Messages](messages.md) page. The same four operations exist on the [REST API](../rest/index.md).
 
 ## CreateCollection
-
-Creates a collection from a spec and returns the stored spec.
 
 ```proto
 rpc CreateCollection(CreateCollectionRequest) returns (CreateCollectionResponse)
 ```
-
-Scope: `write`.
 
 **CreateCollectionRequest**
 
@@ -27,7 +23,7 @@ Scope: `write`.
 
 Errors: `ERROR_COLLECTION_EXISTS`, `ERROR_ALIAS_EXISTS` (the name is an alias), `ERROR_INVALID_ARGUMENT`, `ERROR_UNSUPPORTED_VERSION`, `ERROR_INVALID_FILTER_LAYOUT`, `ERROR_SIZE_LIMIT`.
 
-Notes: the call makes an empty collection with metadata only. It cannot take inserts or searches until the evaluation keys are uploaded with [`UploadKeys`](keys.md#uploadkeys).
+Notes: the new collection takes no inserts or searches until keys are uploaded with [`UploadKeys`](keys.md#uploadkeys).
 
 ## GetCollection
 
@@ -36,8 +32,6 @@ Returns the `CollectionInfo` of one collection.
 ```proto
 rpc GetCollection(GetCollectionRequest) returns (GetCollectionResponse)
 ```
-
-Scope: `read`.
 
 **GetCollectionRequest**
 
@@ -54,7 +48,7 @@ Scope: `read`.
 
 Errors: `ERROR_COLLECTION_NOT_FOUND`, `ERROR_INVALID_ARGUMENT`.
 
-Notes: this is the only method that resolves an alias. The answer carries the real name in `spec.name`.
+Notes: the only method that resolves an alias; the real name is in `spec.name`.
 
 ## ListCollections
 
@@ -63,8 +57,6 @@ Returns the `CollectionInfo` of every collection.
 ```proto
 rpc ListCollections(ListCollectionsRequest) returns (ListCollectionsResponse)
 ```
-
-Scope: `read`.
 
 **ListCollectionsRequest**: no fields.
 
@@ -80,13 +72,9 @@ Notes: a key limited to one collection sees only that collection.
 
 ## DropCollection
 
-Deletes a collection and everything stored for it.
-
 ```proto
 rpc DropCollection(DropCollectionRequest) returns (DropCollectionResponse)
 ```
-
-Scope: `admin`.
 
 **DropCollectionRequest**
 
@@ -102,4 +90,4 @@ Scope: `admin`.
 
 Errors: `ERROR_COLLECTION_NOT_FOUND`, `ERROR_ALIAS_CONFLICT` (an alias points at the collection).
 
-Notes: a collection that is only the `previous` target of an alias can be dropped, and the alias then forgets it. See [Aliases](aliases.md).
+Notes: a collection that is only an alias's `previous` target can be dropped. See [Aliases](aliases.md).

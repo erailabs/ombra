@@ -2,9 +2,7 @@
 
 `DELETE /v1/collections/{name}`
 
-Deletes the collection and everything stored for it. Scope: `admin`. Same as gRPC `DropCollection`.
-
-It needs an admin key, which is never limited to one collection, so a limited key can never drop a collection.
+Deletes the collection and all its data. Scope: `admin` (never limited to one collection). Same as gRPC `DropCollection`.
 
 ## Parameters
 
@@ -29,10 +27,3 @@ It needs an admin key, which is never limited to one collection, so a limited ke
 | 503 | The server is shutting down, or its disk is full. |
 
 See [Errors](index.md#errors) for the full table.
-
-## Example
-
-```bash
-curl -s -X DELETE http://127.0.0.1:8080/v1/collections/docs \
-  -H "Authorization: Bearer $OMBRA_KEY"
-```

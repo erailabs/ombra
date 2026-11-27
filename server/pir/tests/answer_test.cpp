@@ -170,11 +170,21 @@ void answers_decrypt_to_the_cells() {
     CHECK(throws_type<PirKeyTagMismatch>([&] { PirKeys(pc, mult, autom, tag, shape); }));
     CHECK(Impl::GetAllEvalMultKeys().count(tag) == 1);
     std::size_t seen = 0;
-    answer_queries(pc, keys, shape, body.data(), queries, [&](std::size_t b, std::string&& a) {
-      CHECK(b == seen);
-      ++seen;
-      answers[b] = std::move(a);
-    });
+    PirStageTimes st;
+    answer_queries(
+        pc, keys, shape, body.data(), queries,
+        [&](std::size_t b, std::string&& a) {
+          CHECK(b == seen);
+          ++seen;
+          answers[b] = std::move(a);
+        },
+        nullptr, &st);
+    // Every stage of the CPU path reports, and together they are at most the call.
+    CHECK(st.read_ms > 0 && st.expand_ms > 0 && st.first_dim_ms > 0 && st.second_dim_ms > 0 &&
+          st.compress_ms > 0 && st.serialize_ms > 0);
+    CHECK(st.stages_ms() <= st.total_ms);
+    CHECK(st.rows == n_rows && st.buckets == shape.buckets && st.n_cts == shape.n_cts &&
+          st.r1 == shape.r1 && st.r2 == shape.r2);
     CHECK(seen == shape.buckets);
     CHECK(throws_type<PirError>([&] {
       answer_queries(pc, keys, shape, body.data(), {}, [](std::size_t, std::string&&) {});
@@ -226,6 +236,14 @@ void answers_decrypt_to_the_cells() {
     CHECK(throws_type<PirError>([&] {
       answer_queries(pc, keys, shape, body.data(), queries, [](std::size_t, std::string&&) {}, bad);
     }));
+  }
+  // answer_call also times the setup (context and key loading), inside the same total.
+  {
+    PirStageTimes st;
+    const PirKeyFiles files{ser(cc), mult, autom};
+    const auto again = answer_call(files, tag, shape, body.data(), queries, PirBackend::kCpu, &st);
+    CHECK(again == answers);
+    CHECK(st.setup_ms > 0 && st.expand_ms > 0 && st.stages_ms() <= st.total_ms);
   }
   // Released: the PIR tag is gone, the other tag is intact.
   CHECK(Impl::GetAllEvalMultKeys().count(tag) == 0 &&

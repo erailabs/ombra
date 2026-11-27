@@ -1,6 +1,6 @@
 # Collections and key files
 
-`ombra.collection` is the layer under `Client`: one collection on the server together with the client's keys for it. Most code uses [`Client`](client.md) instead. It also holds the key file handling (`KeyKit`). To back up and check key files from the shell, see [`ombra-keys`](../cli/ombra-keys.md).
+`ombra.collection` is the layer under `Client`: one collection with the client's keys, and the key file handling (`KeyKit`). Most code uses [`Client`](client.md). For key file backup and checks, see [`ombra-keys`](../cli/ombra-keys.md).
 
 ::: ombra.collection
     options:
@@ -16,7 +16,7 @@
 
 ## Range filters
 
-`Client.create_collection(range_fields=...)` and the filter bounds are described in [Filters](../../how-it-works/filters.md#range-fields). These helpers make the cut points.
+See [Filters](../../how-it-works/filters.md#range-fields). These helpers make the cut points.
 
 ::: ombra.ranges.quantile_edges
     options:

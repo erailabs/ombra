@@ -12,4 +12,9 @@ namespace ombra::pir {
 // with other r1 or r2 makes a new device). Not thread-safe; make one per call.
 InnerSums make_gpu_inner_sums();
 
+// The GPU backend of the second-dimension product (PirProductDevice of core/), same life as the
+// hook above: one per call, tables and device made on first use. Returns an empty ciphertext (the
+// CPU does the bucket) if the operands are not at noise scale degree 1.
+SecondDim make_gpu_second_dim();
+
 }  // namespace ombra::pir

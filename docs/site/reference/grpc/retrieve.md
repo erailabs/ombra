@@ -1,8 +1,8 @@
 # Retrieve
 
-Private fetch of the re-rank rows of a client's candidates, so that the server does not learn which rows. The rows are the [record columns](insert-and-delete.md#record-column) stored with the blocks. `Error` is on the [Messages](messages.md) page.
+Private fetch of the re-rank rows of a client's candidates, without the server learning which rows. The rows are the [record columns](insert-and-delete.md#record-column) stored with the blocks. `Error` is on the [Messages](messages.md) page.
 
-The server answers on OpenFHE (BFV, preset `pir_bfv_n8192`). In the CUDA build, the products of the query with the stored rows run on the GPU, and they give the same bytes as OpenFHE. Without a usable GPU, everything runs on the CPU. The answers decrypt, on the client, to the rows of the database that the client asked for; the server does not learn which.
+The server answers on OpenFHE (BFV, preset `pir_bfv_n8192`). The CUDA build runs the products on the GPU with the same bytes as OpenFHE; without a usable GPU everything runs on the CPU.
 
 ## RetrieveRecords
 
@@ -10,28 +10,25 @@ The server answers on OpenFHE (BFV, preset `pir_bfv_n8192`). In the CUDA build, 
 rpc RetrieveRecords(stream RetrieveRecordsRequest) returns (stream RetrieveRecordsResponse)
 ```
 
-Scope: `read`.
+The database of one call is the concatenation of the record columns of the blocks in scope: the listed data clusters, or all of them. Blocks of a cluster are in creation order, clusters in ascending id order. Center blocks hold no records and are never in scope.
 
-The database of one call is the concatenation of the record columns of the blocks in scope. The scope is the listed data clusters, or all data clusters. The blocks of a cluster come in the order they were created, and the clusters in ascending id order. Row i of the database is the i-th row of that concatenation. Center blocks hold no records and are never in scope.
-
-The stream is bidirectional, and its order matters, because the shape of a call (and so the number of queries) depends on the number of rows in scope:
+The order of the stream matters, because the number of queries depends on the rows in scope:
 
 1. The client sends one `RetrieveRecordsStart`.
-2. The server checks the start, the keys and the scope, and answers with one `RetrieveRecordsInfo`, or with an `Error` and the end. The client builds its queries from the Info: it knows `n_rows` and the block layout, and the row index of a candidate is `span.first_row` plus its slot in the block.
-3. The client sends exactly as many messages with a `query` as the shape needs (`shape.n_cts`, computed from the Info the same way the server does). Then it closes its side of the stream (a half-close): the server computes the answers only after that. An extra query is `ERROR_BAD_SEQUENCE`, and so is a stream that ends early.
+2. The server checks the start, keys and scope, and answers with one `RetrieveRecordsInfo`, or an `Error` and the end. The row index of a candidate is `span.first_row` plus its slot in the block.
+3. The client sends exactly as many `query` messages as the shape needs (`shape.n_cts`, computed from the Info as the server does), then half-closes. The server computes only after that. An extra query, or a stream that ends early, is `ERROR_BAD_SEQUENCE`.
 4. The server sends one `RecordAnswer` per bucket, in bucket order, or an `Error` and the end.
 
-The server stores nothing of the call, and logs only counts.
+The server stores nothing of the call and logs only counts.
 
 ### Several nodes
 
-A router whose scope spans several nodes sends one `RetrieveRecordsInfo` per node (`part` 0 to `n_parts` minus 1, in ascending node order). Each part describes the rows of its node only: its own `n_rows`, `n_buckets` and `spans`. The client then sends the queries of part 0, then those of part 1, and so on, each part's count being that part's shape. The answers come part by part in the same order, in bucket order inside each part, and each `RecordAnswer` carries its `part`. A single node always sends one Info with `part` 0 and `n_parts` 1, and its answers carry `part` 0.
+A router whose scope spans several nodes sends one Info per node (`part` 0 to `n_parts` minus 1, ascending node order), each with its own `n_rows`, `n_buckets` and `spans`. The client sends the queries of part 0, then part 1, and so on. Answers come in the same order, each `RecordAnswer` carrying its `part`. A single node sends one Info with `part` 0 and `n_parts` 1.
 
 **RetrieveRecordsRequest** (one per message)
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `api_version` | uint32 | yes | Must be 1. |
 | `start` | `RetrieveRecordsStart` | one of | First message. |
 | `query` | bytes | one of | One serialized ciphertext, at most `LIMIT_MAX_CHUNK_BYTES` (4 MiB). |
 
@@ -50,11 +47,10 @@ A router whose scope spans several nodes sends one `RetrieveRecordsInfo` per nod
 
 Give exactly one of `cluster_ids` and `all_clusters`.
 
-**RetrieveRecordsResponse** (one per message; `api_version` plus one of)
+**RetrieveRecordsResponse** (one per message; one of)
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `api_version` | uint32 | 1. |
 | `info` | `RetrieveRecordsInfo` | First message: the shape the server used. |
 | `answer` | `RecordAnswer` | One per bucket, in bucket order. |
 | `error` | `Error` | Set on failure. |
@@ -76,38 +72,22 @@ Give exactly one of `cluster_ids` and `all_clusters`.
 
 ### What the server checks
 
-| Check | Error |
+A failed check ends the call with an `Error`. An API key limited to another collection fails with `PERMISSION_DENIED`. Checks up to the scope happen before the Info; a query is checked after it, before the first answer.
+
+| Error | Cause |
 | --- | --- |
-| `api_version` is not 1 | `ERROR_UNSUPPORTED_VERSION` |
-| A second `start` | `ERROR_BAD_SEQUENCE` |
-| A `query` before the `start`, more queries than the call needs, or fewer when the stream ends | `ERROR_BAD_SEQUENCE` |
-| A message with no part set | `ERROR_INVALID_ARGUMENT` |
-| Empty `collection`, `key_tag` or `pir_key_tag`, or one that is too long | `ERROR_INVALID_ARGUMENT` |
-| Both or neither of `cluster_ids` and `all_clusters`, or a repeated cluster id | `ERROR_INVALID_ARGUMENT` |
-| More than 4096 cluster ids | `ERROR_SIZE_LIMIT` |
-| The collection does not exist | `ERROR_COLLECTION_NOT_FOUND` |
-| A cluster id at or above the collection's cluster count | `ERROR_INVALID_ARGUMENT` |
-| `m` is 0, `hash_seed` is not 16 bytes, or a `query` is empty | `ERROR_INVALID_ARGUMENT` |
-| `m` above 3000, `n_queries` above 4500, or a `query` above 4 MiB | `ERROR_SIZE_LIMIT` |
-| `key_tag` differs from the collection's | `ERROR_KEY_TAG_MISMATCH` |
-| No retrieval keys stored for the collection | `ERROR_KEYS_MISSING` |
-| The stored retrieval keys carry another tag than `pir_key_tag` | `ERROR_KEY_TAG_MISMATCH` |
-| The stored context is not the preset (BFV, ring dimension 8192, plaintext modulus 786433, the preset's moduli) or is below 128-bit security | `ERROR_INVALID_ARGUMENT` |
-| A block in scope has no record column, or the row sizes differ | `ERROR_BLOCK_MISMATCH` |
-| The scope holds no row at all | `ERROR_INVALID_ARGUMENT` |
-| A non-zero `n_queries` that differs from the shape's, or a row larger than one plaintext | `ERROR_INVALID_ARGUMENT` |
-| A query that is not a ciphertext of the retrieval context, or was made under another key | `ERROR_INVALID_ARGUMENT` |
-
-A failed check ends the call with an `Error` message. An API key limited to another collection fails the call with `PERMISSION_DENIED`. The checks up to the scope happen before the Info is sent; a query is checked after it, but before the first answer.
-
+| `ERROR_UNSUPPORTED_VERSION` | `api_version` is not 1. |
+| `ERROR_BAD_SEQUENCE` | a second `start`; a `query` before the `start`; more queries than the call needs, or fewer when the stream ends. |
+| `ERROR_INVALID_ARGUMENT` | a message with no part set; empty or too long `collection`, `key_tag` or `pir_key_tag`; both or neither of `cluster_ids` and `all_clusters`; a repeated cluster id, or one at or above the cluster count; `m` of 0; `hash_seed` not 16 bytes; an empty `query`; an empty scope; a non-zero `n_queries` that differs from the shape's; a row larger than one plaintext; a query that is not a ciphertext of the retrieval context or was made under another key; a stored context that is not the preset (BFV, ring dimension 8192, plaintext modulus 786433, the preset's moduli) or is below 128-bit security. |
+| `ERROR_SIZE_LIMIT` | more than 4096 cluster ids; `m` above 3000; `n_queries` above 4500; a `query` above 4 MiB. |
+| `ERROR_COLLECTION_NOT_FOUND` | no such collection. |
+| `ERROR_KEY_TAG_MISMATCH` | `key_tag` differs from the collection's, or the stored retrieval keys carry another tag than `pir_key_tag`. |
+| `ERROR_KEYS_MISSING` | no retrieval keys stored for the collection. |
+| `ERROR_BLOCK_MISMATCH` | a block in scope has no record column, or row sizes differ. |
 ### Record columns in scope
 
-Every block in scope must have a record column, and all of them must have the same row size. A block without a record column, or with a different row size, fails with `ERROR_BLOCK_MISMATCH`. A stored column that is malformed fails with `ERROR_INVALID_ARGUMENT`. The row count of a column always equals the id count of its block, because the server checks that when the block is stored.
-
-The blocks of a cluster come in the same order as in the search (`SearchScores`), so a client can map a search candidate (cluster, block number inside the cluster, slot) to its row through the spans.
-
-An empty scope (no block, or only empty ones) is refused with `ERROR_INVALID_ARGUMENT` before the Info: there is nothing to retrieve.
+Every block in scope needs a record column, all with the same row size; otherwise `ERROR_BLOCK_MISMATCH`. A malformed stored column fails with `ERROR_INVALID_ARGUMENT`. Blocks of a cluster are in the same order as in search (`SearchScores`), so a client can map a candidate (cluster, block number, slot) to its row through the spans. An empty scope is refused with `ERROR_INVALID_ARGUMENT` before the Info.
 
 ### Keys
 
-The retrieval keys are public evaluation keys of the client's retrieval key. They are not sent with each call. The client uploads them once with [`UploadKeys`](keys.md#uploadkeys), as the key kinds 4 to 6, and the call names them by (`collection`, `pir_key_tag`). The server loads them for the call under their own tag and removes them again afterwards; the search keys of the collections are not touched. Calls that load keys (including key uploads for search) are serialized on the server, so a retrieval call delays them while it computes.
+The retrieval keys are public evaluation keys. The client uploads them once with [`UploadKeys`](keys.md#uploadkeys) as key kinds 4 to 6, and each call names them by (`collection`, `pir_key_tag`). The server loads them for the call under their own tag and removes them afterwards; the search keys are not touched. Calls that load keys (including search key uploads) are serialized, so a retrieval call delays them while it computes.

@@ -1,6 +1,6 @@
 # Envelope
 
-Every ciphertext, crypto context and public evaluation key crosses the network and is stored on the server inside an envelope. It is a small header around OpenFHE's binary serialization.
+Every ciphertext, crypto context and public evaluation key travels and is stored in an envelope: a header around OpenFHE's binary serialization.
 
 Magic `{{ const("ombra.file_format.MAGIC").decode() }}`. The version is {{ const("ombra.file_format.FORMAT_VERSION") }} for kinds 1 to 3 and {{ const("ombra.file_format.FORMAT_VERSION_SEEDED") }} for kind 4, the seeded ciphertext. A reader refuses a kind that does not match its version.
 
@@ -18,11 +18,11 @@ Magic `{{ const("ombra.file_format.MAGIC").decode() }}`. The version is {{ const
 | . | 8 | payload length $L$ |
 | . | $L$ | payload: OpenFHE binary serialization (kinds 1 to 3) or the seeded layout below (kind 4). The file ends here. |
 
-There is no kind for a secret key, so the secret key cannot travel in an envelope. A reader checks the kind, the preset name and the OpenFHE version against what it expects, and checks the payload length against the bytes present before it allocates anything.
+There is no kind for a secret key. A reader checks kind, preset name and OpenFHE version, and the payload length against the bytes present before allocating.
 
 ## Seeded ciphertext
 
-A seeded ciphertext stores a 32-byte seed in place of the uniformly random half of the ciphertext, so it is about half the size. The server expands the seed back into the full ciphertext when it loads a block, and every kernel sees the same words as for an ordinary one. Payload of kind 4:
+A seeded ciphertext stores a 32-byte seed in place of the uniformly random half, so it is about half the size. The server expands it when loading a block. Payload of kind 4:
 
 | Size | Field |
 | --- | --- |
@@ -43,6 +43,6 @@ A reader refuses an unknown payload version or generator, a size that does not m
 
 ## Compatibility
 
-A collection may hold both kinds of column. The client writes kind 4 when its compiled module is installed and `OMBRA_SEEDED` is not `0`. A client without the module writes kind 2 and refuses to read kind 4.
+A collection may hold both kinds of column. The client writes kind 4 when its compiled module is installed and `OMBRA_SEEDED` is not `0`; without the module it writes kind 2 and refuses to read kind 4.
 
-The Python side is `client/ombra/file_format.py` and the C++ side is `core/include/ombra/core/file_envelope.hpp`. The C++ constants `kEnvelopeVersion` ({{ cpp("core/include/ombra/core/file_envelope.hpp", "kEnvelopeVersion") }}) and `kEnvelopeVersionSeeded` ({{ cpp("core/include/ombra/core/file_envelope.hpp", "kEnvelopeVersionSeeded") }}) match the Python ones.
+Sources: `client/ombra/file_format.py`, `core/include/ombra/core/file_envelope.hpp`. The C++ constants `kEnvelopeVersion` ({{ cpp("core/include/ombra/core/file_envelope.hpp", "kEnvelopeVersion") }}) and `kEnvelopeVersionSeeded` ({{ cpp("core/include/ombra/core/file_envelope.hpp", "kEnvelopeVersionSeeded") }}) match the Python ones.

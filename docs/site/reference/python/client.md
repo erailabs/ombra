@@ -1,6 +1,6 @@
 # Client
 
-`Client` and `AsyncClient` are the entry points of the package. Both run the same client code (keys, encryption, clustering, top-k and re-ranking happen in this process); only the transport differs. The secret key stays in the key file you name in `create_collection` and is never sent anywhere.
+`Client` and `AsyncClient` run the same client code (keys, encryption, clustering, top-k and re-ranking happen in this process); only the transport differs. The secret key stays in the key file named in `create_collection` and is never sent.
 
 ```python
 from ombra import Client
@@ -9,7 +9,7 @@ client = Client("host:443", api_key="...")   # a GPU server (pip install ombra[g
 client = Client.local("./ombra-data")         # in-process CPU server (pip install ombra[local])
 ```
 
-For how to choose between the two, see [Local mode or a server](../../getting-started/local-or-server.md). Deadlines, errors and retries are on [Errors, retries and deadlines](errors-and-retries.md). Return types are on [Results](results.md).
+See [Local mode or a server](../../getting-started/local-or-server.md), [Errors, retries and deadlines](errors-and-retries.md) and [Results](results.md).
 
 ::: ombra.client.Client
     options:

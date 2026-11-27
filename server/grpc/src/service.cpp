@@ -1569,16 +1569,31 @@ grpc::Status OmbraService::run_RetrieveRecords(
   // Computed under the key lock (the key stores are global and are read by tag all through the
   // computation), then written without it, so a slow reader cannot hold up key uploads.
   std::vector<std::string> answers;
+  pir::PirStageTimes stage;
   try {
     std::lock_guard lk(load_mu_);
     // The CUDA build answers through the GPU when one was registered at start-up; otherwise (and
     // in the CPU build) the answer is computed on OpenFHE. The bytes are the same either way.
     answers = pir::answer_call(files, start.pir_key_tag(), shape,
                                scope.column.data() + storage::kRecordColumnHeaderLen, queries,
-                               pir::PirBackend::kGpu);
+                               pir::PirBackend::kGpu, &stage);
   } catch (...) {
     return send_error(classify_current());
   }
+  // Counts and durations only (milliseconds), nothing of the queries, rows or answers.
+  log::info("retrieve_stages", {{"rows", stage.rows},
+                                {"buckets", stage.buckets},
+                                {"n_cts", stage.n_cts},
+                                {"r1", stage.r1},
+                                {"r2", stage.r2},
+                                {"setup_ms", stage.setup_ms},
+                                {"read_ms", stage.read_ms},
+                                {"expand_ms", stage.expand_ms},
+                                {"first_dim_ms", stage.first_dim_ms},
+                                {"second_dim_ms", stage.second_dim_ms},
+                                {"compress_ms", stage.compress_ms},
+                                {"serialize_ms", stage.serialize_ms},
+                                {"total_ms", stage.total_ms}});
   for (std::size_t b = 0; b < answers.size(); ++b) {
     if (ctx->IsCancelled()) return grpc::Status(grpc::StatusCode::CANCELLED, "call cancelled");
     v1::RetrieveRecordsResponse out;
