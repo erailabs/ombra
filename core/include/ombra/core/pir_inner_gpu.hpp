@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "ombra/core/pir_product.hpp"
 #include "ombra/core/plain_search.hpp"  // EncodeTables
 #include "openfhe.h"
 
@@ -29,6 +30,21 @@ std::vector<std::uint64_t> flatten_pir_ciphertexts(
 // is that of `like`, which is what OpenFHE's EvalMult by a plaintext leaves on a BFV ciphertext;
 // ombra_pir_inner_check proves it against OpenFHE.
 lbcrypto::Ciphertext<lbcrypto::DCRTPoly> pir_ciphertext_from_words(
+    const lbcrypto::Ciphertext<lbcrypto::DCRTPoly>& like, const std::uint64_t* words,
+    std::size_t count);
+
+// The tables of PirProductDevice from the crypto parameters of `cc`, for the product of two
+// ciphertexts of the full modulus Q at noise scale degree 1 (OpenFHE then takes level l = number of
+// towers - 1 of HPSPOVERQLEVELED). Checks the security floor. Throws std::invalid_argument unless
+// the scheme is BFV with the HPSPOVERQLEVELED multiplication technique and the tables have the
+// shapes the kernels expect.
+PirProductTables extract_pir_product_tables(const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>& cc);
+
+// The 3-element, coefficient-form total of a GPU second-dimension product as an OpenFHE
+// ciphertext (`words`: [component][tower][coeff], PirProductDevice::out_words() words). The
+// metadata is that of `like` (the second-dimension selector) with noise scale degree 2, which is
+// what EvalMultNoRelin and EvalAdd leave; ombra_pir_product_check proves it against OpenFHE.
+lbcrypto::Ciphertext<lbcrypto::DCRTPoly> pir_product_from_words(
     const lbcrypto::Ciphertext<lbcrypto::DCRTPoly>& like, const std::uint64_t* words,
     std::size_t count);
 
