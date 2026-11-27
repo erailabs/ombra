@@ -102,3 +102,13 @@ if(OMBRA_ENABLE_CUDA AND TARGET ombra_core)
   target_link_libraries(pir_answer_gpu_test PRIVATE ombra_pir_gpu)
   add_test(NAME pir_answer_gpu COMMAND pir_answer_gpu_test)
 endif()
+
+# Per-stage timing of one answer call (not a test, not registered with ctest). With CUDA, the same
+# binary can put the inner sums on the GPU (--gpu).
+add_executable(pir_stage_bench tests/pir_stage_bench.cpp)
+target_compile_options(pir_stage_bench PRIVATE ${_ofhe_flags})
+target_link_libraries(pir_stage_bench PRIVATE ombra_pir_answer)
+if(OMBRA_ENABLE_CUDA AND TARGET ombra_core)
+  target_compile_definitions(pir_stage_bench PRIVATE OMBRA_PIR_BENCH_GPU)
+  target_link_libraries(pir_stage_bench PRIVATE ombra_pir_gpu)
+endif()

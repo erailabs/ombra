@@ -78,14 +78,16 @@ using AnswerSink = std::function<void(std::size_t bucket, std::string&& answer)>
 // PirQueryError for a bad query and PirError for a wrong count. `keys` must be alive.
 void answer_queries(const PirContext& cc, const PirKeys& keys, const PirShape& shape,
                     const std::uint8_t* column_body, const std::vector<std::string>& queries,
-                    const AnswerSink& sink, const InnerSums& inner_sums = nullptr);
+                    const AnswerSink& sink, const InnerSums& inner_sums = nullptr,
+                    PirStageTimes* times = nullptr);
 
 // Same as answer_call (retrieval.hpp) with an explicit inner-sums hook (empty: OpenFHE).
 std::vector<std::string> answer_call_with_hook(const PirKeyFiles& files, const std::string& key_tag,
                                                const PirShape& shape,
                                                const std::uint8_t* column_body,
                                                const std::vector<std::string>& queries,
-                                               const InnerSums& inner_sums);
+                                               const InnerSums& inner_sums,
+                                               PirStageTimes* times = nullptr);
 
 // A GPU backend registers a factory here at start-up (the CUDA build of the server does); the
 // factory makes one InnerSums per call. answer_call with PirBackend::kGpu uses it, and falls back
