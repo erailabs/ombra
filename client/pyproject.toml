@@ -22,7 +22,7 @@ ombra-migrate = "ombra.migrate:main"
 # which is a CPython 3.12 x86-64 Linux build only: do not install both.
 local = ["ombra-openfhe==1.6.1.0", "protobuf>=5,<8", "grpcio-tools>=1.85.3,<2"]
 grpc = ["ombra-openfhe==1.6.1.0", "grpcio>=1.60,<2", "grpcio-tools>=1.85.3,<2"]
-langchain = ["langchain-core>=0.3,<2"]
+langchain = ["langchain-core>=1.8.4,<2"]
 
 [tool.scikit-build]
 wheel.packages = ["ombra"]
