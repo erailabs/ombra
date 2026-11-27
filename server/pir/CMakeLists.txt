@@ -74,7 +74,7 @@ endif()
 # The security floor of core/ is plain C++ over OpenFHE; compiled here so no CUDA library is needed
 # (the CPU search library does the same). A CUDA build links ombra_core, which has it too: the
 # object is compiled once per library, and only this one is linked into the answer.
-add_library(ombra_pir_answer STATIC src/answer.cpp ${_core}/src/security_floor.cpp)
+add_library(ombra_pir_answer STATIC src/answer.cpp src/documents.cpp ${_core}/src/security_floor.cpp)
 target_include_directories(
   ombra_pir_answer PUBLIC include ${_core}/include ${OpenFHE_INCLUDE}
                           ${OpenFHE_INCLUDE}/third-party/include ${OpenFHE_INCLUDE}/core

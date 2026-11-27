@@ -96,7 +96,8 @@ void parser_refuses() {
   Bytes m = make_column(64, 1, 0);
   m[0] = 'X';
   CHECK(bad(m));                            // magic
-  CHECK(bad(make_column(64, 1, 0, 2)));     // version 2
+  CHECK(!bad(make_column(64, 1, 0, 2)));    // version 2 is accepted
+  CHECK(bad(make_column(64, 1, 0, 3)));     // version 3
   CHECK(bad(make_column(64, 1, 0, 0)));     // version 0
   CHECK(bad(make_column(64, 1, 0, 1, 1)));  // reserved != 0
   CHECK(bad(make_column(0, 0, 0)));         // row size 0
