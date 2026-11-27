@@ -69,6 +69,7 @@ RPC_NAMES = {
     "DropAlias",
     "ListAliases",
     "RetrieveRecords",
+    "RetrieveDocuments",
 }
 RPC_KEYS = {"requests", "errors", "latency_ms"}
 LATENCY_KEYS = {"sum", "count", "max"}
