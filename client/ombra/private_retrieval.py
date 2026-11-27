@@ -20,7 +20,7 @@ Row v2 (collections made from this version on) also holds the vector's metadata 
 document's class (16 KiB, 256 KiB, large) and its index in its block's document column of that
 class. So a private search returns metadata with no extra call, and `fetch_documents` reads the
 documents of the final hits with one RetrieveDocuments call per practical class (see
-`retrieve_documents`; design note 0040). Collections made earlier have v1 rows and keep working,
+`retrieve_documents`). Collections made earlier have v1 rows and keep working,
 with empty metadata and no private document fetch.
 
 Stream (see the proto): the client sends Start; the server answers with RetrieveRecordsInfo

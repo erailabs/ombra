@@ -1177,8 +1177,8 @@ class Collection:
         if self.private_retrieval:  # the new generation's rows are made from the exact records
             ev, ei, em, _ed = self._exact_from_blobs(ids)
             exact_rows = {bytes(i): (ev[j], ei[j], em[j]) for j, i in enumerate(ids)}
-            if metadata_bytes is None:  # an older collection moves to v2 rows here
-                metadata_bytes = self.metadata_bytes or pir.DEFAULT_METADATA_BYTES
+            if metadata_bytes is None:  # keep the slot; an older (v1) collection gets the default
+                metadata_bytes = self.metadata_bytes
         g = None if self.stats is None else self.stats.groups
         # a grouped collection stays grouped: same size and method, a new keyed grouping
         grouping = {} if g is None else {"decoy_group_size": g.size, "decoy_grouping": g.method}
