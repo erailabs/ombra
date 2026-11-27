@@ -711,7 +711,8 @@ def _check_rows(pdata, wanted, out, scope, n_parts):
     assert len(got) + out.dropped == len(wanted)
     assert out.asked - out.filled == len(got) + out.dropped
     assert len(got) >= 1
-    for ident, (vec, _ints) in out.rows.items():
+    for ident, row in out.rows.items():
+        vec = row.vector
         assert np.allclose(vec, pdata.expect[ident], atol=1e-6)
 
 
@@ -832,3 +833,152 @@ def test_retrieval_refuses_a_bad_start(cluster, pdata):
     req = _start(pdata, None)
     req.start.collection = "nope"
     assert first(req).error.code == pb.ERROR_COLLECTION_NOT_FOUND
+
+
+# ---- private document fetch through the router ----
+# Small documents (16 KiB class) are stored with every vector; large ones (256 KiB class) only
+# with vectors added near clusters of some nodes, so that at least one node holds no document of
+# that class. All data is synthetic.
+DN = 24
+
+
+def _blob_of(i: int) -> str | bytes:
+    rng = np.random.default_rng(500 + i)
+    if i >= DN:  # the vectors added later: 100 KB, the 256 KiB class
+        return rng.integers(0, 256, 100_000, dtype=np.uint8).tobytes()
+    return f"synthetic small document {i}"
+
+
+@pytest.fixture(scope="module")
+def ddata(cluster, tmp_path_factory):
+    import ombra
+
+    root = tmp_path_factory.mktemp("dclient")
+    rng = np.random.default_rng(41)
+    x = _unit(rng.standard_normal((DN, D)))
+    ids = [f"d{i}" for i in range(DN)]
+    client = ombra.Client(cluster.router.address, insecure=True)
+    client.create_collection(
+        "d",
+        x,
+        ids,
+        key_file=root / "k.key",
+        passphrase="pw",  # noqa: S106
+        preset="fast",
+        n_clusters=CLUSTERS,
+        scrypt_params=(2**4, 8, 1),
+        private_retrieval=True,
+        metadata_bytes=256,
+        metadata=[{"n": i} for i in range(DN)],
+        documents=[_blob_of(i) for i in range(DN)],
+    )
+    d = PData()
+    d.client, d.x, d.ids = client, x, ids
+    d.col = client._core._get("d")[0]
+
+    def layout():
+        owner: dict[int, str] = {}
+        cluster_of: dict[bytes, int] = {}
+        for b in list_blocks(cluster.stub, "d"):
+            if b.cluster_id >= CLUSTERS:
+                continue
+            owner[b.cluster_id] = b.segment.split("/")[0]
+            h, _cols = fetch_block(cluster.stub, "d", b.segment)
+            for i in h.ids:
+                cluster_of[bytes(i)] = b.cluster_id
+        return owner, cluster_of
+
+    owner, cluster_of = layout()
+    nodes = sorted(set(owner.values()))
+    assert len(nodes) >= 2
+    # Large documents go with vectors that sit in the clusters of all nodes but the last one.
+    src = [i for i, n in enumerate(ids) if owner[cluster_of[n.encode()]] in nodes[:-1]]
+    assert len(src) >= 2
+    new_x = _unit(x[src] + 1e-3 * rng.standard_normal((len(src), D)))
+    new_ids = [f"big{j}" for j in range(len(src))]
+    client.insert(
+        "d",
+        new_x,
+        new_ids,
+        metadata=[{"n": DN + j} for j in range(len(src))],
+        documents=[_blob_of(DN + j) for j in range(len(src))],
+    )
+    d.new_x, d.new_ids = new_x, new_ids
+    d.docs = {ids[i]: _blob_of(i) for i in range(DN)}
+    d.docs.update({n: _blob_of(DN + j) for j, n in enumerate(new_ids)})
+    owner, cluster_of = layout()
+    d.owner_of_big = {owner[c] for n, c in cluster_of.items() if n.startswith(b"big")}
+    d.nodes = sorted(set(owner.values()))
+    yield d
+    client.close()
+
+
+def _as_bytes(doc) -> bytes:
+    return doc if isinstance(doc, bytes) else doc.encode()
+
+
+def test_documents_of_both_classes_come_back_from_several_nodes(cluster, ddata):
+    assert len(ddata.owner_of_big) >= 1 and len(ddata.nodes) >= 2
+    seen = set()
+    queries = [(ddata.x[i], ddata.ids[i]) for i in range(0, DN, 3)]
+    queries += list(zip(ddata.new_x, ddata.new_ids, strict=True))
+    for q, _name in queries:
+        hits = ddata.client.search("d", q, k=2, level="strict", fetch_documents=True)
+        for h in hits:
+            assert h.document_status == "fetched"
+            assert _as_bytes(h.document) == _as_bytes(ddata.docs[h.id])  # byte for byte
+            seen.add("big" if h.id.startswith("big") else "small")
+    assert seen == {"big", "small"}
+
+
+def test_a_node_without_documents_of_the_class_is_a_part_with_no_rows(cluster, ddata):
+    # the first private call uploads the retrieval keys
+    ddata.client.search("d", ddata.x[0], k=2, level="strict", fetch_documents=True)
+    pc = ddata.col.kit.pir
+
+    def infos(doc_class):
+        start = pb.RetrieveDocumentsRequest(
+            api_version=1,
+            start=pb.RetrieveDocumentsStart(
+                collection="d",
+                key_tag=ddata.col.kit.key_tag,
+                pir_key_tag=pc.key_tag,
+                m=2,
+                hash_seed=SEED,
+                all_clusters=True,
+                doc_class=doc_class,
+            ),
+        )
+        call = cluster.stub.RetrieveDocuments(iter([start]), timeout=120)
+        first = next(call)
+        assert first.WhichOneof("part") == "info", first
+        out = [first.info]
+        while len(out) < out[0].n_parts:
+            out.append(next(call).info)
+        call.cancel()
+        return out
+
+    got = infos(2)
+    assert len(got) == len(ddata.nodes) and [i.part for i in got] == list(range(len(got)))
+    empty = [i for i in got if i.n_rows == 0]
+    full = [i for i in got if i.n_rows > 0]
+    assert empty and full and not any(i.spans for i in empty)
+    assert all(i.n_buckets == 0 and i.n_planes == 0 for i in empty)
+    assert len(full) == len(ddata.owner_of_big)
+    assert all(i.n_rows > 0 for i in infos(1))  # the small class is on every node
+    # the rows of the other nodes still come back right (the client skipped the empty part)
+    name = ddata.new_ids[0]
+    hits = ddata.client.search("d", ddata.new_x[0], k=2, level="strict", fetch_documents=True)
+    assert _as_bytes(next(h for h in hits if h.id == name).document) == _as_bytes(ddata.docs[name])
+
+
+def test_old_collections_and_get_blob_still_work_through_the_router(cluster, pdata, ddata):
+    # the earlier collection has no document column at all: both classes are absent, nothing breaks
+    hits = pdata.client.search("p", pdata.x[0], k=2, level="strict", fetch_documents=True)
+    assert hits[0].id == pdata.ids[0] and hits[0].document is None
+    wanted, out = _retrieve(pdata, None)
+    _check_rows(pdata, wanted, out, None, len(_nodes_of(pdata, None)))
+    # by-id reads of the documents (GetBlob) work, for both classes
+    for name in (ddata.ids[1], ddata.new_ids[0]):
+        got = ddata.col.get_document(name.encode())
+        assert _as_bytes(got) == _as_bytes(ddata.docs[name])

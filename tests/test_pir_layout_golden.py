@@ -31,3 +31,7 @@ def test_layout_fixture_is_current() -> None:
 
 def test_blake2b_fixture_is_current() -> None:
     assert (GOLDEN / "blake2b.txt").read_text() == _generator().blake2b_text()
+
+
+def test_documents_fixture_is_current() -> None:
+    assert (GOLDEN / "documents.txt").read_text() == _generator().documents_text()

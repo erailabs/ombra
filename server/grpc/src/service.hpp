@@ -108,6 +108,10 @@ class OmbraService final : public ombra::v1::Ombra::Service {
   grpc::Status RetrieveRecords(
       grpc::ServerContext*,
       grpc::ServerReaderWriter<v1::RetrieveRecordsResponse, v1::RetrieveRecordsRequest>*) override;
+  grpc::Status RetrieveDocuments(
+      grpc::ServerContext*,
+      grpc::ServerReaderWriter<v1::RetrieveDocumentsResponse, v1::RetrieveDocumentsRequest>*)
+      override;
 
  private:
   // The RPC bodies; the public overrides check the API key and record metrics around them.
@@ -142,6 +146,9 @@ class OmbraService final : public ombra::v1::Ombra::Service {
   grpc::Status run_RetrieveRecords(
       grpc::ServerContext*,
       grpc::ServerReaderWriter<v1::RetrieveRecordsResponse, v1::RetrieveRecordsRequest>*);
+  grpc::Status run_RetrieveDocuments(
+      grpc::ServerContext*,
+      grpc::ServerReaderWriter<v1::RetrieveDocumentsResponse, v1::RetrieveDocumentsRequest>*);
   // OK, or PERMISSION_DENIED if the call's API key is scoped to another collection (auth.hpp).
   grpc::Status check_collection(grpc::ServerContext* ctx, std::string_view name);
   template <class Resp, class Fn>

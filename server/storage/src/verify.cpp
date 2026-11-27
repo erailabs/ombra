@@ -315,6 +315,26 @@ void verify_data_dir(const std::string& root, VerifyReport& r, const VerifyOptio
     }
   }
 
+  // ---- Document columns: optional, one file per block, next to the record column ----
+  for (const auto& s : segs) {
+    if (!is_valid_segment_name(s.file)) continue;
+    const std::string dname = doc_file_name(s.file);
+    record_known.insert(dname);
+    const std::string path = root + "/records/" + dname;
+    if (!exists(path)) continue;  // a block without document columns
+    try {
+      for (const auto& kv : read_doc_file(path)) {
+        const auto n = parse_doc_column(kv.second).n_rows;
+        if (n > s.n_vectors)
+          throw RecordColumnError("document column has " + std::to_string(n) +
+                                  " rows, the block has " + std::to_string(s.n_vectors) + " slots");
+      }
+      ++r.record_files;
+    } catch (const std::exception& e) {
+      if (!is_missing_error(e)) add(r, Severity::Corrupt, "document", dname, e.what());
+    }
+  }
+
   // ---- Blobs ----
   for (const auto& b : blobs) {
     blob_known.insert(b.file);

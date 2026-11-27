@@ -89,6 +89,10 @@ class Node(pbg.OmbraServicer):
 
         yield from self.srv.RetrieveRecords(logged())
 
+    def RetrieveDocuments(self, request_iterator, context):
+        self._auth(context)
+        yield from self.srv.RetrieveDocuments(request_iterator)
+
 
 for _n in (
     "CreateCollection GetCollection ListCollections DropCollection Delete ListBlocks DeleteBlobs"

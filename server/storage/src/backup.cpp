@@ -176,6 +176,9 @@ void attempt(const std::string& root, const std::string& out, BackupReport& rep)
       const std::string rec = record_file_name(items[i].name);
       std::error_code ec;
       if (fs::exists(root + "/records/" + rec, ec)) items.push_back({"records", rec});
+      // And the document columns, likewise.
+      const std::string doc = doc_file_name(items[i].name);
+      if (fs::exists(root + "/records/" + doc, ec)) items.push_back({"records", doc});
     }
   }
   rlimit lim{};

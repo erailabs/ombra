@@ -599,11 +599,17 @@ def _once_documents(
             call._ended = True
             return out
         parts = _plan_document_parts(infos, wanted, m, seed, size, rng, out)
-        for doc, plan, _rows in parts:
+        for part in parts:
+            if part is None:  # a node with no document of the class: no queries for it
+                continue
+            doc, plan, _rows = part
             for q in pc.with_shape(doc.shape).build_queries(plan):
                 call.query(q)
         call.done_writing()  # the server answers after the half-close
-        for p, (doc, plan, rows) in enumerate(parts):
+        for p, part in enumerate(parts):
+            if part is None:
+                continue
+            doc, plan, rows = part
             answers: list[bytes] = []
             for plane in range(doc.planes):
                 for b in range(doc.shape.buckets):
@@ -639,8 +645,13 @@ def _plan_document_parts(
     size: int,
     rng: random.Random,
     out: DocOutcome,
-) -> list[tuple[pir.DocShape, pir.BatchPlan, dict[bytes, int]]]:
-    """One shape and plan per part. A document goes to the part whose spans hold its cluster."""
+) -> list[tuple[pir.DocShape, pir.BatchPlan, dict[bytes, int]] | None]:
+    """One shape and plan per part, None for a part with n_rows 0. A document goes to the part
+    whose spans hold its cluster.
+
+    A node that holds no document of the class sends an Info with n_rows 0 and no answers (the
+    router forwards it as a part of its own). That depends on the stored data only, never on the
+    query, so skipping it keeps the view of two different queries identical."""
     owner: dict[int, int] = {}
     for p, info in enumerate(infos):
         for sp in info.spans:
@@ -653,11 +664,16 @@ def _plan_document_parts(
         else:
             per_part[p].append(w)
     planes, _row = pir.plane_layout(size)
-    parts = []
+    parts: list[tuple[pir.DocShape, pir.BatchPlan, dict[bytes, int]] | None] = []
     for p, info in enumerate(infos):
         spans = list(info.spans)
         total = sum(int(s.n_rows) for s in spans)
         n = int(info.n_rows)
+        if n == 0:
+            if info.n_buckets or info.n_planes or total:
+                raise CollectionError(0, "the server describes a database that does not fit")
+            parts.append(None)
+            continue
         if (
             not 1 <= n <= MAX_ROWS
             or info.row_size != size

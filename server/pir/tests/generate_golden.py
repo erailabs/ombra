@@ -3,7 +3,7 @@
 and BLAKE2b from hashlib. tests/test_pir_layout_golden.py regenerates them and compares, so the
 checked-in files cannot drift from the client.
 
-    python server/pir/tests/generate_golden.py   # rewrites the two files in golden/
+    python server/pir/tests/generate_golden.py   # rewrites the files in golden/
 
 Synthetic data only. Line formats are documented in the C++ test that reads them.
 """
@@ -27,6 +27,15 @@ SHAPE_CASES = [
     (500, 3, 3200, b"\xff" * 16),
     (700, 1, 6400, b"ombra-pir-golden!"[:16]),
     (6000, 2000, 6400, b"many-buckets-128"),  # 3000 buckets, 2 query ciphertexts
+]
+# (doc_class, n_rows, m, seed): the planes of the document classes. Class 2 has 14 planes (the last
+# one is the 9,216-byte tail zero padded to 19,456); 0 rows is the one padding row of zeros.
+DOC_CASES = [
+    (1, 3, 2, b"0123456789abcdef"),
+    (1, 0, 1, b"\x00" * 16),
+    (2, 3, 2, bytes(range(16))),
+    (2, 5, 3, b"\xff" * 16),
+    (2, 0, 1, b"ombra-pir-golden!"[:16]),
 ]
 HASH_CASES = [(b"0123456789abcdef", 3), (bytes(range(16)), 7), (b"\xaa" * 16, 4500)]
 COEFF_LENGTHS = [0, 1, 7, 64, 1000, 19456]
@@ -88,6 +97,34 @@ def layout_text() -> str:
     return "\n".join(out) + "\n"
 
 
+def _doc_row(r: int, size: int) -> bytes:
+    """Synthetic document r of a class: a pattern that differs per row and per byte."""
+    return bytes((r * 131 + j * 7 + 3) % 256 for j in range(size))
+
+
+def documents_text() -> str:
+    """Per case: the shape shared by the planes and the BLAKE2b-256 of every plane's database
+    (the chunk p of each row, zero padded, rows back to back), from `ombra.pir.plane_chunk`."""
+    sys.path.insert(0, str(HERE.parents[2] / "client"))
+    from ombra import pir
+
+    out = []
+    for cls, n_rows, m, seed in DOC_CASES:
+        size = pir.DOC_CLASS_SIZES[cls]
+        rows = [_doc_row(r, size) for r in range(n_rows)] or [bytes(size)]
+        doc = pir.make_doc_shape(len(rows), m, size, seed)
+        s = doc.shape
+        out.append(f"doc {cls} {size} {n_rows} {m} {seed.hex()}")
+        out.append(
+            f"f {doc.planes} {s.row_size} {s.n_rows} {s.buckets} {s.n_cts} {s.r1} {s.r2} "
+            f"{s.rows_per_pt}"
+        )
+        for p in range(doc.planes):
+            body = b"".join(pir.plane_chunk(r, p, size) for r in rows)
+            out.append(f"p {p} {hashlib.blake2b(body, digest_size=32).hexdigest()}")
+    return "\n".join(out) + "\n"
+
+
 def blake2b_text() -> str:
     out = []
     for key_len in (16, 1, 64):
@@ -103,6 +140,7 @@ def write() -> None:
     GOLDEN.mkdir(exist_ok=True)
     (GOLDEN / "layout.txt").write_text(layout_text())
     (GOLDEN / "blake2b.txt").write_text(blake2b_text())
+    (GOLDEN / "documents.txt").write_text(documents_text())
 
 
 if __name__ == "__main__":

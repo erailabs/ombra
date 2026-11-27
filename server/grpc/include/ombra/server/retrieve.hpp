@@ -16,6 +16,10 @@ namespace ombra::server {
 // the scope is empty, so the node and the router share this text.
 inline constexpr const char* kEmptyScopeMessage = "the scope has no records";
 
+// A RetrieveDocuments request as the RetrieveRecords validator takes it: the same checks apply to
+// the start (the document class is checked by the caller) and to the queries.
+v1::RetrieveRecordsRequest as_records_request(const v1::RetrieveDocumentsRequest& d);
+
 // Checks one RetrieveRecordsStart: names, scope (exactly one of a cluster list or all clusters;
 // distinct ids, each below cluster_count when it is non-zero), m, the 16-byte seed, the query
 // count.
