@@ -1,12 +1,12 @@
 # ombra-migrate
 
-A client tool, not a server tool: it holds your key files, so it runs where your application runs. It moves a collection to a new embedding model, preset or key set with no downtime. The steps and their meaning are on [Migrating a collection](../../operations/migration.md). `python -m ombra.migrate` is the same.
+A client tool that moves a collection to a new embedding model, preset or key set with no downtime. Steps: [Migrating a collection](../../operations/migration.md). `python -m ombra.migrate` is the same.
 
 ```text
 ombra-migrate STEP [--state FILE] [--address HOST:PORT | --local DIR] [options]
 ```
 
-`STEP` is `plan`, `start`, `backfill`, `verify`, `switch`, `finish`, `abort` or `status`. The API key comes from `OMBRA_API_KEY`, the passphrase of the old key file from `OMBRA_PASSPHRASE` and that of the new key file from `OMBRA_TARGET_PASSPHRASE`. Without those variables it asks in a terminal. The tool never takes a passphrase as an argument.
+`STEP` is `plan`, `start`, `backfill`, `verify`, `switch`, `finish`, `abort` or `status`. The API key comes from `OMBRA_API_KEY`, the old key file's passphrase from `OMBRA_PASSPHRASE`, the new one's from `OMBRA_TARGET_PASSPHRASE`; otherwise it asks in a terminal. It never takes a passphrase as an argument.
 
 | Option | Steps | Default | Description |
 | --- | --- | --- | --- |
@@ -36,9 +36,6 @@ ombra-migrate STEP [--state FILE] [--address HOST:PORT | --local DIR] [options]
 ```bash
 ombra-migrate plan --address ombra.example.com:443 --source docs-v1 \
     --source-key-file docs-v1.key --target-key-file docs-v2.key \
-    --alias docs --filter-fields lang --embedder mypkg.embed:encode --model "model-b"
-ombra-migrate start    --address ombra.example.com:443 --embedder mypkg.embed:encode
-ombra-migrate backfill --address ombra.example.com:443 --embedder mypkg.embed:encode
-ombra-migrate verify   --address ombra.example.com:443
-ombra-migrate switch   --address ombra.example.com:443
+    --alias docs --embedder mypkg.embed:encode --model "model-b"
+ombra-migrate start|backfill|verify|switch --address ombra.example.com:443 [--embedder mypkg.embed:encode]
 ```

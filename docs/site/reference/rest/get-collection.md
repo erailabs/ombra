@@ -2,11 +2,9 @@
 
 `GET /v1/collections/{name}`
 
-Returns the statistics of one collection. Scope: `read`. Same as gRPC `GetCollection`.
+Scope: `read`. Same as gRPC `GetCollection`.
 
-If `{name}` is an [alias](../../operations/migration.md#aliases), it answers for the collection the alias points at and `name` in the answer is the real name. There are no REST routes to create, switch or drop aliases yet; use gRPC or the Python client.
-
-A key limited to one collection gets `403` for any other name, whether the collection exists or not.
+An [alias](../../operations/migration.md#aliases) answers for its target, with the real name in `name`. There are no REST routes for aliases; use gRPC or the Python client. A key limited to one collection gets `403` for any other name, whether it exists or not.
 
 ## Parameters
 
@@ -32,8 +30,6 @@ A key limited to one collection gets `403` for any other name, whether the colle
 | `disk_bytes` | number | Size of the collection's segment files, key files and blobs. It leaves out the catalog and the write-ahead log. |
 | `blob_count` | number | Blobs stored. |
 | `blob_bytes` | number | Bytes of blobs stored. |
-
-Nothing in the answer comes from the data itself.
 
 ```json
 {
@@ -65,10 +61,3 @@ Nothing in the answer comes from the data itself.
 | 503 | The server is shutting down, or its disk is full. |
 
 See [Errors](index.md#errors) for the full table.
-
-## Example
-
-```bash
-curl -s http://127.0.0.1:8080/v1/collections/docs \
-  -H "Authorization: Bearer $OMBRA_KEY"
-```

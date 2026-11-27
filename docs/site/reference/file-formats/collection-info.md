@@ -1,12 +1,10 @@
 # Collection info
 
-A small encrypted record that says which embedding model a collection was built for (see [Migrating a collection](../../operations/migration.md)). Magic `OINF`, version 1.
-
-It is a record blob (kind 1) under the reserved id `\x00ombra/info`, sealed like the cluster statistics, so the server sees only a blob of the smallest size. See [Blobs](blobs.md).
+An encrypted record of the embedding model a collection was built for (see [Migrating a collection](../../operations/migration.md)). Magic `OINF`, version 1. It is a record blob (kind 1) under the reserved id `\x00ombra/info`, so the server sees only a blob of the smallest size. See [Blobs](blobs.md).
 
 ## Layout
 
-The plaintext, which only the client reads:
+The plaintext, read only by the client:
 
 | Size | Field |
 | --- | --- |

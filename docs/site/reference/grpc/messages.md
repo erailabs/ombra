@@ -1,6 +1,6 @@
 # Shared messages
 
-Messages used by more than one method. Messages that belong to one method are on that method's page. Every stored message carries `api_version`, which must be 1 (see [Limits](index.md#limits)).
+Messages used by more than one method. Every stored message carries `api_version`, which must be 1.
 
 ## Error
 
@@ -11,7 +11,7 @@ Messages used by more than one method. Messages that belong to one method are on
 
 ## FilterField
 
-One filter field. The server sees the count of fields and values, never names. A one-hot column per value is stored for every vector.
+The server sees counts of fields and values, never names. A one-hot column per value is stored for every vector.
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -50,4 +50,4 @@ The query ciphertext of a collection carries `dimension + sum(cardinality)` entr
 
 ## Enums
 
-`Limit` is on the [index](index.md#limits) and `ErrorCode` in [Errors](index.md#errors). `KeyKind` is on the [Keys](keys.md#keykind) page, `BlobKind` on the [Blobs](blobs.md#blobkind) page.
+`Limit` and `ErrorCode` are on the [index](index.md#limits). `KeyKind`: [Keys](keys.md#keykind). `BlobKind`: [Blobs](blobs.md#blobkind).

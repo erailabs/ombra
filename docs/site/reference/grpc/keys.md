@@ -1,28 +1,21 @@
 # Keys
 
-Upload the public evaluation keys of a collection. There is no kind for a secret key, and none will be added.
+There is no kind for a secret key, and none will be added.
 
 ## KeyKind
 
-`KEY_KIND_CONTEXT`, `KEY_KIND_EVAL_MULT` and `KEY_KIND_AUTOMORPHISM` for search, and `KEY_KIND_PIR_CONTEXT`, `KEY_KIND_PIR_EVAL_MULT` and `KEY_KIND_PIR_AUTOMORPHISM` for private record retrieval (and `KEY_KIND_UNSPECIFIED`, which is 0).
-
-The values 4 to 6 are `KEY_KIND_PIR_CONTEXT`, `KEY_KIND_PIR_EVAL_MULT` and `KEY_KIND_PIR_AUTOMORPHISM`. They are the public evaluation keys of the client's retrieval key, for [`RetrieveRecords`](retrieve.md). They are uploaded with this same call, not with a separate method, and stored per collection.
+`KEY_KIND_CONTEXT`, `KEY_KIND_EVAL_MULT` and `KEY_KIND_AUTOMORPHISM` for search. Values 4 to 6, `KEY_KIND_PIR_CONTEXT`, `KEY_KIND_PIR_EVAL_MULT` and `KEY_KIND_PIR_AUTOMORPHISM`, are the public evaluation keys of the client's retrieval key, for [`RetrieveRecords`](retrieve.md), stored per collection. `KEY_KIND_UNSPECIFIED` is 0.
 
 ## UploadKeys
-
-Uploads the public evaluation keys in chunks. `kind` says which file the bytes belong to.
 
 ```proto
 rpc UploadKeys(stream UploadKeysChunk) returns (UploadKeysResponse)
 ```
 
-Scope: `write`.
-
 **UploadKeysChunk** (one per message)
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `api_version` | uint32 | yes | Must be 1. |
 | `collection` | string | first chunk | Collection name. |
 | `kind` | `KeyKind` | yes | Which key file the bytes belong to. |
 | `offset` | uint64 | yes | Byte offset in this key file. |
@@ -37,4 +30,4 @@ Scope: `write`.
 
 Errors: `ERROR_COLLECTION_NOT_FOUND`, `ERROR_INVALID_ARGUMENT` (the context is not the collection's preset's context, or a key file has a size no key of the preset has), `ERROR_KEY_TAG_MISMATCH`, `ERROR_UNSUPPORTED_VERSION`, `ERROR_SIZE_LIMIT`, `ERROR_BAD_SEQUENCE`, `ERROR_STORAGE_FULL`.
 
-Notes: one upload carries exactly one complete key set: the three search kinds, or the three retrieval kinds. Mixing the two, or sending a partial set, is refused with `ERROR_INVALID_ARGUMENT` and stores nothing. Retrieval files are enveloped with the preset `pir_bfv_n8192` (not the collection's preset), are stored beside the search keys and replace the previous retrieval set. Per-file size limits for retrieval keys: context 1 MiB, EvalMult key 16 MiB, automorphism keys 256 MiB (`ERROR_SIZE_LIMIT`). Chunks are at most 4 MiB. Insert and search fail with `ERROR_KEYS_MISSING` until the keys are uploaded.
+Notes: one upload is exactly one complete key set, the three search kinds or the three retrieval kinds. A mix or a partial set is `ERROR_INVALID_ARGUMENT` and stores nothing. Retrieval files use the preset `pir_bfv_n8192` (not the collection's), sit beside the search keys and replace the previous retrieval set. Retrieval size limits per file: context 1 MiB, EvalMult key 16 MiB, automorphism keys 256 MiB (`ERROR_SIZE_LIMIT`). Insert and search fail with `ERROR_KEYS_MISSING` until keys are uploaded.

@@ -2,20 +2,16 @@
 
 ## Search
 
-One bidirectional stream per query, in two rounds. The query ciphertext is sent and expanded once.
-
 ```proto
 rpc Search(stream SearchRequest) returns (stream SearchResponse)
 ```
 
-Scope: `read`.
-
 Flow:
 
-1. The client sends a `SearchStart` with the collection, the key tag, the query as one envelope and `filter_leaves`, the sum of the filter fields' cardinalities. The server checks `filter_leaves` against the collection's spec.
-2. The server answers with `SearchCenterScores`: one score ciphertext per block of cluster centers. The client decrypts these and picks clusters.
-3. The client sends `SearchChosen` with the cluster ids, real and decoy ones mixed so the server cannot tell them apart. The server answers with `SearchScores` messages, the last one with `last` set. Each score slot holds `score + lambda * c`, where `c` counts the filter fields a vector fails. A selective filter may need more clusters. The client can then send further `SearchChosen` messages on the same stream, and each reuses the expansion.
-4. The client half-closes the stream to end it.
+1. The client sends a `SearchStart`. The server checks `filter_leaves` against the spec. The query is expanded once.
+2. The server answers with `SearchCenterScores`: one score ciphertext per block of cluster centers. The client decrypts them and picks clusters.
+3. The client sends `SearchChosen` with real and decoy cluster ids mixed. The server answers with `SearchScores` messages, the last with `last` set. Each slot holds `score + lambda * c`, where `c` counts the filter fields a vector fails. The client may send further `SearchChosen` messages on the same stream; each reuses the expansion.
+4. The client half-closes to end the stream.
 
 **SearchRequest** (one per message; one of)
 
@@ -68,6 +64,6 @@ Errors: `ERROR_COLLECTION_NOT_FOUND`, `ERROR_KEYS_MISSING`, `ERROR_KEY_TAG_MISMA
 
 Notes:
 
-- `SearchScores.ids` lists the ids in slot order, tombstoned slots included, so the client drops the deleted ones.
-- `block_sizes` makes each answer describe itself, because blocks may change between answers. A router's nodes may order blocks differently.
-- Searches that are running when an alias moves finish on the old collection. See [Aliases](aliases.md).
+- The client drops tombstoned slots from `ids`.
+- `block_sizes` makes each answer describe itself, because blocks may change between answers and a router's nodes may order blocks differently.
+- Running searches finish on the old collection when an alias moves. See [Aliases](aliases.md).

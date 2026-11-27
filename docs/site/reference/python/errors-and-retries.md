@@ -1,26 +1,26 @@
 # Errors, retries and deadlines
 
-Every failed server call raises a subclass of `OmbraError`, and the client repeats the calls that are safe to repeat, within a deadline. These apply to `Client("host:port")`. Local mode has no network and makes one attempt per call.
+Applies to `Client("host:port")`. Local mode makes one attempt per call.
 
 ## Deadlines
 
-Every call to a server has a deadline, and the deadline bounds the whole call. For a stream, such as a search or an upload, it bounds the entire stream. The defaults are 30 s for small reads (`GetCollection`, `ListCollections`, `ListBlocks`), 120 s for other calls with one request and one answer, 300 s for one blob, and 1800 s for `Insert`, `UploadKeys`, `ReplaceBlock`, `GetBlock` and `Search`. Change them in the constructor of [`Client`](client.md): `timeout` replaces the 120 s value, `stream_timeout` replaces the 1800 s value, and `deadlines={"Search": 600}` sets single calls by their gRPC name.
+The deadline bounds the whole call, and a whole stream for a search or upload. Defaults: 30 s for small reads (`GetCollection`, `ListCollections`, `ListBlocks`), 120 s for other single-answer calls, 300 s for one blob, 1800 s for `Insert`, `UploadKeys`, `ReplaceBlock`, `GetBlock` and `Search`. In the [`Client`](client.md) constructor, `timeout` replaces 120 s, `stream_timeout` replaces 1800 s, and `deadlines={"Search": 600}` sets single calls by gRPC name.
 
 ## Errors
 
-Every failed server call raises a subclass of `ombra.OmbraError`. It has three attributes:
+Every failed server call raises a subclass of `ombra.OmbraError` with:
 
 - `retryable`: `True` if repeating the call may work.
 - `grpc_status`: the gRPC status name, such as `"UNAVAILABLE"`, or `None` when the server answered with an Ombra error code.
 - `error_code`: the `ombra.v1` `ErrorCode` number, or `None` for a transport failure.
 
-`ServerUnavailableError` (UNAVAILABLE), `DeadlineExceededError` and `ResourceExhaustedError` are retryable. Everything else is not, for example `NotFoundError`, `InvalidArgumentError`, `PermissionDeniedError`, `UnauthenticatedError`, `KeyTagMismatchError` and `PresetMismatchError`. The full list is below. `CollectionError` and `BlobStoreError` still exist; the errors that name an Ombra error code are also instances of them, so existing `except` clauses keep working. Messages hold the call name and the codes, never ids, vectors, scores or ciphertext bytes.
+`ServerUnavailableError` (UNAVAILABLE), `DeadlineExceededError` and `ResourceExhaustedError` are retryable. Others are not, for example `NotFoundError`, `InvalidArgumentError`, `PermissionDeniedError`, `UnauthenticatedError`, `KeyTagMismatchError` and `PresetMismatchError`. `CollectionError` and `BlobStoreError` still exist; errors that name an Ombra error code are also instances of them. Messages hold the call name and codes, never ids, vectors, scores or ciphertext bytes.
 
 ## Retries
 
 The client retries a failed call when its error is retryable and a repeat is safe: `GetCollection`, `ListCollections`, `ListBlocks`, `GetBlock`, `GetBlob`, `Search`, `Delete`, `PutBlob`, `DeleteBlobs` and `UploadKeys`. `CreateCollection` is repeated too; if the repeat finds the collection already there, it counts as success only when the stored settings are identical. `Insert`, `ReplaceBlock` and `DropCollection` are never retried, so a lost answer shows up as an error you handle yourself. Before each retry the client waits a random time between zero and `min(max_delay, base_delay * 2**(attempt - 1))`.
 
-A search whose stream breaks opens a new stream and sends the same query and the same cluster choices again, in the same order. It never draws new decoys, because two decoy sets for one query would show the server which clusters are real.
+A search whose stream breaks opens a new stream and sends the same query and cluster choices again, in the same order, never new decoys (two decoy sets would show which clusters are real).
 
 Set the policy with `Client(..., retry=RetryPolicy(...))`:
 
