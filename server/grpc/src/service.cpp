@@ -1542,20 +1542,19 @@ grpc::Status OmbraService::run_RetrieveRecords(
     return send_error(classify_current());
   }
   // Counts and durations only (milliseconds), nothing of the queries, rows or answers.
-  log::info("retrieve_stages",
-            {{"rows", stage.rows},
-             {"buckets", stage.buckets},
-             {"n_cts", stage.n_cts},
-             {"r1", stage.r1},
-             {"r2", stage.r2},
-             {"setup_ms", stage.setup_ms},
-             {"read_ms", stage.read_ms},
-             {"expand_ms", stage.expand_ms},
-             {"first_dim_ms", stage.first_dim_ms},
-             {"second_dim_ms", stage.second_dim_ms},
-             {"compress_ms", stage.compress_ms},
-             {"serialize_ms", stage.serialize_ms},
-             {"total_ms", stage.total_ms}});
+  log::info("retrieve_stages", {{"rows", stage.rows},
+                                {"buckets", stage.buckets},
+                                {"n_cts", stage.n_cts},
+                                {"r1", stage.r1},
+                                {"r2", stage.r2},
+                                {"setup_ms", stage.setup_ms},
+                                {"read_ms", stage.read_ms},
+                                {"expand_ms", stage.expand_ms},
+                                {"first_dim_ms", stage.first_dim_ms},
+                                {"second_dim_ms", stage.second_dim_ms},
+                                {"compress_ms", stage.compress_ms},
+                                {"serialize_ms", stage.serialize_ms},
+                                {"total_ms", stage.total_ms}});
   for (std::size_t b = 0; b < answers.size(); ++b) {
     if (ctx->IsCancelled()) return grpc::Status(grpc::StatusCode::CANCELLED, "call cancelled");
     v1::RetrieveRecordsResponse out;

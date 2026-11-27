@@ -433,8 +433,7 @@ std::vector<std::string> answer_call_with_hook(const PirKeyFiles& files, const s
                                                const PirShape& shape,
                                                const std::uint8_t* column_body,
                                                const std::vector<std::string>& queries,
-                                               const InnerSums& inner_sums,
-                                               PirStageTimes* times) {
+                                               const InnerSums& inner_sums, PirStageTimes* times) {
   const auto call_start = Clock::now();
   const PirContext cc = read_pir_context(files.context);
   PirKeys keys(cc, files.eval_mult, files.automorphism, key_tag, shape);

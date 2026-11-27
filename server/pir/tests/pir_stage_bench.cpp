@@ -164,9 +164,10 @@ int main(int argc, char** argv) {
                          {"compression", &PirStageTimes::compress_ms},
                          {"serialization", &PirStageTimes::serialize_ms}};
     const double total = med(&PirStageTimes::total_ms);
-    std::printf("\nrows=%zu row_size=%zu m=%u buckets=%zu n_cts=%zu r1=%zu r2=%zu backend=%s reps=%zu\n",
-                n_rows, row_size, m, shape.buckets, shape.n_cts, shape.r1, shape.r2,
-                gpu ? "gpu-inner" : "cpu", reps);
+    std::printf(
+        "\nrows=%zu row_size=%zu m=%u buckets=%zu n_cts=%zu r1=%zu r2=%zu backend=%s reps=%zu\n",
+        n_rows, row_size, m, shape.buckets, shape.n_cts, shape.r1, shape.r2,
+        gpu ? "gpu-inner" : "cpu", reps);
     std::printf("%-22s %12s %8s\n", "stage", "median ms", "% call");
     double accounted = 0;
     for (const auto& r : table) {
