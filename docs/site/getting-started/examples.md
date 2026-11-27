@@ -16,8 +16,12 @@ The scripts are in the `examples/` folder of the repository. The local ones need
 
 ```python
 store = OmbraVectorStore.from_texts(
-    texts,
-    MiniLM(),  # your Embeddings subclass; vectors must be unit length
+    [
+        "The cat sat on the warm windowsill.",
+        "Interest rates rose again this quarter.",
+        "The central bank raised its policy rate.",
+    ],
+    MiniLM(),
     client=Client.local(workdir / "server"),
     collection_name="notes",
     key_file=workdir / "notes.key",  # holds the secret key: back it up, never share it
@@ -37,11 +41,12 @@ To use a server, pass a `Client(...)` for a server instead of `Client.local(...)
 store = OmbraVectorStore(
     local_path=workdir / "server",
     collection_name="notes",
-    key_file=workdir / "notes.key",
+    key_file=workdir / "notes.key",  # holds the secret key: back it up, never share it
     passphrase="change this passphrase",
 )
 store.add([TextNode(text=t, embedding=v) for t, v in zip(texts, vectors, strict=True)])
-result = store.query(VectorStoreQuery(query_embedding=question, similarity_top_k=2))
+question = model.encode(["What did the central bank do?"], normalize_embeddings=True)[0]
+result = store.query(VectorStoreQuery(query_embedding=question.tolist(), similarity_top_k=2))
 ```
 
 To use a server, pass `client=Client(...)` instead of `local_path`. Filters, scores, deleting by `ref_doc_id` and unsupported features are in the [llama-index-vector-stores-ombra README](https://github.com/erailabs/ombra/blob/main/integrations/llama-index-vector-stores-ombra/README.md).
