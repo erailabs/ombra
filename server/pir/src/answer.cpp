@@ -322,8 +322,8 @@ class Answerer {
   }
 
   std::string answer_bucket(const std::map<std::size_t, Ciphertext<DCRTPoly>>& sel,
-                            std::size_t base, std::size_t bucket,
-                            const InnerSums& hook = nullptr) const {
+                            std::size_t base, std::size_t bucket, const InnerSums& hook = nullptr,
+                            const SecondDim& second = nullptr) const {
     const auto& rows = s_.contents[bucket];
     auto t0 = Clock::now();
     std::vector<Ciphertext<DCRTPoly>> hooked;
@@ -336,7 +336,16 @@ class Answerer {
     }
     if (hook) lap(t0, &PirStageTimes::first_dim_ms);
     Ciphertext<DCRTPoly> total;
-    for (std::size_t b = 0; b < s_.r2; ++b) {
+    bool total_done = false;
+    if (hook && second) {
+      std::vector<Ciphertext<DCRTPoly>> sel2;
+      sel2.reserve(s_.r2);
+      for (std::size_t b = 0; b < s_.r2; ++b) sel2.push_back(sel.at(base + s_.r1 + b));
+      total = second(cc_, sel2, hooked);  // empty: the CPU loop below does the bucket
+      total_done = static_cast<bool>(total);
+      if (total_done) lap(t0, &PirStageTimes::second_dim_ms);
+    }
+    for (std::size_t b = 0; b < s_.r2 && !total_done; ++b) {
       Ciphertext<DCRTPoly> inner;
       if (hook) {
         inner = hooked[b];
@@ -375,7 +384,8 @@ class Answerer {
 
 void answer_queries(const PirContext& cc, const PirKeys& keys, const PirShape& shape,
                     const std::uint8_t* column_body, const std::vector<std::string>& queries,
-                    const AnswerSink& sink, const InnerSums& inner_sums, PirStageTimes* times) {
+                    const AnswerSink& sink, const InnerSums& inner_sums, PirStageTimes* times,
+                    const SecondDim& second_dim) {
   const auto call_start = Clock::now();
   if (queries.size() != shape.n_cts) throw PirError("wrong number of query ciphertexts");
   if (keys.tag().empty()) throw PirKeyTagMismatch("no retrieval keys are loaded");
@@ -401,7 +411,8 @@ void answer_queries(const PirContext& cc, const PirKeys& keys, const PirShape& s
     if (times) times->expand_ms += ms_since(t_exp);
     for (std::size_t slot = 0; slot < nb; ++slot) {
       const std::size_t bucket = c * shape.per_ct + slot;
-      sink(bucket, a.answer_bucket(sel, slot * shape.coeffs_per_bucket(), bucket, inner_sums));
+      sink(bucket,
+           a.answer_bucket(sel, slot * shape.coeffs_per_bucket(), bucket, inner_sums, second_dim));
     }
   }
   if (times) times->total_ms = ms_since(call_start);
@@ -421,6 +432,7 @@ namespace {
 
 std::mutex g_factory_mu;
 InnerSumsFactory g_factory;
+SecondDimFactory g_second_factory;
 
 }  // namespace
 
@@ -429,11 +441,17 @@ void set_gpu_inner_sums_factory(InnerSumsFactory factory) {
   g_factory = std::move(factory);
 }
 
+void set_gpu_second_dim_factory(SecondDimFactory factory) {
+  std::lock_guard lk(g_factory_mu);
+  g_second_factory = std::move(factory);
+}
+
 std::vector<std::string> answer_call_with_hook(const PirKeyFiles& files, const std::string& key_tag,
                                                const PirShape& shape,
                                                const std::uint8_t* column_body,
                                                const std::vector<std::string>& queries,
-                                               const InnerSums& inner_sums, PirStageTimes* times) {
+                                               const InnerSums& inner_sums, PirStageTimes* times,
+                                               const SecondDim& second_dim) {
   const auto call_start = Clock::now();
   const PirContext cc = read_pir_context(files.context);
   PirKeys keys(cc, files.eval_mult, files.automorphism, key_tag, shape);
@@ -441,7 +459,8 @@ std::vector<std::string> answer_call_with_hook(const PirKeyFiles& files, const s
   std::vector<std::string> out(shape.buckets);
   answer_queries(
       cc, keys, shape, column_body, queries,
-      [&](std::size_t b, std::string&& a) { out.at(b) = std::move(a); }, inner_sums, times);
+      [&](std::size_t b, std::string&& a) { out.at(b) = std::move(a); }, inner_sums, times,
+      second_dim);
   if (times) {
     times->setup_ms = setup_ms;
     times->total_ms = ms_since(call_start);
@@ -454,15 +473,21 @@ std::vector<std::string> answer_call(const PirKeyFiles& files, const std::string
                                      const std::vector<std::string>& queries, PirBackend backend,
                                      PirStageTimes* times) {
   InnerSums hook;
+  SecondDim second;
   if (backend == PirBackend::kGpu) {
     InnerSumsFactory f;
+    SecondDimFactory f2;
     {
       std::lock_guard lk(g_factory_mu);
       f = g_factory;
+      f2 = g_second_factory;
     }
-    if (f) hook = f();
+    if (f) {
+      hook = f();
+      if (f2) second = f2();
+    }
   }
-  return answer_call_with_hook(files, key_tag, shape, column_body, queries, hook, times);
+  return answer_call_with_hook(files, key_tag, shape, column_body, queries, hook, times, second);
 }
 
 }  // namespace ombra::pir

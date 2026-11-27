@@ -207,6 +207,37 @@ cudaError_t launch_ct_tensor(const u64* const* a, const u64* const* b, u64* cons
                              const TowerConst* tc, const RescaleDims& dims, u32 nodes,
                              cudaStream_t stream);
 
+// bfv_product.cu: the BFV ciphertext x ciphertext product without relinearization
+// (HPSPOVERQLEVELED, top level), see the comment at the top of the file. All table pointers are
+// device pointers; nq <= kMaxTowers Q towers and nr <= kMaxTowers R towers (OpenFHE's P_l), tc has
+// nq + nr entries.
+constexpr u32 kMaxTowers = 8;
+struct BfvProdTables {
+  u64 n = 0;
+  u32 nq = 0, nr = 0;
+  const TowerConst* tc = nullptr;
+  const u64* ex_hat_inv = nullptr;  // [nq]      QlHatInvModq
+  const u64* ex_hat_mod = nullptr;  // [nr][nq]  QlHatModr
+  const u64* ex_alpha = nullptr;    // [nq+1][nr] alphaQlModr
+  const double* q_inv = nullptr;    // [nq]      qInv
+  const u64* b_hat_inv = nullptr;   // [nq]      mNegRlQHatInvModq
+  const u64* b_conv = nullptr;      // [nq][nr]  qInvModr
+  const u64* r_hat_inv = nullptr;   // [nr]      RlHatInvModr
+  const u64* r_hat_mod = nullptr;   // [nq][nr]  RlHatModq
+  const u64* r_alpha = nullptr;     // [nr+1][nq] alphaRlModq
+  const double* r_inv = nullptr;    // [nr]      rInv
+  const u64* sr_tab = nullptr;      // [nq][nr+1] tQlSlHatInvModsDivsModq
+  const double* sr_frac = nullptr;  // [nr]      tQlSlHatInvModsDivsFrac
+};
+cudaError_t launch_bfv_expand_exact(const u64* in, u64* out, const BfvProdTables& t, u64 polys,
+                                    cudaStream_t stream);
+cudaError_t launch_bfv_expand_scaled(const u64* in, u64* out, const BfvProdTables& t, u64 polys,
+                                     cudaStream_t stream);
+cudaError_t launch_bfv_tensor(const u64* x, const u64* y, u64* out, const BfvProdTables& t,
+                              u64 pairs, cudaStream_t stream);
+cudaError_t launch_bfv_scale_round_sum(const u64* in, u64* out, const BfvProdTables& t, u64 pairs,
+                                       cudaStream_t stream);
+
 // An empty kernel, only to measure launch overhead when profiling.
 cudaError_t launch_noop(cudaStream_t stream);
 

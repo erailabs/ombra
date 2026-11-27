@@ -121,6 +121,18 @@ void run(const Case& c, std::uint64_t seed) {
   const auto gpu =
       answer_call_with_hook(files, tag, shape, body.data(), queries, make_gpu_inner_sums());
   const auto t2 = Clock::now();
+  // Inner sums and the second-dimension product both on the GPU.
+  const auto gpu2 = answer_call_with_hook(files, tag, shape, body.data(), queries,
+                                          make_gpu_inner_sums(), nullptr, make_gpu_second_dim());
+  const auto t3 = Clock::now();
+  std::size_t diff2 = 0;
+  for (std::size_t b = 0; b < shape.buckets; ++b) diff2 += cpu.at(b) != gpu2.at(b);
+  const bool same2 = diff2 == 0 && cpu.size() == gpu2.size();
+  std::printf(
+      "%s with the second-dimension product too: byte-identical (%zu/%zu buckets) gpu %.1f s: %s\n",
+      c.name, shape.buckets - diff2, shape.buckets, std::chrono::duration<double>(t3 - t2).count(),
+      same2 ? "PASS" : "FAIL");
+  g_ok = g_ok && same2;
   std::size_t diff = 0;
   for (std::size_t b = 0; b < shape.buckets; ++b) diff += cpu.at(b) != gpu.at(b);
   const bool same = diff == 0 && cpu.size() == gpu.size();
@@ -142,16 +154,19 @@ void run(const Case& c, std::uint64_t seed) {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
+  const bool small = argc > 1 && std::string(argv[1]) == "--small";  // skip the slow case
   try {
     // 20 rows of 6400 bytes in 2-hash buckets: a 3 x 3 grid with empty cells in most buckets.
     run({"grid 3x3 with missing cells", 20, 2, 6400, 3, 3, 1, true}, 1);
     // One row per plaintext, a bigger grid and sparse buckets.
     run({"grid with r1,r2 > 1, bigger rows", 40, 3, 15000, 0, 0, 1, true}, 2);
+    // One row only.
+    run({"one row", 1, 1, 3000, 1, 1, 1, false}, 5);
     // One cell per bucket.
     run({"grid 1x1", 4, 1, 3000, 1, 1, 1, false}, 3);
     // More than one query ciphertext: buckets > ring_dim / (r1 + r2).
-    run({"more than one query ciphertext", 1500, 1400, 19000, 0, 0, 2, false}, 4);
+    if (!small) run({"more than one query ciphertext", 1500, 1400, 19000, 0, 0, 2, false}, 4);
   } catch (const std::exception& e) {
     std::printf("error (%s): FAIL\n", typeid(e).name());
     return 2;

@@ -50,10 +50,12 @@ add_library(
   kernels/rescale.cu
   kernels/encode.cu
   kernels/plain_search.cu
+  kernels/bfv_product.cu
   src/rns_basic_host.cu
   src/column_search_host.cu
   src/plain_search_host.cu
   src/pir_inner_host.cu
+  src/pir_product_host.cu
   src/expansion_device.cu)
 target_include_directories(ombra_rns_cuda PUBLIC include PRIVATE kernels src)
 # CMake 3.22 (the pinned image's apt cmake) does not know the CUDA20 dialect (added in 3.25), and
@@ -130,6 +132,9 @@ target_link_libraries(ombra_bench_e2e PRIVATE ombra_core)
 # binary. They take the preset header and the layout from server/pir (target ombra_pir_layout).
 add_executable(ombra_pir_inner_check src/ombra_pir_inner_check.cpp)
 target_link_libraries(ombra_pir_inner_check PRIVATE ombra_core ombra_pir_layout)
+
+add_executable(ombra_pir_product_check src/ombra_pir_product_check.cpp)
+target_link_libraries(ombra_pir_product_check PRIVATE ombra_core ombra_pir_layout)
 
 add_executable(ombra_bench_pir_inner src/ombra_bench_pir_inner.cpp)
 target_link_libraries(ombra_bench_pir_inner PRIVATE ombra_core ombra_pir_layout)
