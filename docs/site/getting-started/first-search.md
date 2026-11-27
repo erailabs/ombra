@@ -7,13 +7,18 @@ This page walks through a small encrypted collection and what each call does. It
 Ombra does not compute embeddings. Bring vectors of 384, 768 or 1536 dimensions, normalized to unit length. Each vector needs an id. The server stores ids in plain text and sees them on every insert, delete and search, so use random ids and keep your own map from id to text.
 
 ```python
-vectors = model.encode(texts, normalize_embeddings=True).tolist()  # Ombra needs unit length
 ids = [str(uuid.uuid4()) for _ in texts]  # random ids: the server sees ids in the clear
 text_of = dict(zip(ids, texts, strict=True))
 
+model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")  # 384 dimensions
+vectors = model.encode(texts, normalize_embeddings=True).tolist()  # Ombra needs unit length
+
+workdir = Path(tempfile.mkdtemp())  # use a folder you keep for real data, e.g. "./ombra-data"
 client = Client.local(workdir / "server")  # a CPU server inside this process
 client.create_collection(
-    "notes", vectors, ids=ids,
+    "notes",
+    vectors,
+    ids=ids,
     key_file=workdir / "notes.key",  # holds the secret key: back it up, never share it
     passphrase="change this passphrase",
 )
@@ -37,18 +42,29 @@ Filters work on integer fields you declare at creation. Here `topic` takes the v
 
 ```python
 client.create_collection(
-    "notes", vectors, ids=ids, key_file=key_file, passphrase="change this passphrase",
+    "notes",
+    embed(texts),
+    ids=ids,
+    key_file=key_file,
+    passphrase="change this passphrase",
     metadata=[{"topic": t} for t in topics],
     filter_fields={"topic": 3},  # the field "topic" takes the values 0, 1 and 2
 )
-client.search("notes", query, k=2, filter={"topic": 2})  # only topic 2 comes back
+
+query = embed(["What did the central bank do?"])[0]
+show("no filter", client.search("notes", query, k=3))
+show("only topic 2 (tech)", client.search("notes", query, k=2, filter={"topic": 2}))
 ```
 
 ## 4. Insert and delete
 
 ```python
+new_text, new_id = "Bond yields fell after the announcement.", str(uuid.uuid4())
+info[new_id] = (new_text, 1)
 client.insert("notes", embed([new_text]), ids=[new_id], metadata=[{"topic": 1}])
-client.delete("notes", [ids[3]])
+show("after an insert, topic 1", client.search("notes", query, k=3, filter={"topic": 1}))
+
+client.delete("notes", [ids[3]])  # the fourth text, "The central bank raised its policy rate."
 ```
 
 An insert encrypts the new vector on your machine and adds it. A delete hides the vector from results at once; the space comes back when the collection is compacted ([deletes](../how-it-works/deletes.md)).
