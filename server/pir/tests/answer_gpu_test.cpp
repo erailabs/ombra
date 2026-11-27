@@ -154,7 +154,8 @@ void run(const Case& c, std::uint64_t seed) {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
+  const bool small = argc > 1 && std::string(argv[1]) == "--small";  // skip the slow case
   try {
     // 20 rows of 6400 bytes in 2-hash buckets: a 3 x 3 grid with empty cells in most buckets.
     run({"grid 3x3 with missing cells", 20, 2, 6400, 3, 3, 1, true}, 1);
@@ -165,7 +166,7 @@ int main() {
     // One cell per bucket.
     run({"grid 1x1", 4, 1, 3000, 1, 1, 1, false}, 3);
     // More than one query ciphertext: buckets > ring_dim / (r1 + r2).
-    run({"more than one query ciphertext", 1500, 1400, 19000, 0, 0, 2, false}, 4);
+    if (!small) run({"more than one query ciphertext", 1500, 1400, 19000, 0, 0, 2, false}, 4);
   } catch (const std::exception& e) {
     std::printf("error (%s): FAIL\n", typeid(e).name());
     return 2;
