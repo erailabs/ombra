@@ -71,22 +71,23 @@ class PirServerReference:
             [int(v) - t if v > t // 2 else int(v) for v in values]
         )
 
-    def _build_database(self, body: bytes) -> list[list[list[Any]]]:
-        """db[bucket][a][b]: the plaintext of grid cell (a, b); missing cells are zero."""
+    def _build_bucket(self, body: bytes, rows: Sequence[int]) -> list[list[Any]]:
+        """cells[a][b]: the plaintext of grid cell (a, b) of one bucket; missing cells are zero."""
         s = self.shape
         zero = self._plain([0] * s.pp.ring_dim)
-        db = []
-        for rows in s.contents:
-            cells: list[Any] = []
-            for p in range(s.r1 * s.r2):
-                chunk = rows[p * s.rows_per_pt : (p + 1) * s.rows_per_pt]
-                if chunk:
-                    data = b"".join(body[i * s.row_size : (i + 1) * s.row_size] for i in chunk)
-                    cells.append(self._plain(bytes_to_coeffs(data, s.pp)))
-                else:
-                    cells.append(zero)
-            db.append([[cells[a * s.r2 + b] for b in range(s.r2)] for a in range(s.r1)])
-        return db
+        cells: list[Any] = []
+        for p in range(s.r1 * s.r2):
+            chunk = rows[p * s.rows_per_pt : (p + 1) * s.rows_per_pt]
+            if chunk:
+                data = b"".join(body[i * s.row_size : (i + 1) * s.row_size] for i in chunk)
+                cells.append(self._plain(bytes_to_coeffs(data, s.pp)))
+            else:
+                cells.append(zero)
+        return [[cells[a * s.r2 + b] for b in range(s.r2)] for a in range(s.r1)]
+
+    def _build_database(self, body: bytes) -> list[list[list[Any]]]:
+        """db[bucket][a][b]: the plaintext of grid cell (a, b); missing cells are zero."""
+        return [self._build_bucket(body, rows) for rows in self.shape.contents]
 
     # -- expansion -----------------------------------------------------------------------
 
@@ -111,7 +112,7 @@ class PirServerReference:
 
     # -- answer --------------------------------------------------------------------------
 
-    def _answer_ct(self, c: int, sel: dict[int, Any], db: list[list[list[Any]]]) -> list[bytes]:
+    def _answer_ct(self, c: int, sel: dict[int, Any], db: Any) -> list[bytes]:
         """The answers of the buckets of query ciphertext `c`, from its expanded selectors."""
         cc, ofhe, s = self.cc, self._ofhe, self.shape
         out: list[bytes] = []
@@ -186,8 +187,18 @@ class PirDocumentsReference(PirServerReference):
         out: list[bytes] = []
         for p in range(d.planes):
             body = b"".join(plane_chunk(r, p, d.class_size) for r in self._rows)
-            db = self._build_database(body)
             for c, sel in enumerate(sels):
-                out += self._answer_ct(c, sel, db)
-            del db
+                # a bucket is built when its answer starts and freed after it: memory stays at
+                # one bucket, not the whole plane
+                out += self._answer_ct(c, sel, _LazyDb(self, body))
         return out
+
+
+class _LazyDb:
+    """db[bucket] built on access (one bucket at a time) from one plane's body."""
+
+    def __init__(self, ref: PirServerReference, body: bytes) -> None:
+        self._ref, self._body = ref, body
+
+    def __getitem__(self, bucket: int) -> list[list[Any]]:
+        return self._ref._build_bucket(self._body, self._ref.shape.contents[bucket])
