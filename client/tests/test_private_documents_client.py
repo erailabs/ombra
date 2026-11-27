@@ -169,8 +169,9 @@ def test_a_part_with_no_rows_is_skipped_in_a_multi_part_stream() -> None:
         stub=SimpleNamespace(RetrieveDocuments=stub_call),
         kit=SimpleNamespace(key_tag="k", pir=_FakePir(seen)),
     )
+    rng = random.Random(1)  # noqa: S311
     out = pr._once_documents(
-        col, pir.DOC_CLASS_16K, [pr.DocWanted(b"x", 1, 0, 2)], None, 2, random.Random(1), False
+        col, pir.DOC_CLASS_16K, [pr.DocWanted(b"x", 1, 0, 2)], None, 2, rng, False
     )
     assert not out.absent
     assert out.blobs == {b"x": bytes([2]) * size}

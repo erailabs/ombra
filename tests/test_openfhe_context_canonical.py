@@ -36,4 +36,3 @@ def test_golden_context_files_equal_the_clients_bytes() -> None:
         cc.KeyGen()
         assert ofhe.Serialize(cc, ofhe.BINARY) == golden, name
     assert {p.stem for p in GOLDEN.glob("*.bin")} == set(presets)
-
