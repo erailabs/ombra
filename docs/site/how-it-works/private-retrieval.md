@@ -36,7 +36,7 @@ The server sees the scope of the call: the clusters the search requested (decoys
 - **Insert still shows cluster membership**, as in every mode.
 - **Cluster choice at Fast and Decoy** is visible as before ([What the server learns](../security/what-the-server-learns.md)).
 - **Counts and timing:** the number of rows, the call and its duration.
-- **Sizes of the document classes.** The server sees that there are documents in the 16 KiB or 256 KiB class (an empty class makes no call), the number of rows of each class on each node, and the number of planes of a class (1 for 16 KiB, 14 for 256 KiB). It does not see which vector has which document.
+- **Sizes of the document classes.** The server sees that there are documents in the 16 KiB or 256 KiB class (every search makes a call per class; for a class the collection has no document of, the call ends after the server says so), the number of rows of each class on each node, and the number of planes of a class (1 for 16 KiB, 14 for 256 KiB). It does not see which vector has which document.
 
 ## What it costs
 
