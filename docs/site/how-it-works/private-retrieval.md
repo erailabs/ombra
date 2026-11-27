@@ -29,7 +29,7 @@ The server sees the scope of the call: the clusters the search requested (decoys
 
 - **Download.** About 132 KB per bucket, and a call has 1.5 buckets per row asked for. With `k = 10` and factor 3, that is 30 rows and about 6 MB per search. A collection with range fields asks for 4 times as many.
 - **Upload.** About 41 MB of public keys once per collection, plus the query ciphertexts of each call.
-- **Server work.** The server computes over every row in scope, so Strict is the most expensive. On a GPU server the first and largest step runs on the GPU and the rest on the CPU, with the same answer bytes as the CPU. A server built without CUDA, or without a usable GPU, answers on the CPU. Measured times: TBD, see [Performance](../performance/index.md).
+- **Server work.** The server computes over every row in scope, so Strict is the most expensive. On a GPU server two steps run on the GPU: the products of the query with every stored row, and the second-dimension product. Query expansion, compression and serialization run on the CPU. Before the second-dimension product moved, it took about 58% of a call at 10,000 rows and query expansion about 37% (CPU shares, 15 buckets; compression and serialization about 0.1%). The answer bytes are the same as the CPU's. A server built without CUDA, or without a usable GPU, answers on the CPU. Measured times: TBD, see [Performance](../performance/index.md).
 - **Storage.** One row of about 3 KB per vector at 768 dimensions.
 - **Through a router.** When the scope spans several nodes the call is made in parts, one per node, each with the full row count. The router forwards the encrypted queries and answers unchanged, so it learns no more than a node does.
 

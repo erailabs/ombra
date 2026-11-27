@@ -70,6 +70,15 @@ using InnerSums = std::function<std::vector<lbcrypto::Ciphertext<lbcrypto::DCRTP
     const PirContext& cc, const std::vector<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>>& selectors,
     const std::vector<std::int64_t>& cells, std::size_t r1, std::size_t r2)>;
 
+// Optional replacement of the second-dimension product of one bucket: receives the r2 selector
+// ciphertexts of the second dimension (expansion outputs, evaluation form) and the r2 inner sums,
+// and returns total = sum_b EvalMultNoRelin(selector_b, inner_b) as OpenFHE computes it (3
+// elements, coefficient form), word for word. It may return an empty ciphertext to say it cannot
+// (the CPU then computes the bucket), or throw; the call then fails. One instance per call.
+using SecondDim = std::function<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>(
+    const PirContext& cc, const std::vector<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>>& selectors,
+    const std::vector<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>>& inners)>;
+
 // Called once per bucket, in bucket order, with the serialized compressed answer.
 using AnswerSink = std::function<void(std::size_t bucket, std::string&& answer)>;
 
@@ -79,7 +88,7 @@ using AnswerSink = std::function<void(std::size_t bucket, std::string&& answer)>
 void answer_queries(const PirContext& cc, const PirKeys& keys, const PirShape& shape,
                     const std::uint8_t* column_body, const std::vector<std::string>& queries,
                     const AnswerSink& sink, const InnerSums& inner_sums = nullptr,
-                    PirStageTimes* times = nullptr);
+                    PirStageTimes* times = nullptr, const SecondDim& second_dim = nullptr);
 
 // Same as answer_call (retrieval.hpp) with an explicit inner-sums hook (empty: OpenFHE).
 std::vector<std::string> answer_call_with_hook(const PirKeyFiles& files, const std::string& key_tag,
@@ -87,12 +96,17 @@ std::vector<std::string> answer_call_with_hook(const PirKeyFiles& files, const s
                                                const std::uint8_t* column_body,
                                                const std::vector<std::string>& queries,
                                                const InnerSums& inner_sums,
-                                               PirStageTimes* times = nullptr);
+                                               PirStageTimes* times = nullptr,
+                                               const SecondDim& second_dim = nullptr);
 
 // A GPU backend registers a factory here at start-up (the CUDA build of the server does); the
 // factory makes one InnerSums per call. answer_call with PirBackend::kGpu uses it, and falls back
 // to OpenFHE on the CPU if none is registered.
 using InnerSumsFactory = std::function<InnerSums()>;
 void set_gpu_inner_sums_factory(InnerSumsFactory factory);
+// The same for the second-dimension product; used with kGpu only when an inner-sums factory is
+// registered too (the product follows the inner sums on the GPU).
+using SecondDimFactory = std::function<SecondDim()>;
+void set_gpu_second_dim_factory(SecondDimFactory factory);
 
 }  // namespace ombra::pir
