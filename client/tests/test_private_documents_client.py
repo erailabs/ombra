@@ -95,3 +95,83 @@ def test_retrieve_documents_proto_and_packaged_copy() -> None:
     assert svc.client_streaming and svc.server_streaming
     root = Path(__file__).resolve().parents[2]
     assert (root / "proto/ombra/v1/ombra.proto").read_text() == _proto._PROTO.read_text()
+
+
+class _FakePir:
+    """Stands in for PirClient: records the shapes it is asked to query and 'decodes' to fixed
+    blobs, so the stream handling is tested without OpenFHE."""
+
+    key_tag = "pir-tag"
+
+    def __init__(self, log: list) -> None:
+        self.log = log
+        self.shape = None
+
+    def with_shape(self, shape):
+        c = _FakePir(self.log)
+        c.shape = shape
+        return c
+
+    def build_queries(self, plan):
+        self.log.append(("queries", self.shape.n_rows))
+        return [b"q"] * self.shape.n_cts
+
+    def decode_document_answers(self, plan, answers, doc):
+        return {row: bytes([row]) * doc.class_size for row in plan.targets}
+
+
+def test_a_part_with_no_rows_is_skipped_in_a_multi_part_stream() -> None:
+    pytest.importorskip("grpc_tools")
+    import random
+    from types import SimpleNamespace
+
+    from ombra import _proto
+
+    pb, _ = _proto.load_stubs(grpc_module=False)
+    size = pir.DOC_CLASS_SIZES[pir.DOC_CLASS_16K]
+    seen: list = []
+
+    def stub_call(requests):
+        first = next(requests)
+        shape = pir.make_doc_shape(4, first.start.m, size, bytes(first.start.hash_seed))
+        span = pb.RecordSpan(cluster_id=1, segment="s1", first_row=0, n_rows=4)
+        # Part 0 holds no document of the class (n_rows 0: no queries, no answers); part 1 has 4.
+        yield pb.RetrieveDocumentsResponse(
+            api_version=1,
+            info=pb.RetrieveDocumentsInfo(row_size=size, part=0, n_parts=2),
+        )
+        yield pb.RetrieveDocumentsResponse(
+            api_version=1,
+            info=pb.RetrieveDocumentsInfo(
+                n_rows=4,
+                row_size=size,
+                n_buckets=shape.shape.buckets,
+                n_planes=shape.planes,
+                spans=[span],
+                part=1,
+                n_parts=2,
+            ),
+        )
+        n = 0
+        for r in requests:
+            n += r.WhichOneof("part") == "query"
+        assert n == shape.shape.n_cts  # queries only for the part that has rows
+        for plane in range(shape.planes):
+            for b in range(shape.shape.buckets):
+                yield pb.RetrieveDocumentsResponse(
+                    api_version=1,
+                    answer=pb.DocumentAnswer(plane=plane, bucket=b, answer=b"a", part=1),
+                )
+
+    col = SimpleNamespace(
+        pb=pb,
+        name="c",
+        stub=SimpleNamespace(RetrieveDocuments=stub_call),
+        kit=SimpleNamespace(key_tag="k", pir=_FakePir(seen)),
+    )
+    out = pr._once_documents(
+        col, pir.DOC_CLASS_16K, [pr.DocWanted(b"x", 1, 0, 2)], None, 2, random.Random(1), False
+    )
+    assert not out.absent
+    assert out.blobs == {b"x": bytes([2]) * size}
+    assert seen == [("queries", 4)]  # nothing was built for the empty part
