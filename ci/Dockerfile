@@ -6,7 +6,7 @@
 # a hash of this file and ci/requirements.txt. Change either file and the next run builds a new tag.
 #
 # The OpenFHE and openfhe-python steps are the ones in modal_app.py. Change the versions in both.
-FROM ubuntu:24.04@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8
+FROM ubuntu:24.04@sha256:562111b88caa79c71391c0c4d3c2114a7d5c35915c20561fd893cb1e07929e6b
 
 LABEL org.opencontainers.image.source="https://github.com/erailabs/ombra"
 LABEL org.opencontainers.image.description="Build and test environment for Ombra. Contains OpenFHE (BSD-2-Clause) and no Ombra code."
