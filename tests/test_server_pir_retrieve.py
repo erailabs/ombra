@@ -35,6 +35,11 @@ D = 384
 CHUNK = 1 << 20
 ROW = 6400  # three rows per plaintext, so a bucket's grid has several cells
 SEED = b"0123456789abcdef"
+_rng = np.random.default_rng(77)
+DOCS = {  # synthetic stored blobs per class (the first ones of a class are the block's)
+    cls: [_rng.integers(0, 256, size, dtype=np.uint8).tobytes() for _ in range(3)]
+    for cls, size in pir.DOC_CLASS_SIZES.items()
+}
 
 
 def _column(rows: list[bytes]) -> bytes:
@@ -155,6 +160,16 @@ def world(tmp_path_factory):
             for c in cols:
                 yield pb.InsertRequest(api_version=1, column=c)
             yield pb.InsertRequest(api_version=1, record_column=_column(rows_b))
+            # document columns, classes ascending: 2 blobs of the 16 KiB class, 3 of 256 KiB
+            for cls, count in ((1, 2), (2, 3)):
+                data = pir.pack_doc_column(DOCS[cls][:count], cls)
+                for off in range(0, len(data), CHUNK):
+                    yield pb.InsertRequest(
+                        api_version=1,
+                        document_column=pb.DocumentColumnPart(
+                            doc_class=cls, data=data[off : off + CHUNK]
+                        ),
+                    )
 
         r = stub.Insert(insert())
         assert not r.HasField("error") and r.inserted == 3
@@ -370,6 +385,93 @@ def test_retrieve_other_shapes(world) -> None:
         answers = [r.answer.answer for r in call.rest()]
         decoded = pc.decode_answers(plan, answers)
         assert decoded and all(rows[r] == d for r, d in decoded.items())
+
+
+@pytest.mark.parametrize("doc_class", [1, 2])
+def test_retrieve_documents(world, doc_class) -> None:
+    """RetrieveDocuments over the stored document columns: the blobs come back byte for byte and
+    the answers decrypt to what the Python reference (`PirDocumentsReference`) gives."""
+    from ombra.pir_reference import PirDocumentsReference
+
+    pb, stub = world["pb"], world["stub"]
+    size = pir.DOC_CLASS_SIZES[doc_class]
+    count = {1: 2, 2: 3}[doc_class]
+    blobs = DOCS[doc_class][:count]
+    m = 2
+    doc = pir.make_doc_shape(count, m, size, SEED)
+    assert doc.planes == (1 if doc_class == 1 else 14)
+    pc = pir.PirClient(doc.shape)
+    tag = _upload_keys(world, pc)
+    plan = pir.plan_batch(doc.shape, [1, 0][:m], random.Random(3))  # noqa: S311
+    queries = pc.build_queries(plan)
+
+    def start_msg(**kw):
+        return pb.RetrieveDocumentsRequest(
+            api_version=1,
+            start=pb.RetrieveDocumentsStart(
+                collection=NAME, key_tag=world["key_tag"], pir_key_tag=tag, all_clusters=True,
+                m=m, hash_seed=SEED, doc_class=doc_class, **kw,
+            ),
+        )  # fmt: skip
+
+    def gen():
+        yield start_msg()
+        for q in queries:
+            yield pb.RetrieveDocumentsRequest(api_version=1, query=q)
+
+    out = list(stub.RetrieveDocuments(gen(), timeout=600))
+    info = out[0].info
+    assert (info.n_rows, info.row_size, info.n_buckets) == (count, size, doc.shape.buckets)
+    assert (info.n_planes, info.part, info.n_parts) == (doc.planes, 0, 1)
+    # the replaced block holds no document of the class: a span of 0 rows, then the new block
+    assert [(sp.first_row, sp.n_rows) for sp in info.spans] == [(0, 0), (0, count)]
+    answers = out[1:]
+    assert len(answers) == doc.n_answers
+    assert [(a.answer.plane, a.answer.bucket) for a in answers] == [
+        divmod(i, doc.shape.buckets) for i in range(doc.n_answers)
+    ]
+    raw = [a.answer.answer for a in answers]
+    decoded = pc.decode_document_answers(plan, raw, doc)
+    assert decoded and all(blobs[r] == d for r, d in decoded.items())
+
+    ref = PirDocumentsReference(
+        pc.context_bytes(),
+        _payload(world, "pir_eval_mult"),
+        _payload(world, "pir_automorphism"),
+        pir.pack_doc_column(blobs, doc_class),
+        m,
+        SEED,
+    )
+    want = ref.answer(queries)
+    assert len(want) == len(raw)
+    ofhe = pc._ofhe
+    for i, (a, w) in enumerate(zip(raw, want, strict=True)):
+        decs = []
+        for blob in (a, w):
+            ct = ofhe.DeserializeCiphertextString(blob, ofhe.BINARY)
+            pt = pc.cc.Decrypt(ct, pc._keys.secretKey)
+            pt.SetLength(doc.shape.pp.ring_dim)
+            decs.append([v % doc.shape.pp.plain_modulus for v in pt.GetCoefPackedValue()])
+        assert decs[0] == decs[1], f"answer {i} differs from the reference"
+
+    # a document call with the wrong class is refused
+    bad = list(
+        stub.RetrieveDocuments(
+            iter(
+                [
+                    pb.RetrieveDocumentsRequest(
+                        api_version=1,
+                        start=pb.RetrieveDocumentsStart(
+                            collection=NAME, key_tag=world["key_tag"], pir_key_tag=tag,
+                            all_clusters=True, m=m, hash_seed=SEED, doc_class=3,
+                        ),
+                    )
+                ]
+            ),
+            timeout=60,
+        )
+    )  # fmt: skip
+    assert len(bad) == 1 and bad[0].error.code == pb.ERROR_INVALID_ARGUMENT
 
 
 def test_block_without_a_record_column(world) -> None:

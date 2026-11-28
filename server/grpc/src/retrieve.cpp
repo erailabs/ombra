@@ -14,6 +14,26 @@ namespace {
 Status bad(Err c, const char* m) { return Status{c, m}; }
 }  // namespace
 
+v1::RetrieveRecordsRequest as_records_request(const v1::RetrieveDocumentsRequest& d) {
+  v1::RetrieveRecordsRequest r;
+  r.set_api_version(d.api_version());
+  if (d.part_case() == v1::RetrieveDocumentsRequest::kStart) {
+    const auto& s = d.start();
+    auto* o = r.mutable_start();
+    o->set_collection(s.collection());
+    o->set_key_tag(s.key_tag());
+    o->set_pir_key_tag(s.pir_key_tag());
+    *o->mutable_cluster_ids() = s.cluster_ids();
+    o->set_all_clusters(s.all_clusters());
+    o->set_m(s.m());
+    o->set_hash_seed(s.hash_seed());
+    o->set_n_queries(s.n_queries());
+  } else if (d.part_case() == v1::RetrieveDocumentsRequest::kQuery) {
+    r.set_query(d.query());
+  }
+  return r;
+}
+
 Status validate_retrieve_start(const v1::RetrieveRecordsStart& s, std::uint32_t cluster_count) {
   if (s.collection().empty() || s.collection().size() > kMaxNameBytes)
     return bad(Err::InvalidArgument, "invalid collection name");

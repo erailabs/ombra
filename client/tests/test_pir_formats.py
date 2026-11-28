@@ -112,7 +112,7 @@ def _column(n: int = 5, dim: int = 16) -> tuple[bytes, list[bytes], pir.RowCodec
 def test_column_round_trip() -> None:
     data, rows, c = _column()
     assert data[:4] == pir.COLUMN_MAGIC
-    assert pir.COLUMN_VERSION == 1
+    assert pir.COLUMN_VERSION == 2  # v2 rows; version 1 columns stay readable
     col = pir.parse_column(data)
     assert (col.row_size, col.n_rows) == (c.row_size, 5)
     assert [col.row(i) for i in range(5)] == rows
@@ -124,7 +124,7 @@ def test_column_round_trip() -> None:
 def test_column_rejects_bad_input() -> None:
     data, rows, c = _column()
     version_at = 4  # magic is 4 bytes, then the u16 version
-    bad_version = data[:version_at] + (2).to_bytes(2, "little") + data[version_at + 2 :]
+    bad_version = data[:version_at] + (3).to_bytes(2, "little") + data[version_at + 2 :]
     with pytest.raises(PirError, match="version"):
         pir.parse_column(bad_version)
     for cut in range(pir.COLUMN_HEADER_LEN):  # every truncated header
@@ -363,4 +363,13 @@ def test_reference_server_cannot_touch_the_secret_key() -> None:
         if isinstance(n, ast.ImportFrom) and n.module == "ombra.pir"
         for a in n.names
     }
-    assert from_pir <= {"PirError", "PirShape", "bytes_to_coeffs", "make_shape", "parse_column"}
+    assert from_pir <= {
+        "PirError",
+        "PirShape",
+        "bytes_to_coeffs",
+        "make_doc_shape",
+        "make_shape",
+        "parse_column",
+        "parse_doc_column",
+        "plane_chunk",
+    }

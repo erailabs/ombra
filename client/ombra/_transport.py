@@ -53,7 +53,15 @@ DEFAULT_METADATA_TIMEOUT = 30.0  # small reads
 _METADATA = frozenset({"GetCollection", "ListCollections", "ListBlocks", "ListAliases"})
 _BLOB = frozenset({"PutBlob", "GetBlob"})
 _STREAMING = frozenset(
-    {"UploadKeys", "Insert", "Search", "GetBlock", "ReplaceBlock", "RetrieveRecords"}
+    {
+        "UploadKeys",
+        "Insert",
+        "Search",
+        "GetBlock",
+        "ReplaceBlock",
+        "RetrieveRecords",
+        "RetrieveDocuments",
+    }
 )
 _UNARY = frozenset(
     {

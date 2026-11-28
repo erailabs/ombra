@@ -10,6 +10,7 @@ ciphertexts. Modes (first frame):
           not belong to one key pair)
   b"answer": context, mult key, automorphism key, column, m (u64), seed, queries... -> one frame
           per bucket answer
+  b"answer_docs": the same with a document column -> one frame per answer, plane-major
 Run as `python -m ombra._pir_worker`. Never prints anything else.
 """
 
@@ -68,6 +69,13 @@ def main() -> int:
         ctx, mult, auto, column, m, seed, *queries = frames[1:]
         server = PirServerReference(ctx, mult, auto, column, _LEN.unpack(m)[0], seed)
         out = server.answer(queries)
+    elif mode == b"answer_docs":
+        from ombra.pir_reference import PirDocumentsReference
+
+        ctx, mult, auto, column, m, seed, *queries = frames[1:]
+        out = PirDocumentsReference(ctx, mult, auto, column, _LEN.unpack(m)[0], seed).answer(
+            queries
+        )
     else:
         return 2
     write_frames(sys.stdout.buffer, out)

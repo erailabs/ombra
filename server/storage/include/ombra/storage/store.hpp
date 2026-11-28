@@ -165,11 +165,16 @@ class Store {
   // is well formed and has exactly one row per id; refused on a center block. A repeat of a stored
   // block must carry the same column bytes (or none, when the stored block has none), else it is a
   // duplicate.
+  // documents (optional): the block's ODCL document columns by class (see record_column.hpp).
+  // Each must be well formed, of its class, and have at most one row per id; refused on a center
+  // block. A repeat of a stored block must carry the same columns (or none, when the stored block
+  // has none), else it is a duplicate.
   std::string insert(const std::string& collection, std::uint32_t cluster,
                      const std::vector<std::string>& ids,
                      const std::vector<std::vector<std::uint8_t>>& column_envelopes,
                      bool* replayed = nullptr,
-                     const std::vector<std::uint8_t>* record_column = nullptr);
+                     const std::vector<std::uint8_t>* record_column = nullptr,
+                     const DocumentColumns* documents = nullptr);
   // Names of all collections, sorted.
   std::vector<std::string> list_collections() const;
   // Removes a collection with all its rows, segment files and key files. Returns false if it does
@@ -240,9 +245,12 @@ class Store {
   // catalog, and the other files are swept. Returns the new segment name.
   // record_column (optional): the new block's record column, one row per id of `neu` in its slot
   // order. The old blocks' record files go with them; without one the new block has none.
+  // documents (optional): the new block's document columns, in the same way (the old blocks' go
+  // with them).
   std::string replace_segments(const std::string& collection,
                                const std::vector<std::string>& old_segments, const SegmentData& neu,
-                               const std::vector<std::uint8_t>* record_column = nullptr);
+                               const std::vector<std::uint8_t>* record_column = nullptr,
+                               const DocumentColumns* documents = nullptr);
 
   // ---- Record columns (private record retrieval) ------------------------------------------------
   // The record column of one block (false if the block has none or is not in the collection).
@@ -258,6 +266,15 @@ class Store {
   RecordScopeColumns read_record_columns(const std::string& collection,
                                          const std::vector<std::uint32_t>& clusters,
                                          bool all_clusters) const;
+
+  // The document columns of one class over a scope (same scope, order and pinning as
+  // read_record_columns), the rows joined. A block without a column of the class counts 0 rows.
+  // collection_has_class tells whether any block of the whole collection (not only the scope) has
+  // a row of the class. Throws like read_record_columns (RecordColumnMissing if a stored column of
+  // the class has another row size than the class's), and RecordColumnError on a damaged file.
+  DocumentScopeColumns read_document_columns(const std::string& collection,
+                                             const std::vector<std::uint32_t>& clusters,
+                                             bool all_clusters, std::uint32_t doc_class) const;
 
   // ---- Blobs: opaque encrypted bytes keyed by (collection, kind, id) --------------------
   // put_blob: payload size must be a bucket size (BlobSizeError) and kind a known kind
@@ -300,7 +317,10 @@ class Store {
   std::string record_path(const std::string& segment_name) const {
     return record_dir() + "/" + record_file_name(segment_name);
   }
-  // Unlinks a segment file and its record file (if any).
+  std::string doc_path(const std::string& segment_name) const {
+    return record_dir() + "/" + doc_file_name(segment_name);
+  }
+  // Unlinks a segment file, its record file and its document file (if any).
   void unlink_segment_files(const std::string& segment_name) const;
   std::string key_dir() const { return root_ + "/keys"; }
   ColumnExpect expect_for(const CollectionSpec& spec) const;

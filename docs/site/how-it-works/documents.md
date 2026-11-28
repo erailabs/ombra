@@ -45,7 +45,7 @@ A document body bigger than the inline threshold ({{ TH // 1048576 }} MiB by def
 
 ## Record rows for private retrieval
 
-A collection created with `private_retrieval=True` also stores one sealed row per vector next to every block, fetched with an encrypted call instead of by id ([Private record retrieval](private-retrieval.md)). A row holds the exact vector as float32 and, with range fields, every filter value and raw range value as int64. It holds no metadata or document.
+A collection created with `private_retrieval=True` also stores one sealed row per vector next to every block, fetched with an encrypted call instead of by id ([Private record retrieval](private-retrieval.md)). A row holds the exact vector as float32 and, with range fields, every filter value and raw range value as int64, then the vector's metadata as compact JSON in a fixed slot (`metadata_bytes`), and the class and index of its document (below). The row holds no document body.
 
 | Field | Bytes |
 | --- | --- |
@@ -55,6 +55,10 @@ A collection created with `private_retrieval=True` also stores one sealed row pe
 | zero padding to a multiple of 64 | the rest |
 
 All rows of a collection have the same size, so the size shows only the dimension and the number of filter fields (3,136 bytes at 768 dimensions without range fields). The row key comes from the document master key through HKDF-SHA256 with its own label. The associated data binds the collection, cluster, id and a row version (1); a row copied elsewhere fails its tag and the client drops and counts it. Every row gets a fresh random nonce, and repacking a block seals its rows again.
+
+## Private fetch of documents
+
+For a private-retrieval collection the client also stores, per block and per size class, a document column: the sealed document blobs of the vectors whose blob is in that class, in block order, byte for byte the same as the blob stored by id. Two classes are fetched privately: 16 KiB (one plane) and 256 KiB (14 planes of 19,456 bytes). A search with `fetch_documents=True` makes one call per class over the same scope as the record call, and always asks for `k` rows. Which vector has which document is only inside the sealed record rows. A document in the 2 MiB or 16 MiB class stays a blob read by id; its hit is marked `large`. Collections made earlier have no document columns and keep working, as does `GetBlob`.
 
 ## Losing the keys
 

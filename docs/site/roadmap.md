@@ -10,7 +10,7 @@ Not built yet, in no fixed order and with no dates.
 
 ### Privacy
 
-**Private retrieval of metadata and documents.** [Private record retrieval](how-it-works/private-retrieval.md) hides which candidates a search re-ranks, but its hits carry no metadata, and reading the metadata or document of a hit is a fetch by id that the server sees. A private call for blobs, one call per blob size class with always k rows per class, is planned. For now, use random ids.
+**Private retrieval of large documents.** Metadata and documents up to 256 KiB are fetched privately with the hits of a search ([Private record retrieval](how-it-works/private-retrieval.md)). A document in the 2 MiB or 16 MiB class is still read by id, which the server sees. For now, use random ids and keep large documents outside Ombra.
 
 **Private retrieval on GPUs.** The products of the query with the stored rows and the second-dimension product run on the GPU and match OpenFHE byte for byte. Query expansion, now the largest remaining step, still runs on the CPU; moving it is planned, checked against OpenFHE the same way.
 

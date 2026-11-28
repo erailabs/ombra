@@ -229,7 +229,7 @@ class LocalTransport:
             self._release(ch)
             raise
         gen = self._drive(ch, requests, resp_cls)
-        if streams_out and method in ("Search", "RetrieveRecords"):
+        if streams_out and method in ("Search", "RetrieveRecords", "RetrieveDocuments"):
             return gen  # interactive: the caller's next request depends on the last response
         out = list(gen)
         if streams_out:
@@ -725,6 +725,7 @@ class LocalServer:
         want = 0
         started = 0
         rec = bytearray()  # record column parts of the block under assembly
+        docs: dict[int, bytearray] = {}  # document column parts, per class
 
         def close() -> None:
             nonlocal cur, n
@@ -740,6 +741,11 @@ class LocalServer:
                 self._check_record_column(cur, bytes(rec))
                 cur.record_column = bytes(rec)
                 rec.clear()
+            if docs:
+                self._check_document_columns(cur, {k: bytes(v) for k, v in docs.items()})
+                for cls in sorted(docs):
+                    cur.document_columns.add(doc_class=cls, column=bytes(docs[cls]))
+                docs.clear()
             if not self._is_repeat(c, cur):  # a repeated block is a success that stores nothing
                 known = {i for s in c.segments.values() for i in s.ids}
                 if any(i in known for i in cur.ids):
@@ -804,6 +810,14 @@ class LocalServer:
                     if len(m.record_column) > MAX_CHUNK:
                         raise Refuse(pb.ERROR_SIZE_LIMIT, "chunk is larger than the limit")
                     rec += m.record_column
+                elif which == "document_column":
+                    if cur is None:
+                        raise Refuse(pb.ERROR_BAD_SEQUENCE, "a document column before the header")
+                    if len(m.document_column.data) > MAX_CHUNK:
+                        raise Refuse(pb.ERROR_SIZE_LIMIT, "chunk is larger than the limit")
+                    docs.setdefault(m.document_column.doc_class, bytearray()).extend(
+                        m.document_column.data
+                    )
                 else:
                     raise Refuse(pb.ERROR_INVALID_ARGUMENT, "empty message")
             if started == 0:
@@ -826,6 +840,22 @@ class LocalServer:
         if col.n_rows != len(block.ids):
             raise Refuse(self.pb.ERROR_INVALID_ARGUMENT, "one record row per id is needed")
 
+    def _check_document_columns(self, block: Any, cols: dict[int, bytes]) -> None:
+        """Each document column is well formed, of its class, and has at most one row per id."""
+        from ombra.pir import PRACTICAL_CLASSES, PirError, parse_doc_column
+
+        if block.is_center:
+            raise Refuse(self.pb.ERROR_INVALID_ARGUMENT, "a center block has no document column")
+        for cls, raw in cols.items():
+            if cls not in PRACTICAL_CLASSES:
+                raise Refuse(self.pb.ERROR_INVALID_ARGUMENT, "unknown document class")
+            try:
+                col = parse_doc_column(raw)
+            except PirError as ex:
+                raise Refuse(self.pb.ERROR_INVALID_ARGUMENT, str(ex)) from None
+            if col.doc_class != cls or col.n_rows > len(block.ids):
+                raise Refuse(self.pb.ERROR_INVALID_ARGUMENT, "document column does not fit")
+
     @staticmethod
     def _is_repeat(c: _Coll, b: Any) -> bool:
         """True if a stored block of the same cluster has exactly these ids and columns."""
@@ -834,6 +864,8 @@ class LocalServer:
             and list(s.ids) == list(b.ids)
             and list(s.columns) == list(b.columns)
             and s.record_column == b.record_column
+            and [(d.doc_class, d.column) for d in s.document_columns]
+            == [(d.doc_class, d.column) for d in b.document_columns]
             for s in c.segments.values()
         )
 
@@ -930,6 +962,7 @@ class LocalServer:
         pb = self.pb
         try:
             header, cols, rec = None, [], bytearray()
+            docs: dict[int, bytearray] = {}
             for m in msgs:
                 self._version(m.api_version)
                 part = m.WhichOneof("part")
@@ -939,6 +972,14 @@ class LocalServer:
                     if len(m.record_column) > MAX_CHUNK:
                         raise Refuse(pb.ERROR_SIZE_LIMIT, "chunk is larger than the limit")
                     rec += m.record_column
+                elif part == "document_column":
+                    if header is None:
+                        raise Refuse(pb.ERROR_BAD_SEQUENCE, "a document column before the header")
+                    if len(m.document_column.data) > MAX_CHUNK:
+                        raise Refuse(pb.ERROR_SIZE_LIMIT, "chunk is larger than the limit")
+                    docs.setdefault(m.document_column.doc_class, bytearray()).extend(
+                        m.document_column.data
+                    )
                 elif part == "header":
                     if header is not None:
                         raise Refuse(pb.ERROR_BAD_SEQUENCE, "second header")
@@ -991,6 +1032,10 @@ class LocalServer:
             if rec:
                 self._check_record_column(new, bytes(rec))
                 new.record_column = bytes(rec)
+            if docs:
+                self._check_document_columns(new, {k: bytes(v) for k, v in docs.items()})
+                for cls in sorted(docs):
+                    new.document_columns.add(doc_class=cls, column=bytes(docs[cls]))
             for s in segs:
                 self._drop_segment(c, s)
             seg = self._put_segment(c, new)
@@ -1258,6 +1303,157 @@ class LocalServer:
                 )
         except Refuse as e:
             yield error(e)
+
+    def RetrieveDocuments(self, requests: Iterable[Any]) -> Iterator[Any]:
+        """Same stream as RetrieveRecords, over the document columns of one class: Start, Info,
+        the queries, then planes * buckets answers, plane-major. Always one part. The answers come
+        from `PirDocumentsReference` in a helper process."""
+        pb = self.pb
+        it = iter(requests)
+
+        def error(e: Refuse) -> Any:
+            return pb.RetrieveDocumentsResponse(api_version=API, error=self._err(e))
+
+        try:
+            first = next(it, None)
+            if first is None:
+                return
+            self._version(first.api_version)
+            if first.WhichOneof("part") != "start":
+                raise Refuse(
+                    pb.ERROR_BAD_SEQUENCE, "the first message must be RetrieveDocumentsStart"
+                )
+            st = first.start
+            if not 1 <= st.m <= MAX_RETRIEVE_M:
+                raise Refuse(pb.ERROR_SIZE_LIMIT, "m is out of range")
+            if len(st.hash_seed) != 16:
+                raise Refuse(pb.ERROR_INVALID_ARGUMENT, "hash_seed must be 16 bytes")
+            if st.n_queries > MAX_RETRIEVE_QUERIES:
+                raise Refuse(pb.ERROR_SIZE_LIMIT, "too many queries")
+            if bool(st.all_clusters) == bool(st.cluster_ids):
+                raise Refuse(
+                    pb.ERROR_INVALID_ARGUMENT, "name the clusters, or all_clusters, not both"
+                )
+            from ombra.pir import DOC_CLASS_SIZES, make_doc_shape, pack_doc_column
+
+            size = DOC_CLASS_SIZES.get(st.doc_class)
+            if size is None:
+                raise Refuse(pb.ERROR_INVALID_ARGUMENT, "unknown document class")
+            with self.lock:
+                column, spans, keys, has_class = self._documents_snapshot(st)
+            if not has_class:  # no document of this class anywhere: nothing to call
+                yield pb.RetrieveDocumentsResponse(
+                    api_version=API,
+                    info=pb.RetrieveDocumentsInfo(row_size=size, part=0, n_parts=1),
+                )
+                return
+            doc = make_doc_shape(len(column[1]), st.m, size, bytes(st.hash_seed))
+            shape = doc.shape
+            info = pb.RetrieveDocumentsInfo(
+                n_rows=shape.n_rows,
+                row_size=size,
+                n_buckets=shape.buckets,
+                part=0,
+                n_parts=1,
+                n_planes=doc.planes,
+            )
+            for cl, seg, first_row, n_rows in spans:
+                info.spans.add(cluster_id=cl, segment=seg, first_row=first_row, n_rows=n_rows)
+            yield pb.RetrieveDocumentsResponse(api_version=API, info=info)
+            if st.n_queries not in (0, shape.n_cts):
+                raise Refuse(pb.ERROR_INVALID_ARGUMENT, "n_queries differs from the shape's")
+            queries = []
+            for _ in range(shape.n_cts):
+                req = next(it, None)
+                if req is None or req.WhichOneof("part") != "query":
+                    raise Refuse(pb.ERROR_BAD_SEQUENCE, "the query ciphertexts did not follow")
+                self._version(req.api_version)
+                if not req.query or len(req.query) > MAX_CHUNK:
+                    raise Refuse(pb.ERROR_INVALID_ARGUMENT, "a query is empty or too large")
+                queries.append(bytes(req.query))
+            if next(it, None) is not None:
+                raise Refuse(pb.ERROR_BAD_SEQUENCE, "more queries than the shape needs")
+            answers = _run_pir_worker(
+                b"answer_docs",
+                keys["pir_context.payload"],
+                keys["pir_evalmult.payload"],
+                keys["pir_automorphism.payload"],
+                pack_doc_column(column[1], st.doc_class),
+                struct.pack("<Q", st.m),
+                bytes(st.hash_seed),
+                *queries,
+            )
+            if answers is None or len(answers) != doc.n_answers:
+                raise Refuse(pb.ERROR_INVALID_ARGUMENT, "the queries could not be answered")
+            for i, a in enumerate(answers):
+                plane, bucket = divmod(i, shape.buckets)
+                yield pb.RetrieveDocumentsResponse(
+                    api_version=API,
+                    answer=pb.DocumentAnswer(plane=plane, bucket=bucket, answer=a, part=0),
+                )
+        except Refuse as e:
+            yield error(e)
+
+    def _documents_snapshot(
+        self, st: Any
+    ) -> tuple[Any, list[tuple[int, str, int, int]], Any, bool]:
+        """Under the lock: ((class, rows of the scope), spans per block, retrieval keys, whether
+        the collection holds any document of the class). The rows are the blobs of the class of the
+        blocks in scope (ascending clusters, blocks in creation order)."""
+        from ombra.pir import PIR_PRESET, PirError, parse_doc_column
+
+        pb = self.pb
+        c = self._coll(st.collection)
+        if st.key_tag != c.spec.key_tag:
+            raise Refuse(pb.ERROR_KEY_TAG_MISMATCH, "request key tag differs")
+        if not c.pir_keys:
+            raise Refuse(pb.ERROR_KEYS_MISSING, "retrieval keys are not uploaded")
+        if st.pir_key_tag != c.pir_tag:
+            raise Refuse(pb.ERROR_KEY_TAG_MISMATCH, "retrieval key tag differs")
+        count = c.spec.cluster_count
+        if st.all_clusters:
+            clusters = list(range(count))
+        else:
+            clusters = list(st.cluster_ids)
+            if len(set(clusters)) != len(clusters) or any(x >= count for x in clusters):
+                raise Refuse(
+                    pb.ERROR_INVALID_ARGUMENT, "cluster ids must be distinct data clusters"
+                )
+            clusters.sort()
+
+        def doc_rows(b: Any) -> list[bytes]:
+            for d in b.document_columns:
+                if d.doc_class == st.doc_class:
+                    try:
+                        col = parse_doc_column(d.column)
+                    except PirError:
+                        raise Refuse(
+                            pb.ERROR_INTERNAL, "a stored document column is damaged"
+                        ) from None
+                    return [col.row(i) for i in range(col.n_rows)]
+            return []
+
+        has_class = any(doc_rows(b) for b in c.segments.values())
+        rows: list[bytes] = []
+        spans: list[tuple[int, str, int, int]] = []
+        for cl in clusters:
+            for seg in c.order:
+                b = c.segments[seg]
+                if b.cluster_id != cl:
+                    continue
+                r = doc_rows(b)
+                spans.append((cl, seg, len(rows), len(r)))
+                rows += r
+
+        def payload(name: str, kind: Kind) -> bytes:
+            return read_envelope(c.pir_keys[name], kind, PIR_PRESET, self.version).payload
+
+        keys = {
+            "pir_context.payload": payload("pir_context", Kind.CONTEXT),
+            "pir_evalmult.payload": payload("pir_evalmult", Kind.PUBLIC_EVAL_KEY),
+            "pir_automorphism.payload": payload("pir_automorphism", Kind.PUBLIC_EVAL_KEY),
+        }
+        return (st.doc_class, rows), spans, keys, has_class
 
     def _retrieval_snapshot(self, st: Any) -> tuple[bytes, list[tuple[int, str, int, int]], Any]:
         """Under the lock: the record column of the scope (blocks of ascending clusters, each

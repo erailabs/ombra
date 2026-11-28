@@ -12,6 +12,7 @@
 #include <unordered_set>
 
 #include "ombra/core/file_envelope.hpp"
+#include "ombra/pir/documents.hpp"
 #include "ombra/pir/retrieval.hpp"
 #include "ombra/server/log.hpp"
 #include "ombra/server/policy.hpp"
@@ -652,6 +653,25 @@ grpc::Status OmbraService::run_UploadKeys(grpc::ServerContext* ctx,
   return grpc::Status::OK;
 }
 
+// Adds one document-column part to the columns under assembly. Parts of a class are contiguous and
+// the classes ascend; anything else, an unknown class or a column over the size limit is refused.
+// Returns an empty status when accepted.
+static Status add_document_part(const v1::DocumentColumnPart& p, storage::DocumentColumns* docs,
+                                std::uint32_t* last_class) {
+  const std::uint32_t cls = p.doc_class();
+  if (storage::doc_class_row_size(cls) == 0)
+    return {Err::InvalidArgument, "unknown document class"};
+  if (cls < *last_class) return {Err::InvalidArgument, "document column parts out of order"};
+  if (p.data().size() > kMaxChunkBytes)
+    return {Err::SizeLimit, "document column part is too large"};
+  auto& col = (*docs)[cls];
+  if (col.size() + p.data().size() > storage::kMaxDocumentColumnBytes)
+    return {Err::SizeLimit, "document column is too large"};
+  col.insert(col.end(), p.data().begin(), p.data().end());
+  *last_class = cls;
+  return {};
+}
+
 // ---------------------------------------------------------------------------------------------
 // Insert and Delete
 
@@ -681,6 +701,8 @@ grpc::Status OmbraService::run_Insert(grpc::ServerContext* ctx,
   std::vector<std::string> ids;
   std::vector<std::vector<std::uint8_t>> cols;
   std::vector<std::uint8_t> record;  // the open block's record column, joined from its parts
+  storage::DocumentColumns docs;     // the open block's document columns, joined from their parts
+  std::uint32_t last_doc_class = 0;
   try {
     // Stores the open block. Empty status: nothing open, or stored.
     const auto close_block = [&]() -> Status {
@@ -688,7 +710,8 @@ grpc::Status OmbraService::run_Insert(grpc::ServerContext* ctx,
       if (cols.size() != want_cols)
         return {Err::BadSequence, "the block has fewer columns than the layout needs"};
       bool repeat = false;
-      store_.insert(coll, cluster, ids, cols, &repeat, record.empty() ? nullptr : &record);
+      store_.insert(coll, cluster, ids, cols, &repeat, record.empty() ? nullptr : &record,
+                    docs.empty() ? nullptr : &docs);
       inserted += ids.size();
       replayed += repeat ? 1 : 0;
       ++blocks;
@@ -696,6 +719,8 @@ grpc::Status OmbraService::run_Insert(grpc::ServerContext* ctx,
       ids.clear();
       cols.clear();
       record.clear();
+      docs.clear();
+      last_doc_class = 0;
       return {};
     };
     v1::InsertRequest m;
@@ -753,6 +778,12 @@ grpc::Status OmbraService::run_Insert(grpc::ServerContext* ctx,
           return fail(Err::SizeLimit, "record column is too large");
         record.insert(record.end(), m.record_column().begin(), m.record_column().end());
         bytes += m.record_column().size();
+      } else if (m.part_case() == v1::InsertRequest::kDocumentColumn) {
+        if (!open) return fail(Err::BadSequence, "a document column before the header");
+        if (const Status st = add_document_part(m.document_column(), &docs, &last_doc_class);
+            !st.ok())
+          return fail(st.code, st.message.c_str());
+        bytes += m.document_column().data().size();
       } else {
         return fail(Err::InvalidArgument, "empty message");
       }
@@ -1046,6 +1077,8 @@ grpc::Status OmbraService::run_ReplaceBlock(grpc::ServerContext* ctx,
     bool have_header = false;
     std::size_t bytes = 0;
     std::vector<std::uint8_t> record;
+    storage::DocumentColumns docs;
+    std::uint32_t last_doc_class = 0;
     while (in->Read(&m)) {
       if (m.api_version() != kApiVersion)
         return fail(Err::UnsupportedVersion, "unsupported api_version");
@@ -1086,6 +1119,12 @@ grpc::Status OmbraService::run_ReplaceBlock(grpc::ServerContext* ctx,
           return fail(Err::SizeLimit, "record column is too large");
         record.insert(record.end(), m.record_column().begin(), m.record_column().end());
         bytes += m.record_column().size();
+      } else if (m.part_case() == v1::ReplaceBlockRequest::kDocumentColumn) {
+        if (!have_header) return fail(Err::BadSequence, "a document column before the header");
+        if (const Status st = add_document_part(m.document_column(), &docs, &last_doc_class);
+            !st.ok())
+          return fail(st.code, st.message.c_str());
+        bytes += m.document_column().data().size();
       } else {
         return fail(Err::InvalidArgument, "empty message");
       }
@@ -1108,8 +1147,8 @@ grpc::Status OmbraService::run_ReplaceBlock(grpc::ServerContext* ctx,
         found = true;
       }
     if (!found) return fail(Err::BlockNotFound, "block not found");
-    resp->set_segment(
-        store_.replace_segments(coll, segments, nd, record.empty() ? nullptr : &record));
+    resp->set_segment(store_.replace_segments(
+        coll, segments, nd, record.empty() ? nullptr : &record, docs.empty() ? nullptr : &docs));
     log_line("replace_block", nd.ids.size(), bytes, ms_since(t0));
   } catch (...) {
     fill(resp->mutable_error(), classify_current());
@@ -1574,6 +1613,152 @@ grpc::Status OmbraService::RetrieveRecords(
     grpc::ServerReaderWriter<v1::RetrieveRecordsResponse, v1::RetrieveRecordsRequest>* stream) {
   return guarded(ctx, Rpc::RetrieveRecords, static_cast<void*>(nullptr),
                  [&] { return run_RetrieveRecords(ctx, stream); });
+}
+
+// RetrieveDocuments: RetrieveRecords over the document columns of one class, in planes (see the
+// proto). The checks of the start are those of RetrieveRecords (the messages are converted and
+// given to the same validator); the database is the class's rows over the scope, or one padding row
+// of zeros if the scope has none; the collection holding no document of the class at all is the
+// Info with n_rows 0 and the end of the stream. Nothing is stored; only counts are logged.
+grpc::Status OmbraService::run_RetrieveDocuments(
+    grpc::ServerContext* ctx,
+    grpc::ServerReaderWriter<v1::RetrieveDocumentsResponse, v1::RetrieveDocumentsRequest>* stream) {
+  const auto t0 = Clock::now();
+  const auto send_error = [&](const Status& s) {
+    v1::RetrieveDocumentsResponse out;
+    out.set_api_version(kApiVersion);
+    fill(out.mutable_error(), s);
+    stream->Write(out);
+    return grpc::Status::OK;
+  };
+  const auto as_records = [](const v1::RetrieveDocumentsRequest& d) {
+    return as_records_request(d);
+  };
+  RetrieveValidator check;
+  v1::RetrieveDocumentsRequest m;
+  if (!stream->Read(&m)) return grpc::Status::OK;
+  if (m.part_case() == v1::RetrieveDocumentsRequest::kStart) {
+    const std::string& name = m.start().collection();
+    if (auto d = check_collection(ctx, name); !d.ok()) return d;
+    if (!name.empty()) {
+      storage::CollectionSpec spec;
+      if (!store_.get_collection(name, &spec))
+        return send_error({Err::CollectionNotFound, "collection not found"});
+      check = RetrieveValidator(spec.cluster_count);
+    }
+  }
+  if (auto st = check.accept(as_records(m)); !st.ok()) return send_error(st);
+  const v1::RetrieveRecordsStart& start = *check.start();
+  const std::uint32_t doc_class = m.start().doc_class();
+  if (storage::doc_class_row_size(doc_class) == 0)
+    return send_error({Err::InvalidArgument, "unknown document class"});
+
+  storage::DocumentScopeColumns scope;
+  pir::DocShape doc;
+  pir::PirKeyFiles files;
+  try {
+    storage::CollectionSpec spec;
+    if (!store_.get_collection(start.collection(), &spec))
+      return send_error({Err::CollectionNotFound, "collection not found"});
+    if (start.key_tag() != spec.key_tag)
+      return send_error({Err::KeyTagMismatch, "request key tag differs from the collection's"});
+    const auto read_key = [&](const char* kind, core::EnvelopeKind k,
+                              std::vector<std::uint8_t>* out) {
+      std::vector<std::uint8_t> env;
+      if (!store_.get_key_file(start.collection(), kind, &env)) return false;
+      *out = core::read_envelope(env, k, storage::kPirPreset, store_.openfhe_version()).payload;
+      return true;
+    };
+    if (!read_key(storage::kKeyPirContext, core::EnvelopeKind::Context, &files.context) ||
+        !read_key(storage::kKeyPirEvalMult, core::EnvelopeKind::PublicEvalKey, &files.eval_mult) ||
+        !read_key(storage::kKeyPirAutomorphism, core::EnvelopeKind::PublicEvalKey,
+                  &files.automorphism))
+      return send_error({Err::KeysMissing, "retrieval keys are not uploaded"});
+
+    std::vector<std::uint32_t> clusters(start.cluster_ids().begin(), start.cluster_ids().end());
+    scope =
+        store_.read_document_columns(start.collection(), clusters, start.all_clusters(), doc_class);
+    if (!scope.collection_has_class) {
+      // No document of this class anywhere: nothing to call. This depends on stored data only,
+      // never on the query or the scope.
+      v1::RetrieveDocumentsResponse none;
+      none.set_api_version(kApiVersion);
+      auto* i = none.mutable_info();
+      i->set_row_size(scope.row_size);
+      i->set_part(0);
+      i->set_n_parts(1);
+      stream->Write(none);
+      return grpc::Status::OK;
+    }
+    // A scope with no row is answered over one padding row of zeros.
+    doc = pir::make_doc_shape(
+        scope.n_rows, start.m(), scope.row_size,
+        std::vector<std::uint8_t>(start.hash_seed().begin(), start.hash_seed().end()),
+        pir::retrieval_params());
+    if (auto st = check.expect_queries(static_cast<std::uint32_t>(doc.shape.n_cts)); !st.ok())
+      return send_error(st);
+    std::lock_guard lk(load_mu_);
+    pir::check_retrieval_keys(files, start.pir_key_tag(), doc.shape);
+  } catch (...) {
+    return send_error(classify_current());
+  }
+
+  v1::RetrieveDocumentsResponse info;
+  info.set_api_version(kApiVersion);
+  auto* in = info.mutable_info();
+  in->set_n_rows(doc.shape.n_rows);
+  in->set_row_size(scope.row_size);
+  in->set_n_buckets(static_cast<std::uint32_t>(doc.shape.buckets));
+  in->set_n_planes(static_cast<std::uint32_t>(doc.planes));
+  for (const auto& sp : scope.spans) {
+    auto* o = in->add_spans();
+    o->set_cluster_id(sp.cluster);
+    o->set_segment(sp.segment);
+    o->set_first_row(sp.first_row);
+    o->set_n_rows(sp.n_rows);
+  }
+  in->set_part(0);
+  in->set_n_parts(1);
+  if (!stream->Write(info)) return grpc::Status::OK;
+
+  std::vector<std::string> queries;
+  queries.reserve(doc.shape.n_cts);
+  while (stream->Read(&m)) {
+    if (auto st = check.accept(as_records(m)); !st.ok()) return send_error(st);
+    queries.push_back(m.query());
+  }
+  if (ctx->IsCancelled()) return grpc::Status(grpc::StatusCode::CANCELLED, "call cancelled");
+  if (auto st = check.finish(); !st.ok()) return send_error(st);
+
+  std::vector<std::string> answers;
+  try {
+    std::lock_guard lk(load_mu_);
+    answers = pir::answer_documents_call(files, start.pir_key_tag(), doc,
+                                         scope.n_rows == 0 ? nullptr : scope.rows.data(), queries,
+                                         pir::PirBackend::kGpu);
+  } catch (...) {
+    return send_error(classify_current());
+  }
+  for (std::size_t i = 0; i < answers.size(); ++i) {
+    if (ctx->IsCancelled()) return grpc::Status(grpc::StatusCode::CANCELLED, "call cancelled");
+    v1::RetrieveDocumentsResponse out;
+    out.set_api_version(kApiVersion);
+    auto* a = out.mutable_answer();
+    a->set_plane(static_cast<std::uint32_t>(i / doc.shape.buckets));
+    a->set_bucket(static_cast<std::uint32_t>(i % doc.shape.buckets));
+    a->set_answer(std::move(answers[i]));
+    a->set_part(0);
+    if (!stream->Write(out)) return grpc::Status::OK;
+  }
+  log_line("retrieve_documents", doc.shape.buckets * doc.planes, scope.n_rows, ms_since(t0));
+  return grpc::Status::OK;
+}
+
+grpc::Status OmbraService::RetrieveDocuments(
+    grpc::ServerContext* ctx,
+    grpc::ServerReaderWriter<v1::RetrieveDocumentsResponse, v1::RetrieveDocumentsRequest>* stream) {
+  return guarded(ctx, Rpc::RetrieveDocuments, static_cast<void*>(nullptr),
+                 [&] { return run_RetrieveDocuments(ctx, stream); });
 }
 
 grpc::Status OmbraService::DeleteBlobs(grpc::ServerContext* ctx, const v1::DeleteBlobsRequest* req,

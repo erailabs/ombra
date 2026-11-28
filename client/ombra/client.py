@@ -133,6 +133,7 @@ class Client:
         decoy_group_size: int = 1,
         decoy_grouping: str = "neighbours",
         private_retrieval: bool = False,
+        metadata_bytes: int | None = None,
         scrypt_params: tuple[int, int, int] | None = None,
     ) -> str:
         """Cluster and encrypt `vectors` (unit length), write the key file, create the collection.
@@ -169,7 +170,11 @@ class Client:
                 with one private retrieval call, so the server does not learn which records
                 were candidates. Costs about 132 KB of download per bucket (1.5 rows asked
                 per wanted row), a one-time upload of about 41 MB of public keys, and the
-                hits then carry empty metadata (reading a record by id reveals that id).
+                hits carry their metadata from the row, with no extra call, and
+                `search(fetch_documents=True)` can return their documents (see `metadata_bytes`).
+            metadata_bytes: Private retrieval only. Size in bytes of the metadata slot of each
+                record row (default 512; at most 19,421 - 4 * dimension - 8 * n_ints, rounded
+                down to 64). A vector whose metadata, as compact JSON, does not fit is refused.
                 Generates a second key pair, kept in the same key file. Default off.
             scrypt_params: Key derivation cost `(n, r, p)` of the key file. Library default if
                 omitted.
@@ -198,6 +203,7 @@ class Client:
             decoy_group_size=decoy_group_size,
             decoy_grouping=decoy_grouping,
             private_retrieval=private_retrieval,
+            metadata_bytes=metadata_bytes,
             scrypt_params=scrypt_params,
         )
 
@@ -415,6 +421,7 @@ class Client:
         level: str | None = None,
         n_probe: int | None = None,
         rerank: bool = True,
+        fetch_documents: bool = False,
     ) -> list[SearchHit]:
         """Find the k nearest vectors (unit-length query) that pass `filter`, best first.
 
@@ -441,13 +448,24 @@ class Client:
         Returns:
             Up to k `SearchHit`, best first.
 
+        With `fetch_documents=True` (private retrieval collections only) each hit also carries
+        its document, fetched privately when it is 256 KiB or smaller; see
+        `SearchHit.document_status`.
+
         Raises:
             KeyError: The collection is not open in this client.
             ValueError: A filter field is unknown, `level` is not a security level, or
                 `rerank=False` with a range filter whose bounds are not on cut points.
         """
         return self._core.search(
-            collection, query, k, filter, level=level, n_probe=n_probe, rerank=rerank
+            collection,
+            query,
+            k,
+            filter,
+            level=level,
+            n_probe=n_probe,
+            rerank=rerank,
+            fetch_documents=fetch_documents,
         )
 
     def close(self) -> None:
@@ -539,6 +557,7 @@ class AsyncClient:
         decoy_group_size: int = 1,
         decoy_grouping: str = "neighbours",
         private_retrieval: bool = False,
+        metadata_bytes: int | None = None,
         scrypt_params: tuple[int, int, int] | None = None,
     ) -> str:
         """Cluster and encrypt `vectors` (unit length), write the key file, create the collection.
@@ -575,7 +594,11 @@ class AsyncClient:
                 with one private retrieval call, so the server does not learn which records
                 were candidates. Costs about 132 KB of download per bucket (1.5 rows asked
                 per wanted row), a one-time upload of about 41 MB of public keys, and the
-                hits then carry empty metadata (reading a record by id reveals that id).
+                hits carry their metadata from the row, with no extra call, and
+                `search(fetch_documents=True)` can return their documents (see `metadata_bytes`).
+            metadata_bytes: Private retrieval only. Size in bytes of the metadata slot of each
+                record row (default 512; at most 19,421 - 4 * dimension - 8 * n_ints, rounded
+                down to 64). A vector whose metadata, as compact JSON, does not fit is refused.
                 Generates a second key pair, kept in the same key file. Default off.
             scrypt_params: Key derivation cost `(n, r, p)` of the key file. Library default if
                 omitted.
@@ -604,6 +627,7 @@ class AsyncClient:
             decoy_group_size=decoy_group_size,
             decoy_grouping=decoy_grouping,
             private_retrieval=private_retrieval,
+            metadata_bytes=metadata_bytes,
             scrypt_params=scrypt_params,
         )
 
@@ -765,6 +789,7 @@ class AsyncClient:
         level: str | None = None,
         n_probe: int | None = None,
         rerank: bool = True,
+        fetch_documents: bool = False,
     ) -> list[SearchHit]:
         """Find the k nearest vectors (unit-length query) that pass `filter`, best first.
 
@@ -791,13 +816,24 @@ class AsyncClient:
         Returns:
             Up to k `SearchHit`, best first.
 
+        With `fetch_documents=True` (private retrieval collections only) each hit also carries
+        its document, fetched privately when it is 256 KiB or smaller; see
+        `SearchHit.document_status`.
+
         Raises:
             KeyError: The collection is not open in this client.
             ValueError: A filter field is unknown, `level` is not a security level, or
                 `rerank=False` with a range filter whose bounds are not on cut points.
         """
         return self._core.search(
-            collection, query, k, filter, level=level, n_probe=n_probe, rerank=rerank
+            collection,
+            query,
+            k,
+            filter,
+            level=level,
+            n_probe=n_probe,
+            rerank=rerank,
+            fetch_documents=fetch_documents,
         )
 
     async def close(self) -> None:

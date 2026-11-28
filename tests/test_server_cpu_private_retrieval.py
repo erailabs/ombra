@@ -92,6 +92,6 @@ def test_private_retrieval_against_the_cpu_server(tmp_path) -> None:
             assert (out.stale, out.bad_rows) == (0, 0)
             got = {w.ident for w in wanted} & set(out.rows)
             assert len(got) + out.dropped == len(wanted) and out.dropped <= 1
-            for ident, (vec, ints) in out.rows.items():
-                assert np.allclose(vec, expect[ident], atol=1e-6)
-                assert len(ints) == 0
+            for ident, row in out.rows.items():
+                assert np.allclose(row.vector, expect[ident], atol=1e-6)
+                assert len(row.ints) == 0

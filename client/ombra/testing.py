@@ -79,13 +79,14 @@ class FakeClient:
         decoy_group_size: int = 1,
         decoy_grouping: str = "neighbours",
         private_retrieval: bool = False,
+        metadata_bytes: int | None = None,
         scrypt_params: tuple[int, int, int] | None = None,
     ) -> str:
         """Create an in-memory collection and insert the vectors.
 
         Vectors are normalized to unit length. `key_file`, `passphrase`, `n_clusters`,
-        `range_fields`, `decoy_group_size`, `decoy_grouping` and `scrypt_params` are accepted and
-        ignored; no key file is written.
+        `range_fields`, `decoy_group_size`, `decoy_grouping`,
+        `metadata_bytes` and `scrypt_params` are accepted and ignored; no key file is written.
 
         Returns:
             The collection name.
@@ -276,6 +277,7 @@ class FakeClient:
         level: str | None = None,
         n_probe: int | None = None,
         rerank: bool = True,
+        fetch_documents: bool = False,
     ) -> list[SearchHit]:
         """Exact cosine search over the vectors, best first.
 
@@ -291,7 +293,12 @@ class FakeClient:
             if all(self._match(c.metadata[i].get(f), want) for f, want in (filter or {}).items()):
                 rows.append((float(vec @ q), i))
         rows.sort(key=lambda r: (-r[0], r[1]))
-        return [SearchHit(c.ids[i], s, c.metadata[i] if rerank else {}) for s, i in rows[:k]]
+        out = []
+        for s, i in rows[:k]:
+            doc = c.documents[i] if fetch_documents else None
+            status = "none" if doc is None else "fetched"
+            out.append(SearchHit(c.ids[i], s, c.metadata[i] if rerank else {}, doc, status))
+        return out
 
     def close(self) -> None:
         """Forget every collection."""

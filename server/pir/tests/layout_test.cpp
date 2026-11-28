@@ -7,6 +7,9 @@
 // "shape n_rows m row_size seed_hex" then "f buckets rows_per_pt bucket_rows pts r1 r2 per_ct n_cts
 // levels coeffs_per_bucket | automorphism indices | buckets_in_ct per ct" then "c <bucket> rows..."
 // lines (a large call lists a few buckets); "coeffs n sum weighted_sum first24 | last8".
+// documents.txt: "doc class class_size n_rows m seed_hex", "f planes plane_row shape_n_rows buckets
+// n_cts r1 r2 rows_per_pt", then "p <plane> <BLAKE2b-256 of the plane's database>" per plane: the
+// planes of the document classes (the rows are the pattern of doc_row below).
 #include "ombra/pir/layout.hpp"
 
 #include <cstdio>
@@ -18,6 +21,7 @@
 #include <vector>
 
 #include "ombra/pir/blake2b.hpp"
+#include "ombra/pir/documents.hpp"
 #include "ombra/pir/retrieval.hpp"
 
 using namespace ombra::pir;
@@ -195,6 +199,67 @@ void layout_errors() {
 
 }  // namespace
 
+Bytes doc_row(std::uint64_t r, std::size_t size) {
+  Bytes b(size);
+  for (std::size_t j = 0; j < size; ++j)
+    b[j] = static_cast<std::uint8_t>((r * 131 + j * 7 + 3) % 256);
+  return b;
+}
+
+void documents_golden() {
+  const auto throws_pir = [](auto&& fn) {
+    try {
+      fn();
+    } catch (const PirError&) {
+      return true;
+    }
+    return false;
+  };
+  auto f = open("documents.txt");
+  std::string line;
+  int cases = 0;
+  while (std::getline(f, line)) {
+    std::istringstream h(line);
+    std::string tag, seed_hex;
+    std::size_t cls, size, n_rows, m;
+    h >> tag >> cls >> size >> n_rows >> m >> seed_hex;
+    CHECK(tag == "doc");
+    std::getline(f, line);
+    std::istringstream fl(line);
+    std::size_t planes, plane_row, shape_rows, buckets, n_cts, r1, r2, rpp;
+    fl >> tag >> planes >> plane_row >> shape_rows >> buckets >> n_cts >> r1 >> r2 >> rpp;
+    const PirParams pp = retrieval_params();
+    const auto doc =
+        make_doc_shape(n_rows, static_cast<std::uint32_t>(m), size, from_hex(seed_hex), pp);
+    CHECK(doc.planes == planes && doc.shape.row_size == plane_row &&
+          doc.shape.n_rows == shape_rows);
+    CHECK(doc.shape.buckets == buckets && doc.shape.n_cts == n_cts && doc.shape.r1 == r1 &&
+          doc.shape.r2 == r2 && doc.shape.rows_per_pt == rpp);
+    CHECK(doc.n_answers() == planes * buckets);
+    Bytes all;
+    for (std::size_t r = 0; r < n_rows; ++r) {
+      const Bytes row = doc_row(r, size);
+      all.insert(all.end(), row.begin(), row.end());
+    }
+    for (std::size_t p = 0; p < planes; ++p) {
+      std::getline(f, line);
+      std::istringstream pl(line);
+      std::size_t pi;
+      std::string want;
+      pl >> tag >> pi >> want;
+      CHECK(tag == "p" && pi == p);
+      // n_rows 0: the padding row of zeros (nullptr rows).
+      const Bytes body = plane_body(n_rows ? all.data() : nullptr, doc.shape.n_rows, size, p, pp);
+      CHECK(body.size() == doc.shape.n_rows * plane_row);
+      CHECK(to_hex(blake2b(body.data(), body.size(), nullptr, 0, 32)) == want);
+    }
+    ++cases;
+  }
+  CHECK(cases == 5);
+  CHECK(throws_pir([] { plane_layout(100, retrieval_params()); }));
+  CHECK(throws_pir([] { plane_body(nullptr, 1, 16384, 1, retrieval_params()); }));
+}
+
 // The retrieval preset's numbers are available without OpenFHE and are the ones the golden file
 // uses.
 static void preset_numbers() {
@@ -207,6 +272,7 @@ int main() {
   preset_numbers();
   blake2b_vectors();
   layout_golden();
+  documents_golden();
   layout_errors();
   if (failures) {
     std::fprintf(stderr, "%d check(s) failed\n", failures);
